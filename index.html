@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <title>Dragon Flying Prototype</title>
-  <style>
-    body { margin: 0; overflow: hidden; }
-    canvas { display: block; }
-  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./css/style.css">
   <script type="importmap">
   {
     "imports": {
@@ -17,6 +17,92 @@
   </script>
 </head>
 <body>
+  <aside id="hud">
+    <header class="hud-head">
+      <div class="hud-eyebrow">Heading</div>
+      <div class="hud-compass">
+        <span id="hud-heading">N</span>
+        <span id="hud-degrees">000&deg;</span>
+      </div>
+      <div class="hud-stat">
+        <span class="hud-stat-label">Airspeed</span>
+        <span id="hud-speed">35</span>
+      </div>
+      <div class="hud-stat">
+        <span class="hud-stat-label">Knife Edge</span>
+      </div>
+      <div class="hud-meter"><div id="hud-knife"></div></div>
+    </header>
+
+    <ul class="hud-keys">
+      <li>
+        <span class="combo"><kbd>W</kbd><kbd>S</kbd></span>
+        <span class="desc">Forward / back</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>A</kbd><kbd>D</kbd></span>
+        <span class="desc">Turn left / right &mdash; hold to carve harder</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>Q</kbd><kbd>E</kbd></span>
+        <span class="desc">Strafe sideways, heading unchanged</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>Space</kbd><kbd>&#8679;</kbd></span>
+        <span class="desc">Rise / dive &mdash; or <em>R</em> and <em>F</em></span>
+      </li>
+      <li>
+        <span class="combo"><kbd>J</kbd><kbd>K</kbd></span>
+        <span class="desc">Faster / slower</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>L</kbd></span>
+        <span class="desc">Speed burst</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>Z</kbd><kbd>X</kbd></span>
+        <span class="desc">Hold to knife edge &mdash; roll onto a wingtip for vertical gaps</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>H</kbd></span>
+        <span class="desc">Swing his nose to face the camera</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>Mouse</kbd></span>
+        <span class="desc">Free look &mdash; click to capture</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>C</kbd></span>
+        <span class="desc">Swing the camera around to face him</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>G</kbd></span>
+        <span class="desc">Terrain contour grid</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>&#96;</kbd></span>
+        <span class="desc">Debug console</span>
+      </li>
+    </ul>
+
+    <footer class="hud-foot">
+      <span id="hud-burst" class="ready">Burst Ready</span>
+    </footer>
+  </aside>
+
+  <section id="console">
+    <header class="console-head">
+      <span class="console-title">Master Control</span>
+      <span class="console-hint">&#96; to close</span>
+    </header>
+    <div id="console-log"></div>
+    <div class="console-prompt">
+      <span class="console-caret">&rsaquo;</span>
+      <input id="console-input" type="text" spellcheck="false" autocomplete="off"
+             placeholder="type help">
+    </div>
+  </section>
+
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>

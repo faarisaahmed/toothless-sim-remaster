@@ -1,20 +1,37 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { setupDragonControls } from "./controls.js";
+import { setupDragonControls, angleDelta } from "./controls.js";
 import { setupWorld } from "./world.js";
+import { setupDebugConsole } from "./debug.js";
+import { setupWings } from "./wings.js";
+import { setupFlights } from "./flights.js";
+
+// Live-tunable knobs, mutated by the debug console.
+const tuning = {
+  fovBase: 70,
+  distBase: 14,
+  flapAmplitude: 1,
+  flapSpeed: 1,
+  sweepAmount: 1,
+  tuckSign: 1,       // flip if the wings fold forwards instead of back
+  collide: true,
+  lookSensitivity: 0.003,
+};
+
+const SPAWN = new THREE.Vector3(0, 300, 900);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
 
 const camera = new THREE.PerspectiveCamera(
-  75,
+  70,     // widens toward 88 with speed
   window.innerWidth / window.innerHeight,
-  0.1,
-  2000
+  1,      // near: the chase cam sits 14 units out, so 1 is plenty
+  50000   // far: has to contain the sky dome
 );
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
 window.addEventListener("resize", () => {
@@ -23,31 +40,93 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Third person camera state
-let camYaw   = 0
+// ---------------------------------------------------------------------------
+// Camera rig
+//
+// Yaw and pitch belong to the player, full stop — nothing in this file writes
+// them except mouse input and the manual C recenter. What gets smoothed is the
+// TRACKING POSITION and the boom length, never the orientation. That split is
+// the standard third-person recipe; smoothing orientation toward the target's
+// heading is what makes a camera feel like it's fighting you.
+// ---------------------------------------------------------------------------
+let camYaw   = 0;
 let camPitch = 0.3;
-const CAM_DIST      = 14;
-const CAM_SENSITIVITY = 0.003;
 
-document.addEventListener("click", () => document.body.requestPointerLock());
-window.addEventListener("mousemove", (e) => {
-  if (document.pointerLockElement !== document.body) return;
-  
-  camYaw   -= e.movementX * CAM_SENSITIVITY;
-  camPitch -= e.movementY * CAM_SENSITIVITY;
+// Trackpads are rough on pointer lock: the OS acceleration curve is applied to
+// movementX/Y, they fire many tiny events per frame, and there's a known
+// Chromium bug where movement spikes near the window edge. Three mitigations:
+// unadjustedMovement to get raw deltas, a spike filter, and a small buffer that
+// drains over a couple of frames so per-event noise doesn't reach the camera.
+const LOOK_SPIKE  = 160;  // px in a single event — discard beyond this
+const LOOK_LAMBDA = 34;   // buffer drain rate; high enough to stay responsive
+let pendingYaw   = 0;
+let pendingPitch = 0;
+const PITCH_LIMIT = 1.5;  // stay clear of the poles where lookAt flickers
 
-  // Clamp slightly BEFORE 90 degrees (1.57 is roughly PI/2)
-  // Use 1.5 radians to stay safe and avoid the "flicker zone"
-  const limit = 1.5; 
-  camPitch = Math.max(-limit, Math.min(limit, camPitch));
+const DIST_SPEED = 5;    // extra boom length at full burst
+
+// Critically-damped-ish tracking. Horizontal is tight so he stays framed;
+// vertical is looser, which absorbs the flap wobble and the terrain floor
+// clamp without dragging the whole camera up and down with them.
+const FOCUS_LAMBDA_XZ = 18;
+const FOCUS_LAMBDA_Y  = 7;
+const BOOM_LAMBDA     = 12;  // spring-arm lag; he pulls away under burst
+const LOOK_HEIGHT     = 1.5;
+
+const FOV_SPEED_GAIN = 18; // how much wider the view gets at full burst
+const FOV_LAMBDA = 3;
+
+const RECENTER_LAMBDA = 7;
+let recentering = false;
+
+document.addEventListener("click", (e) => {
+  // Clicking the HUD or the console must not grab the pointer.
+  if (e.target.closest("#hud, #console")) return;
+
+  // Ask for raw, unaccelerated deltas. Not every browser supports the option,
+  // so fall back to a plain lock if the promise rejects.
+  const req = document.body.requestPointerLock({ unadjustedMovement: true });
+  if (req && typeof req.catch === "function") {
+    req.catch(() => document.body.requestPointerLock());
+  }
 });
 
-const clouds = setupWorld(scene);
+window.addEventListener("mousemove", (e) => {
+  if (document.pointerLockElement !== document.body) return;
 
-let updateDragon = () => {};
+  // Drop implausible jumps rather than letting them whip the camera around.
+  if (Math.abs(e.movementX) > LOOK_SPIKE || Math.abs(e.movementY) > LOOK_SPIKE) return;
+
+  recentering = false; // any look input cancels the manual camera swing
+  pendingYaw   -= e.movementX * tuning.lookSensitivity;
+  pendingPitch -= e.movementY * tuning.lookSensitivity;
+});
+
+// Manual camera swing — player-initiated, never automatic. Puts the camera out
+// in front of him looking back, rather than behind his shoulder.
+window.addEventListener("keydown", (e) => {
+  if (document.activeElement?.tagName === "INPUT") return;
+  if (e.code === "KeyC") recentering = true;
+  if (e.code === "KeyG") world.toggleGrid();
+});
+
+// Frame-rate independent smoothing factor for an exponential decay of rate
+// `lambda` over `dt` seconds. Keeps the feel identical at 30fps and 144fps.
+function damp(lambda, dt) {
+  return 1 - Math.exp(-lambda * dt);
+}
+
+const clock = new THREE.Clock();
+const focus = new THREE.Vector3();
+const desiredCamPos = new THREE.Vector3();
+let rigReady = false;
+
+const world = setupWorld(scene, renderer);
+
+let controls = null;
 let dragon = null;
-let wingLeft  = null;
-let wingRight = null;
+let updateWings = null;
+let flights = null;
 let tick = 0;
 
 const loader = new GLTFLoader();
@@ -55,54 +134,188 @@ loader.load(
   "./assets/models/dragon_rigged.glb",
   (gltf) => {
     dragon = gltf.scene;
-    dragon.position.set(0, 5, 0);
+    dragon.position.copy(SPAWN);
     scene.add(dragon);
 
     let skel = null;
     dragon.traverse((obj) => {
-      if (obj.isSkinnedMesh) skel = obj.skeleton;
+      if (obj.isMesh) obj.castShadow = true;
+      if (obj.isSkinnedMesh) {
+        skel = obj.skeleton;
+        // Bounds are baked at bind pose, so a flapping wing can pop out of the
+        // frustum while the body is still on screen.
+        obj.frustumCulled = false;
+      }
     });
 
     if (skel) {
-      wingLeft  = skel.getBoneByName("Bone004");
-      wingRight = skel.getBoneByName("Bone005");
+      // GLTFLoader strips dots from names: "Bone.004" -> "Bone004"
+      const wingLeft  = skel.getBoneByName("Bone004");
+      const wingRight = skel.getBoneByName("Bone005");
+      if (wingLeft && wingRight) {
+        updateWings = setupWings(wingLeft, wingRight, tuning);
+      }
     }
 
-    updateDragon = setupDragonControls(dragon, () => camYaw);
+    // Clone the wild flights BEFORE anything poses the player's bones — the
+    // wing rig captures whatever rotation the bones are in as its rest pose.
+    flights = setupFlights(scene, gltf.scene, tuning, world, 7, SPAWN);
+
+    controls = setupDragonControls(dragon, () => camYaw);
   },
   undefined,
   (e) => console.error(e)
 );
 
+// ---------------------------------------------------------------------------
+// HUD
+// ---------------------------------------------------------------------------
+const hudHeading = document.getElementById("hud-heading");
+const hudDegrees = document.getElementById("hud-degrees");
+const hudSpeed   = document.getElementById("hud-speed");
+const hudBurst   = document.getElementById("hud-burst");
+const hudKnife   = document.getElementById("hud-knife");
+
+const COMPASS_POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+let shownDegrees = null;
+let shownSpeed = null;
+let shownBurst = null;
+
+function updateHud() {
+  if (!controls) return;
+
+  // Nose vector is (sin h, cos h); treat -Z as north.
+  const h = controls.getHeading();
+  const deg = Math.round(
+    (THREE.MathUtils.radToDeg(Math.atan2(Math.sin(h), -Math.cos(h))) + 360) % 360
+  ) % 360;
+
+  if (deg !== shownDegrees) {
+    hudHeading.textContent = COMPASS_POINTS[Math.round(deg / 45) % 8];
+    hudDegrees.textContent = `${String(deg).padStart(3, "0")}°`;
+    shownDegrees = deg;
+  }
+
+  const speed = Math.round(controls.getSpeed() * 100);
+  if (speed !== shownSpeed) {
+    hudSpeed.textContent = speed;
+    hudSpeed.classList.toggle("bursting", controls.isBursting());
+    shownSpeed = speed;
+  }
+
+  const knifeCharge = controls.getKnifeCharge();
+  hudKnife.style.transform = `scaleX(${knifeCharge})`;
+  hudKnife.classList.toggle("spent", knifeCharge < 0.3);
+
+  const ready = controls.burstReady();
+  if (ready !== shownBurst) {
+    hudBurst.textContent = ready ? "Burst Ready" : "Burst Charging";
+    hudBurst.classList.toggle("ready", ready);
+    shownBurst = ready;
+  }
+}
+
+setupDebugConsole({
+  scene,
+  camera,
+  renderer,
+  world,
+  tuning,
+  spawn: SPAWN,
+  getControls: () => controls,
+  getDragon: () => dragon,
+  getFlights: () => flights,
+});
+
 function animate() {
   requestAnimationFrame(animate);
   tick++;
 
-  updateDragon();
+  const dt = Math.min(clock.getDelta(), 0.1); // clamp so tab-outs don't lurch
 
-    if (dragon) {
-    // 1. Calculate the horizontal radius (how far away from the center)
-    // As pitch goes up, horizontalDist gets smaller (camera moves inward)
-    const horizontalDist = CAM_DIST * Math.cos(camPitch);
-    const verticalDist = CAM_DIST * Math.sin(camPitch);
+  // Drain the buffered look input. Applying it here instead of inside the
+  // mousemove handler decouples input rate from frame rate, so a trackpad
+  // firing 200 tiny events a second lands as one smooth rotation per frame.
+  const lookK = damp(LOOK_LAMBDA, dt);
+  const dYaw = pendingYaw * lookK;
+  const dPitch = pendingPitch * lookK;
+  pendingYaw -= dYaw;
+  pendingPitch -= dPitch;
+  camYaw += dYaw;
+  camPitch = THREE.MathUtils.clamp(camPitch + dPitch, -PITCH_LIMIT, PITCH_LIMIT);
 
-    // 2. Apply the coordinates
-    const tx = dragon.position.x + horizontalDist * Math.sin(camYaw);
-    const ty = dragon.position.y + verticalDist + 2; // +2 to stay above ground
-    const tz = dragon.position.z + horizontalDist * Math.cos(camYaw);
+  if (controls) controls.update(dt);
 
-    camera.position.set(tx, ty, tz);
-    
-    // 3. Look slightly above the dragon's feet
-    camera.lookAt(dragon.position.x, dragon.position.y + 1, dragon.position.z);
+  if (dragon && tuning.collide) {
+    // Keep him out of both the rock and the water.
+    const floor = Math.max(
+      world.getHeightAt(dragon.position.x, dragon.position.z) + 6,
+      world.seaLevel + 10
+    );
+    if (dragon.position.y < floor) dragon.position.y = floor;
+  }
+
+  if (updateWings && controls) updateWings(dt, controls.getFlightState());
+  if (flights) flights.update(dt);
+
+  world.update(dragon ? dragon.position : null, dt);
+
+  // Manual camera swing (C). The only thing besides the mouse allowed to touch
+  // yaw, and it only runs because the player asked for it.
+  if (recentering && controls) {
+    // Opposite the travel vector = behind his tail, looking at his back.
+    const d = angleDelta(camYaw, controls.getHeading() + Math.PI);
+    if (Math.abs(d) < 0.01) recentering = false;
+    else camYaw += d * damp(RECENTER_LAMBDA, dt);
+  }
+
+  updateHud();
+
+  if (dragon) {
+    if (!rigReady) {
+      focus.copy(dragon.position).y += LOOK_HEIGHT;
+      rigReady = true;
     }
 
-  clouds.forEach(c => c.position.x += 0.01);
+    // 1. Smooth the tracking position, not the orientation. Vertical gets its
+    //    own slower rate so wingbeat bob and terrain clamping don't jolt the view.
+    const kXZ = damp(FOCUS_LAMBDA_XZ, dt);
+    focus.x += (dragon.position.x - focus.x) * kXZ;
+    focus.z += (dragon.position.z - focus.z) * kXZ;
+    focus.y += (dragon.position.y + LOOK_HEIGHT - focus.y) * damp(FOCUS_LAMBDA_Y, dt);
 
-  if (wingLeft && wingRight) {
-    const flap = Math.sin(tick * 0.05) * 0.3;
-    wingLeft.rotation.set(0,  flap,  Math.PI / 2);
-    wingRight.rotation.set(0, -flap, -Math.PI / 2);
+    // 2. Speed drives boom length and FOV — a function of throttle only, so it
+    //    never depends on which way he's pointing.
+    const speedT = THREE.MathUtils.clamp(
+      (controls.getSpeed() - 0.1) / (1.4 - 0.1), 0, 1
+    );
+    const dist = tuning.distBase + DIST_SPEED * speedT;
+
+    camera.fov += (tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT - camera.fov)
+                * damp(FOV_LAMBDA, dt);
+    camera.updateProjectionMatrix();
+
+    // 3. Orbit point from the player's own yaw/pitch.
+    const horizontalDist = dist * Math.cos(camPitch);
+    const verticalDist   = dist * Math.sin(camPitch);
+    desiredCamPos.set(
+      focus.x + horizontalDist * Math.sin(camYaw),
+      focus.y + verticalDist + 2,
+      focus.z + horizontalDist * Math.cos(camYaw)
+    );
+
+    // 4. Spring the boom toward it, so hard acceleration lets him pull away
+    //    from the camera before it catches up.
+    camera.position.lerp(desiredCamPos, damp(BOOM_LAMBDA, dt));
+
+    // Keep the boom out of the rock and out of the sea.
+    const minY = Math.max(
+      world.getHeightAt(camera.position.x, camera.position.z) + 3,
+      world.seaLevel + 4
+    );
+    if (camera.position.y < minY) camera.position.y = minY;
+
+    camera.lookAt(focus);
   }
 
   renderer.render(scene, camera);
