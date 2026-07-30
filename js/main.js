@@ -5,6 +5,8 @@ import { setupWorld } from "./world.js";
 import { setupDebugConsole } from "./debug.js";
 import { setupWings } from "./wings.js";
 import { setupFlights } from "./flights.js";
+import { setupGamepad, BTN } from "./gamepad.js";
+import { setupMap } from "./map.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -16,6 +18,8 @@ const tuning = {
   tuckSign: 1,       // flip if the wings fold forwards instead of back
   collide: true,
   lookSensitivity: 0.003,
+  padLookSpeed: 1,   // right stick multiplier
+  padInvertY: false,
 };
 
 const SPAWN = new THREE.Vector3(0, 300, 900);
@@ -79,9 +83,31 @@ const FOV_LAMBDA = 3;
 const RECENTER_LAMBDA = 7;
 let recentering = false;
 
+// Right stick look, in radians per second at full deflection. The stick is
+// already sampled once a frame and curved, so unlike the mouse it goes straight
+// on rather than through the smoothing buffer.
+const PAD_LOOK_YAW   = 2.9;
+const PAD_LOOK_PITCH = 2.0;
+const PAD_ZOOM_RATE  = 22;   // boom units per second on the d-pad
+const BOOM_MIN = 6;
+const BOOM_MAX = 46;
+
+const GROUND_RUSH_AGL = 55;  // altitude at which the pad starts to growl
+let wasGrounded = false;
+
+const pad = setupGamepad();
+
+// The chart reads his position and heading rather than owning them.
+const map = setupMap(() => dragon && controls ? {
+  x: dragon.position.x,
+  y: dragon.position.y,
+  z: dragon.position.z,
+  heading: controls.getHeading(),
+} : null);
+
 document.addEventListener("click", (e) => {
-  // Clicking the HUD or the console must not grab the pointer.
-  if (e.target.closest("#hud, #console")) return;
+  // Clicking the HUD, the console or the chart must not grab the pointer.
+  if (e.target.closest("#hud, #console, #map")) return;
 
   // Ask for raw, unaccelerated deltas. Not every browser supports the option,
   // so fall back to a plain lock if the promise rejects.
@@ -161,7 +187,7 @@ loader.load(
     // wing rig captures whatever rotation the bones are in as its rest pose.
     flights = setupFlights(scene, gltf.scene, tuning, world, 7, SPAWN);
 
-    controls = setupDragonControls(dragon, () => camYaw);
+    controls = setupDragonControls(dragon, () => camYaw, pad);
   },
   undefined,
   (e) => console.error(e)
@@ -175,6 +201,8 @@ const hudDegrees = document.getElementById("hud-degrees");
 const hudSpeed   = document.getElementById("hud-speed");
 const hudBurst   = document.getElementById("hud-burst");
 const hudKnife   = document.getElementById("hud-knife");
+const hudRoot    = document.getElementById("hud");
+const hudPadTag  = document.getElementById("hud-pad-tag");
 
 const COMPASS_POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 let shownDegrees = null;
@@ -215,12 +243,79 @@ function updateHud() {
   }
 }
 
-setupDebugConsole({
+// ---------------------------------------------------------------------------
+// Gamepad: everything that isn't flight input
+//
+// The flight axes live in controls.js; what's left here is the camera and the
+// view toggles, because those are this file's state to own.
+// ---------------------------------------------------------------------------
+let padWasConnected = null;
+
+function updatePadView(dt) {
+  const on = pad.connected();
+
+  if (on !== padWasConnected) {
+    // Both columns are always in the legend; connecting a pad just brings its
+    // column forward and lets the keyboard one recede.
+    hudRoot.classList.toggle("pad-live", on);
+    hudPadTag.hidden = !on;
+    padWasConnected = on;
+    if (on) {
+      // Browsers report the id as a long vendor string; pull the family out of it.
+      const id = pad.id();
+      hudPadTag.textContent = /dualsense|0ce6|0df2/i.test(id) ? "DualSense"
+                            : /dualshock|054c/i.test(id)      ? "DualShock"
+                            : "Gamepad";
+      pad.rumble.pulse(0.4, 0.55, 0.3); // say hello
+    }
+  }
+
+  if (!on) return;
+
+  // --- Right stick: free look. Signs match the mouse exactly so switching
+  //     between the two mid-flight doesn't reverse the camera on you. ---
+  if (pad.rx !== 0 || pad.ry !== 0) {
+    recentering = false;
+    camYaw -= pad.rx * PAD_LOOK_YAW * tuning.padLookSpeed * dt;
+    const pitchDir = tuning.padInvertY ? 1 : -1;
+    camPitch = THREE.MathUtils.clamp(
+      camPitch + pitchDir * pad.ry * PAD_LOOK_PITCH * tuning.padLookSpeed * dt,
+      -PITCH_LIMIT, PITCH_LIMIT
+    );
+  }
+
+  // Swing the camera round behind him. D-pad down mirrors the D-pad up that
+  // points HIM at the CAMERA; R3 is the same thing on the button third-person
+  // games have used for it for twenty years.
+  if (pad.pressed(BTN.R3) || pad.pressed(BTN.DDOWN)) recentering = true;
+
+  // D-pad left/right walks the boom in and out.
+  if (pad.held(BTN.DLEFT) || pad.held(BTN.DRIGHT)) {
+    const dir = (pad.held(BTN.DRIGHT) ? 1 : 0) - (pad.held(BTN.DLEFT) ? 1 : 0);
+    tuning.distBase = THREE.MathUtils.clamp(
+      tuning.distBase + dir * PAD_ZOOM_RATE * dt, BOOM_MIN, BOOM_MAX
+    );
+  }
+
+  // View toggles. Each gets a short click back so a press that changed nothing
+  // visible on screen still confirms itself.
+  const click = () => pad.rumble.pulse(0.25, 0.06, 0.08);
+  if (pad.pressed(BTN.TRIANGLE)) { flights?.setVisible(!flights.isVisible()); click(); }
+  if (pad.pressed(BTN.TOUCHPAD)) { map.toggle(); pad.rumble.pulse(0.3, 0.18, 0.16); }
+  if (pad.pressed(BTN.CREATE)) {
+    hudRoot.style.display = hudRoot.style.display === "none" ? "" : "none";
+    click();
+  }
+  if (pad.pressed(BTN.OPTIONS)) { debugConsole.toggle(); click(); }
+}
+
+const debugConsole = setupDebugConsole({
   scene,
   camera,
   renderer,
   world,
   tuning,
+  pad,
   spawn: SPAWN,
   getControls: () => controls,
   getDragon: () => dragon,
@@ -232,6 +327,11 @@ function animate() {
   tick++;
 
   const dt = Math.min(clock.getDelta(), 0.1); // clamp so tab-outs don't lurch
+
+  // Read the pad once, up front. getGamepads() returns a snapshot rather than a
+  // live object, so every consumer this frame has to share this one read.
+  pad.poll(dt);
+  updatePadView(dt);
 
   // Drain the buffered look input. Applying it here instead of inside the
   // mousemove handler decouples input rate from frame rate, so a trackpad
@@ -246,13 +346,46 @@ function animate() {
 
   if (controls) controls.update(dt);
 
-  if (dragon && tuning.collide) {
+  if (dragon) {
     // Keep him out of both the rock and the water.
     const floor = Math.max(
       world.getHeightAt(dragon.position.x, dragon.position.z) + 6,
       world.seaLevel + 10
     );
-    if (dragon.position.y < floor) dragon.position.y = floor;
+
+    // Ground rush: the closer to the deck, the more the pad growls. This is the
+    // one cue that's genuinely useful rather than decorative — the chase camera
+    // is a bad judge of altitude over flat water.
+    const agl = dragon.position.y - floor;
+    if (agl < GROUND_RUSH_AGL) {
+      const t = 1 - Math.max(0, agl) / GROUND_RUSH_AGL;
+      const speedT = controls
+        ? THREE.MathUtils.clamp((controls.getSpeed() - 0.1) / 1.3, 0, 1) : 0;
+      pad.rumble.sustain(0.06 * t * t, 0.30 * t * t * (0.35 + 0.65 * speedT));
+    }
+
+    if (tuning.collide) {
+      if (dragon.position.y < floor) {
+        // Scrape along the floor, and thump properly on the frame he arrives.
+        const depth = THREE.MathUtils.clamp((floor - dragon.position.y) / 4, 0, 1);
+        if (!wasGrounded) pad.rumble.pulse(0.7, 1.0, 0.28 + depth * 0.2);
+        else pad.rumble.sustain(0.24, 0.30);
+        dragon.position.y = floor;
+        wasGrounded = true;
+      } else {
+        wasGrounded = false;
+      }
+    } else {
+      wasGrounded = false; // ghost mode — don't thump the moment it's turned off
+    }
+  }
+
+  // Wingbeat. Cubed so it's a thump on the downstroke rather than a sine
+  // wobble, and scaled by amplitude — a hard climb pounds, a glide is silent.
+  if (updateWings) {
+    const beat = updateWings.getBeat();
+    const stroke = Math.max(0, -Math.sin(beat.phase)) ** 3;
+    pad.rumble.sustain(0.05 * beat.amp * stroke, 0.30 * beat.amp * stroke);
   }
 
   if (updateWings && controls) updateWings(dt, controls.getFlightState());
@@ -270,6 +403,7 @@ function animate() {
   }
 
   updateHud();
+  map.update(dt);
 
   if (dragon) {
     if (!rigReady) {
@@ -317,6 +451,10 @@ function animate() {
 
     camera.lookAt(focus);
   }
+
+  // Last thing in the frame: every contributor has had its say, so mix them all
+  // down into one effect and send it.
+  pad.flush(dt);
 
   renderer.render(scene, camera);
 }

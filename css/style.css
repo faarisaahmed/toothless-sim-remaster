@@ -8,7 +8,7 @@ canvas { display: block; }
   transform: translateY(-50%);
   z-index: 10;
 
-  width: 296px;
+  width: 392px;
   padding: 22px 24px 18px;
   box-sizing: border-box;
 
@@ -132,8 +132,8 @@ canvas { display: block; }
 .hud-keys li {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 5px 0;
+  gap: 9px;
+  padding: 4px 0;
   transition: opacity 0.25s ease;
 }
 
@@ -141,8 +141,20 @@ canvas { display: block; }
   display: flex;
   flex-shrink: 0;
   gap: 3px;
-  width: 92px;
+  width: 74px;
+  transition: opacity 0.3s ease;
 }
+
+/* The pad column sits there greyed out until a controller shows up, so the
+   mapping is readable before you plug anything in without competing with the
+   keys you're actually using. */
+.pad-combo {
+  opacity: 0.34;
+  transition: opacity 0.3s ease;
+}
+
+#hud.pad-live .pad-combo { opacity: 1; }
+#hud.pad-live .hud-keys li .combo:first-child { opacity: 0.42; }
 
 kbd {
   display: inline-flex;
@@ -178,8 +190,25 @@ kbd {
   color: #f4c77a;
 }
 
+/* Pad keycaps carry words like "Options", so they need room to breathe. */
+kbd.pad {
+  min-width: 24px;
+  padding: 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+kbd.pad.shape {
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
 /* ---- Footer ---- */
 .hud-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -207,6 +236,82 @@ kbd {
 }
 
 #hud-burst.ready { color: #8fe0a8; }
+
+#hud-pad-tag {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid rgba(244, 199, 122, 0.35);
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: #f4c77a;
+}
+
+/* The hidden attribute has to beat the display rules above it. */
+[hidden] { display: none !important; }
+
+/* =========================================================================
+   Chart — Tab or the touchpad
+   ========================================================================= */
+#map {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: radial-gradient(
+    ellipse at center,
+    rgba(6, 10, 15, 0.72),
+    rgba(4, 7, 11, 0.92)
+  );
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.22s ease, visibility 0.22s;
+}
+
+#map.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+#map-canvas {
+  border-radius: 4px;
+  /* The parchment sits on the dark backdrop like a sheet on a table, so it
+     needs a real drop shadow rather than a glow. */
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.7),
+    0 2px 0 rgba(255, 255, 255, 0.05);
+  transform: scale(0.965);
+  transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+#map.open #map-canvas { transform: scale(1); }
+
+.map-hint {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  font-family: "Rajdhani", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(214, 198, 164, 0.6);
+  user-select: none;
+  pointer-events: none;
+}
 
 /* =========================================================================
    Debug console — right side, backtick to toggle
@@ -314,9 +419,24 @@ kbd {
   background: rgba(120, 240, 255, 0.2);
 }
 
+/* Sixteen rows of legend is a tall panel. Shrink rather than clip. */
+@media (max-height: 860px) {
+  #hud {
+    transform: translateY(-50%) scale(0.88);
+    transform-origin: left center;
+  }
+}
+
 @media (max-height: 760px) {
   #hud {
-    transform: translateY(-50%) scale(0.86);
+    transform: translateY(-50%) scale(0.78);
+    transform-origin: left center;
+  }
+}
+
+@media (max-height: 660px) {
+  #hud {
+    transform: translateY(-50%) scale(0.66);
     transform-origin: left center;
   }
 }

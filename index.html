@@ -34,61 +34,101 @@
       <div class="hud-meter"><div id="hud-knife"></div></div>
     </header>
 
-    <ul class="hud-keys">
-      <li>
-        <span class="combo"><kbd>W</kbd><kbd>S</kbd></span>
-        <span class="desc">Forward / back</span>
-      </li>
+    <!-- One row per action, keyboard binding and pad binding side by side. The
+         pad column dims itself until a controller is actually connected. -->
+    <ul class="hud-keys" id="hud-keys">
       <li>
         <span class="combo"><kbd>A</kbd><kbd>D</kbd></span>
-        <span class="desc">Turn left / right &mdash; hold to carve harder</span>
-      </li>
-      <li>
-        <span class="combo"><kbd>Q</kbd><kbd>E</kbd></span>
-        <span class="desc">Strafe sideways, heading unchanged</span>
+        <span class="combo pad-combo"><kbd class="pad">L&#9679;</kbd><kbd class="pad">&#8596;</kbd></span>
+        <span class="desc">Turn &mdash; hold to carve harder</span>
       </li>
       <li>
         <span class="combo"><kbd>Space</kbd><kbd>&#8679;</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">L&#9679;</kbd><kbd class="pad">&#8597;</kbd></span>
         <span class="desc">Rise / dive &mdash; or <em>R</em> and <em>F</em></span>
       </li>
       <li>
         <span class="combo"><kbd>J</kbd><kbd>K</kbd></span>
-        <span class="desc">Faster / slower</span>
+        <span class="combo pad-combo"><kbd class="pad">R2</kbd><kbd class="pad">L2</kbd></span>
+        <span class="desc">Accelerate / slow down</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>W</kbd><kbd>S</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">L3</kbd></span>
+        <span class="desc">Nudge thrust &mdash; <em>L3</em> resets to cruise</span>
       </li>
       <li>
         <span class="combo"><kbd>L</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad shape">&#10005;</kbd></span>
         <span class="desc">Speed burst</span>
       </li>
       <li>
-        <span class="combo"><kbd>Z</kbd><kbd>X</kbd></span>
-        <span class="desc">Hold to knife edge &mdash; roll onto a wingtip for vertical gaps</span>
+        <span class="combo"><kbd>Q</kbd><kbd>E</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad shape">&#9633;</kbd><kbd class="pad shape">&#9711;</kbd></span>
+        <span class="desc">Strafe sideways, heading unchanged</span>
       </li>
       <li>
-        <span class="combo"><kbd>H</kbd></span>
-        <span class="desc">Swing his nose to face the camera</span>
+        <span class="combo"><kbd>Z</kbd><kbd>X</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">L1</kbd><kbd class="pad">R1</kbd></span>
+        <span class="desc">Hold to knife edge onto a wingtip</span>
       </li>
       <li>
         <span class="combo"><kbd>Mouse</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">R&#9679;</kbd></span>
         <span class="desc">Free look &mdash; click to capture</span>
       </li>
       <li>
+        <span class="combo"><kbd>H</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">D&#8593;</kbd></span>
+        <span class="desc">Swing his nose to face the camera</span>
+      </li>
+      <li>
         <span class="combo"><kbd>C</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">D&#8595;</kbd><kbd class="pad">R3</kbd></span>
         <span class="desc">Swing the camera around to face him</span>
       </li>
       <li>
+        <span class="combo"></span>
+        <span class="combo pad-combo"><kbd class="pad">D&#8592;</kbd><kbd class="pad">D&#8594;</kbd></span>
+        <span class="desc">Camera closer / further</span>
+      </li>
+      <li>
+        <span class="combo"></span>
+        <span class="combo pad-combo"><kbd class="pad shape">&#9651;</kbd></span>
+        <span class="desc">Toggle the wild flights</span>
+      </li>
+      <li>
+        <span class="combo"><kbd>Tab</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">Pad</kbd></span>
+        <span class="desc">Chart of the archipelago</span>
+      </li>
+      <li>
         <span class="combo"><kbd>G</kbd></span>
+        <span class="combo pad-combo"></span>
         <span class="desc">Terrain contour grid</span>
       </li>
       <li>
+        <span class="combo"></span>
+        <span class="combo pad-combo"><kbd class="pad">Create</kbd></span>
+        <span class="desc">Hide this panel</span>
+      </li>
+      <li>
         <span class="combo"><kbd>&#96;</kbd></span>
+        <span class="combo pad-combo"><kbd class="pad">Options</kbd></span>
         <span class="desc">Debug console</span>
       </li>
     </ul>
 
     <footer class="hud-foot">
       <span id="hud-burst" class="ready">Burst Ready</span>
+      <span id="hud-pad-tag" hidden>DualSense</span>
     </footer>
   </aside>
+
+  <section id="map" aria-hidden="true">
+    <canvas id="map-canvas"></canvas>
+    <div class="map-hint"><kbd>Tab</kbd> or <kbd class="pad">Pad</kbd> to close</div>
+  </section>
 
   <section id="console">
     <header class="console-head">

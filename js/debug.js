@@ -138,6 +138,54 @@ export function setupDebugConsole(ctx) {
       },
     },
 
+    pad: {
+      help: "gamepad status — press a button first, browsers hide it until then",
+      run() {
+        const p = ctx.pad;
+        if (!p) return log("no gamepad module", "err");
+        if (!p.connected()) {
+          return log("no gamepad seen yet — press any button on it", "note");
+        }
+        log(`id       ${p.id()}`);
+        log(`sticks   L ${p.lx.toFixed(2)}, ${p.ly.toFixed(2)}   R ${p.rx.toFixed(2)}, ${p.ry.toFixed(2)}`);
+        log(`triggers L2 ${p.value(6).toFixed(2)}   R2 ${p.value(7).toFixed(2)}`);
+        log(`rumble   ${onOff(p.rumble.isEnabled())} at ${p.rumble.getIntensity().toFixed(2)}`);
+        log(`triggers rumble ${p.rumble.hasTriggerRumble() ? "supported" : "unavailable"}`);
+      },
+    },
+
+    rumble: {
+      help: "rumble <0-1> — haptics strength, or 'off' / 'on'",
+      run(args) {
+        const p = ctx.pad;
+        if (!p) return log("no gamepad module", "err");
+        if (!args[0]) {
+          return log(`rumble ${onOff(p.rumble.isEnabled())} at ${p.rumble.getIntensity().toFixed(2)}`);
+        }
+        if (args[0] === "off" || args[0] === "on") {
+          const v = p.rumble.setEnabled(args[0] === "on");
+          return log(`rumble ${onOff(v)}`);
+        }
+        const v = p.rumble.setIntensity(num(args[0], 1));
+        p.rumble.setEnabled(v > 0);
+        p.rumble.pulse(0.5, 0.5, 0.35); // let them feel what they just set
+        log(`rumble = ${v.toFixed(2)}`);
+      },
+    },
+
+    padsens: {
+      help: "padsens <n> — right stick look speed (default 1), 'invert' flips Y",
+      run(args) {
+        if (args[0] === "invert") {
+          ctx.tuning.padInvertY = !ctx.tuning.padInvertY;
+          return log(`pad look Y ${ctx.tuning.padInvertY ? "inverted" : "normal"}`);
+        }
+        if (!args[0]) return log(`padsens = ${ctx.tuning.padLookSpeed}`);
+        ctx.tuning.padLookSpeed = num(args[0], 1);
+        log(`padsens = ${ctx.tuning.padLookSpeed}`);
+      },
+    },
+
     sens: {
       help: "sens <n> — look sensitivity (default 0.003, try 0.0015 on trackpad)",
       run(args) {
@@ -268,6 +316,9 @@ export function setupDebugConsole(ctx) {
         ctx.tuning.distBase = 14;
         ctx.tuning.collide = true;
         ctx.tuning.lookSensitivity = 0.003;
+        ctx.tuning.padLookSpeed = 1;
+        ctx.tuning.padInvertY = false;
+        ctx.pad?.rumble.setIntensity(1);
         log("reset");
       },
     },
@@ -339,5 +390,5 @@ export function setupDebugConsole(ctx) {
 
   log("Debug console — type 'help' for commands.", "note");
 
-  return { isOpen: () => open, log, run };
+  return { isOpen: () => open, toggle: () => setOpen(!open), log, run };
 }

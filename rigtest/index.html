@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Toothless — Rig Test Bench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="viewport"></div>
+  <div id="loading">Loading model…</div>
+
+  <aside id="panel">
+    <header>
+      <h1>Rig Test Bench</h1>
+      <div class="stats">
+        <span>bones <b id="stat-bones">–</b></span>
+        <span>verts <b id="stat-verts">–</b></span>
+        <span>unweighted <b id="stat-orphans">–</b></span>
+      </div>
+    </header>
+
+    <section>
+      <h2>Motion</h2>
+      <div class="modes">
+        <button data-mode="hover" class="active">Hover flap</button>
+        <button data-mode="walk">Walk</button>
+        <button data-mode="perch">Perched</button>
+        <button data-mode="fold">Wing fold</button>
+        <button data-mode="rest">Bind pose</button>
+      </div>
+      <button id="play" class="wide">Pause</button>
+
+      <div class="row" id="fold-row" style="display:none">
+        <label for="fold-slider">Fold <span id="fold-slider-val">0.00</span></label>
+        <input type="range" id="fold-slider" min="0" max="1" step="0.01" value="0">
+      </div>
+    </section>
+
+    <section>
+      <h2>Display</h2>
+      <label class="check"><input type="checkbox" id="toggle-skeleton"> Skeleton overlay</label>
+      <label class="check"><input type="checkbox" id="toggle-wire"> Wireframe</label>
+      <label class="check"><input type="checkbox" id="toggle-weights"> Weight paint</label>
+      <label class="check"><input type="checkbox" id="toggle-grid" checked> Ground &amp; grid</label>
+      <div class="legend">
+        <span class="sw" style="background:#101a3a"></span>0
+        <span class="sw" style="background:#0066cc"></span>.25
+        <span class="sw" style="background:#11bb55"></span>.5
+        <span class="sw" style="background:#dddd22"></span>.75
+        <span class="sw" style="background:#ee2222"></span>1
+        <span class="sw" style="background:#ff00ff"></span>none
+      </div>
+    </section>
+
+    <section>
+      <h2>Bone inspector</h2>
+      <select id="bone-select"></select>
+      <div id="weight-readout" class="readout">Select a bone to inspect its influence.</div>
+      <div class="row">
+        <label for="manual-flap">Flap <span id="manual-flap-val">0.00</span></label>
+        <input type="range" id="manual-flap" min="-1.6" max="1.6" step="0.01" value="0">
+      </div>
+      <div class="row">
+        <label for="manual-sweep">Sweep <span id="manual-sweep-val">0.00</span></label>
+        <input type="range" id="manual-sweep" min="-1.6" max="1.6" step="0.01" value="0">
+      </div>
+      <div class="row">
+        <label for="manual-twist">Twist <span id="manual-twist-val">0.00</span></label>
+        <input type="range" id="manual-twist" min="-1.6" max="1.6" step="0.01" value="0">
+      </div>
+      <p class="hint">Axes are derived per bone from rest geometry, so flap always
+        lifts the tip and sweep always swings it — whatever the bone roll.</p>
+    </section>
+
+    <section>
+      <h2>Flap tuning</h2>
+      <div class="row">
+        <label for="p-rate">Beats / sec <span id="p-rate-val"></span></label>
+        <input type="range" id="p-rate" data-param="flapRate" min="0.2" max="3" step="0.05">
+      </div>
+      <div class="row">
+        <label for="p-down">Downstroke fraction <span id="p-down-val"></span></label>
+        <input type="range" id="p-down" data-param="downstrokeFraction" min="0.25" max="0.6" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-shoulder">Shoulder throw <span id="p-shoulder-val"></span></label>
+        <input type="range" id="p-shoulder" data-param="shoulderFlap" min="0" max="1.2" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-upper">Upper-arm throw <span id="p-upper-val"></span></label>
+        <input type="range" id="p-upper" data-param="upperArmFlap" min="0" max="1.2" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-fold">Upstroke fold <span id="p-fold-val"></span></label>
+        <input type="range" id="p-fold" data-param="foldAmount" min="0" max="1.5" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-camber">Camber <span id="p-camber-val"></span></label>
+        <input type="range" id="p-camber" data-param="camberAmount" min="0" max="0.8" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-lead">Handwing lead <span id="p-lead-val"></span></label>
+        <input type="range" id="p-lead" data-param="handwingLead" min="0" max="0.6" step="0.01">
+      </div>
+      <div class="row inline">
+        <span>Fold direction: <b id="mirror-state">auto</b></span>
+        <button id="mirror-flip">Flip</button>
+      </div>
+      <p class="hint">Derived from the rig: the sign that carries each wingtip
+        toward the tail. Flip only if it still folds the wrong way.</p>
+    </section>
+
+    <section>
+      <h2>Fold shape</h2>
+      <div class="row">
+        <label for="p-wrist">Wrist break (downward) <span id="p-wrist-val"></span></label>
+        <input type="range" id="p-wrist" data-param="foldWrist" min="0" max="2" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-armlift">Arm lift <span id="p-armlift-val"></span></label>
+        <input type="range" id="p-armlift" data-param="foldArmLift" min="-0.5" max="1.2" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-shlift">Shoulder lift <span id="p-shlift-val"></span></label>
+        <input type="range" id="p-shlift" data-param="foldShoulderLift" min="-0.5" max="1" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-gather">Digit gather <span id="p-gather-val"></span></label>
+        <input type="range" id="p-gather" data-param="foldGather" min="0" max="2.5" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-perchfold">Perch fold <span id="p-perchfold-val"></span></label>
+        <input type="range" id="p-perchfold" data-param="perchFold" min="0" max="1" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-perchlift">Perch lift <span id="p-perchlift-val"></span></label>
+        <input type="range" id="p-perchlift" data-param="perchLift" min="-0.3" max="1.2" step="0.01">
+      </div>
+    </section>
+
+    <section>
+      <h2>Walk tuning</h2>
+      <div class="row">
+        <label for="p-walkrate">Strides / sec <span id="p-walkrate-val"></span></label>
+        <input type="range" id="p-walkrate" data-param="walkRate" min="0.15" max="1.6" step="0.05">
+      </div>
+      <div class="row">
+        <label for="p-duty">Duty factor <span id="p-duty-val"></span></label>
+        <input type="range" id="p-duty" data-param="dutyFactor" min="0.5" max="0.85" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-hind">Hind reach <span id="p-hind-val"></span></label>
+        <input type="range" id="p-hind" data-param="hindReach" min="0" max="1" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-knee">Hind knee bend <span id="p-knee-val"></span></label>
+        <input type="range" id="p-knee" data-param="hindKnee" min="0" max="1.2" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-fore">Fore reach <span id="p-fore-val"></span></label>
+        <input type="range" id="p-fore" data-param="foreReach" min="0" max="1" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-forek">Fore knee bend <span id="p-forek-val"></span></label>
+        <input type="range" id="p-forek" data-param="foreKnee" min="0" max="1.2" step="0.01">
+      </div>
+      <div class="row">
+        <label for="p-sway">Body sway <span id="p-sway-val"></span></label>
+        <input type="range" id="p-sway" data-param="spineSway" min="0" max="0.25" step="0.005">
+      </div>
+      <div class="row">
+        <label for="p-walkfold">Wing fold while walking <span id="p-walkfold-val"></span></label>
+        <input type="range" id="p-walkfold" data-param="walkWingFold" min="0" max="1.2" step="0.01">
+      </div>
+      <p class="hint">Sway rides on the root, not the spine: <code>Spine</code>
+        carries both hind legs in this rig, so flexing it drags the planted feet.</p>
+    </section>
+  </aside>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

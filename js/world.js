@@ -6,9 +6,9 @@ import { ImprovedNoise } from "three/addons/math/ImprovedNoise.js";
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
-const TERRAIN_SIZE     = 10000;
+export const TERRAIN_SIZE = 10000;
 const TERRAIN_SEGMENTS = 480;   // ~21 world units per quad
-const SEA_LEVEL        = 0;
+export const SEA_LEVEL = 0;
 const SEA_FLOOR        = -190;
 
 const SUN_ELEVATION = 48;  // high summer sun

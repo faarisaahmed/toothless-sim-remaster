@@ -31,7 +31,7 @@ export function setupWings(boneLeft, boneRight, tuning) {
   let amp   = 0.6;
   let sweep = 0;
 
-  return function update(dt, state) {
+  function update(dt, state) {
     const climb  = state.climb;        // -1 diving .. +1 climbing
     const speedT = state.speedT;       // 0 .. 1
     const knife  = Math.abs(state.knife);
@@ -65,5 +65,11 @@ export function setupWings(boneLeft, boneRight, tuning) {
     flapQ.setFromAxisAngle(FLAP_AXIS, Math.sin(phase + 0.07) * flapAmount);
     sweepQ.setFromAxisAngle(SWEEP_AXIS, -sweepAmount);
     boneRight.quaternion.copy(restR).multiply(flapQ).multiply(sweepQ);
-  };
+  }
+
+  // The rumble reads the beat off here so the controller thumps in time with the
+  // downstroke rather than to a timer of its own.
+  update.getBeat = () => ({ phase, amp });
+
+  return update;
 }
