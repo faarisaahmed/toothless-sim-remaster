@@ -259,6 +259,11 @@ function updatePadView(dt) {
     // column forward and lets the keyboard one recede.
     hudRoot.classList.toggle("pad-live", on);
     hudPadTag.hidden = !on;
+    // Leave a trail in the console, so "it was connecting before" has evidence
+    // behind it rather than being reconstructed from memory.
+    if (padWasConnected !== null) {
+      debugConsole.log(on ? `gamepad connected — ${pad.id()}` : "gamepad disconnected", "note");
+    }
     padWasConnected = on;
     if (on) {
       // Browsers report the id as a long vendor string; pull the family out of it.
@@ -271,6 +276,14 @@ function updatePadView(dt) {
   }
 
   if (!on) return;
+
+  // With the chart up, Circle backs out of it. Consuming the press stops the
+  // same frame reaching the flight controls, where Circle is strafe right.
+  if (map.isOpen() && pad.pressed(BTN.CIRCLE)) {
+    map.close();
+    pad.consume(BTN.CIRCLE);
+    pad.rumble.pulse(0.28, 0.14, 0.14);
+  }
 
   // --- Right stick: free look. Signs match the mouse exactly so switching
   //     between the two mid-flight doesn't reverse the camera on you. ---
@@ -359,8 +372,7 @@ function animate() {
     const agl = dragon.position.y - floor;
     if (agl < GROUND_RUSH_AGL) {
       const t = 1 - Math.max(0, agl) / GROUND_RUSH_AGL;
-      const speedT = controls
-        ? THREE.MathUtils.clamp((controls.getSpeed() - 0.1) / 1.3, 0, 1) : 0;
+      const speedT = controls ? controls.getSpeedT() : 0;
       pad.rumble.sustain(0.06 * t * t, 0.30 * t * t * (0.35 + 0.65 * speedT));
     }
 
@@ -420,9 +432,7 @@ function animate() {
 
     // 2. Speed drives boom length and FOV — a function of throttle only, so it
     //    never depends on which way he's pointing.
-    const speedT = THREE.MathUtils.clamp(
-      (controls.getSpeed() - 0.1) / (1.4 - 0.1), 0, 1
-    );
+    const speedT = controls.getSpeedT();
     const dist = tuning.distBase + DIST_SPEED * speedT;
 
     camera.fov += (tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT - camera.fov)

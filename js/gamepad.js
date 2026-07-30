@@ -53,8 +53,9 @@ function curveStick(x, y) {
   if (mag < STICK_DEADZONE) return [0, 0];
   // 0.98 rather than 1 so a slightly worn stick can still reach full deflection.
   const t = Math.min(1, (mag - STICK_DEADZONE) / (0.98 - STICK_DEADZONE));
-  // Mostly linear, squared blended in — fine control near centre, no dead feel.
-  const shaped = t * t * 0.7 + t * 0.3;
+  // Mostly squared, a little linear blended in — fine control near centre
+  // without the last of the travel feeling dead.
+  const shaped = t * t * 0.78 + t * 0.22;
   const k = shaped / mag;
   return [x * k, y * k];
 }
@@ -79,6 +80,13 @@ function curveTrigger(v) {
 function createRumble(getPad) {
   let master = 1;
   let enabled = true;
+  // Off by default, and deliberately. Only ONE effect can run on an actuator at
+  // a time, so a trigger-rumble effect replaces the main-motor one — and on the
+  // setups where the browser advertises trigger support but the pad doesn't
+  // deliver it, the result is a controller that goes completely dead exactly
+  // while you're holding a trigger. Losing the main motors is far worse than
+  // missing the trigger flourish, so this is opt-in via `rumble triggers on`.
+  let useTriggers = false;
 
   let weak = 0, strong = 0, lTrig = 0, rTrig = 0;
   const pulses = [];
@@ -117,7 +125,7 @@ function createRumble(getPad) {
       strongMagnitude: s,
     };
 
-    if (probeTriggers(act) && (lTrig > 0 || rTrig > 0)) {
+    if (useTriggers && probeTriggers(act) && (lTrig > 0 || rTrig > 0)) {
       params.leftTrigger  = clamp01(lTrig * master);
       params.rightTrigger = clamp01(rTrig * master);
       // If the browser lied about supporting it, fall back for good.
@@ -155,6 +163,27 @@ function createRumble(getPad) {
     },
     isEnabled: () => enabled,
     hasTriggerRumble: () => triggerSupport === true,
+    triggersOn: () => useTriggers,
+    setTriggerRumble(v) { useTriggers = !!v; return useTriggers; },
+
+    // Straight diagnostic: full power on both motors, and report back what the
+    // browser actually said. This is the only way to tell "my code is wrong"
+    // apart from "this browser or this connection has no haptics".
+    async test() {
+      const act = actuator();
+      if (!act) {
+        return { ok: false, why: "no vibrationActuator — this browser exposes no haptics for this pad" };
+      }
+      const effects = Array.isArray(act.effects) ? act.effects.join(", ") : "(not advertised)";
+      try {
+        const r = await act.playEffect("dual-rumble", {
+          startDelay: 0, duration: 900, weakMagnitude: 1, strongMagnitude: 1,
+        });
+        return { ok: true, result: String(r), effects };
+      } catch (e) {
+        return { ok: false, why: String(e?.message ?? e), effects };
+      }
+    },
 
     stop() {
       pulses.length = 0;
@@ -228,10 +257,38 @@ export function setupGamepad() {
 
     connected: () => raw() !== null,
     id: () => id,
+    slot: () => index,
+
+    // Everything the browser will admit to, whether we've claimed it or not.
+    // The distinction that matters when a pad "won't connect": an empty list
+    // means the browser itself sees nothing, which is never something this
+    // code can cause.
+    survey() {
+      const list = navigator.getGamepads ? navigator.getGamepads() : [];
+      const out = [];
+      for (let i = 0; i < list.length; i++) {
+        const gp = list[i];
+        if (!gp) continue;
+        out.push({
+          index: gp.index,
+          id: gp.id || "(no id)",
+          mapping: gp.mapping || "(none)",
+          connected: !!gp.connected,
+          axes: gp.axes ? gp.axes.length : 0,
+          buttons: gp.buttons ? gp.buttons.length : 0,
+          haptics: !!gp.vibrationActuator,
+        });
+      }
+      return out;
+    },
 
     held:    (i) => held[i] === true,
     pressed: (i) => rising[i] === true,   // rising edge, true for one frame
     value:   (i) => values[i] || 0,       // analog for triggers, 0/1 otherwise
+
+    // Swallow a press so a later reader this frame never sees it — for buttons
+    // that mean one thing in an overlay and another in flight.
+    consume(i) { rising[i] = false; held[i] = false; values[i] = 0; },
 
     poll(dt) {
       const gp = raw() || pick();

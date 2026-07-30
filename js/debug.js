@@ -143,33 +143,93 @@ export function setupDebugConsole(ctx) {
       run() {
         const p = ctx.pad;
         if (!p) return log("no gamepad module", "err");
-        if (!p.connected()) {
-          return log("no gamepad seen yet — press any button on it", "note");
+
+        // Report what the BROWSER sees before what we've claimed — they're
+        // different failures with different fixes.
+        const seen = p.survey();
+        if (!seen.length) {
+          log("the browser reports no gamepads at all.", "err");
+          log("this is upstream of the game — it isn't something the page controls.");
+          log("  1. press any button on the pad; browsers hide pads until you do,");
+          log("     and that resets on every page reload");
+          log("  2. click the page once so the tab has focus");
+          log("  3. check the pad is still paired (DualSense sleeps when idle —");
+          log("     hold PS to wake it, or plug in a USB cable)");
+          return;
         }
+
+        for (const g of seen) {
+          log(`slot ${g.index}  ${g.id}`);
+          log(`         mapping ${g.mapping}, ${g.buttons} buttons, ${g.axes} axes, ` +
+              `haptics ${g.haptics ? "yes" : "no"}${g.connected ? "" : ", DISCONNECTED"}`);
+          if (g.mapping !== "standard") {
+            log("         non-standard mapping — button numbers will be wrong", "err");
+          }
+        }
+
+        if (!p.connected()) {
+          return log("seen, but not claimed — press a button on it", "note");
+        }
+        log(`claimed slot ${p.slot()}`);
         log(`id       ${p.id()}`);
         log(`sticks   L ${p.lx.toFixed(2)}, ${p.ly.toFixed(2)}   R ${p.rx.toFixed(2)}, ${p.ry.toFixed(2)}`);
         log(`triggers L2 ${p.value(6).toFixed(2)}   R2 ${p.value(7).toFixed(2)}`);
         log(`rumble   ${onOff(p.rumble.isEnabled())} at ${p.rumble.getIntensity().toFixed(2)}`);
-        log(`triggers rumble ${p.rumble.hasTriggerRumble() ? "supported" : "unavailable"}`);
+        log(`trigger  ${p.rumble.hasTriggerRumble() ? "supported" : "not advertised"}, ` +
+            `${onOff(p.rumble.triggersOn())} — try 'rumble test'`);
       },
     },
 
     rumble: {
-      help: "rumble <0-1> — haptics strength, or 'off' / 'on'",
+      help: "rumble <0-1> | off | on | test | triggers on|off",
       run(args) {
         const p = ctx.pad;
         if (!p) return log("no gamepad module", "err");
+
         if (!args[0]) {
           return log(`rumble ${onOff(p.rumble.isEnabled())} at ${p.rumble.getIntensity().toFixed(2)}`);
         }
+
+        if (args[0] === "test") {
+          if (!p.connected()) return log("no gamepad — press a button on it first", "err");
+          log("full power, both motors, 900ms…");
+          p.rumble.test().then((r) => {
+            log(`effects advertised: ${r.effects ?? "?"}`);
+            if (r.ok) {
+              log(`playEffect resolved: ${r.result}`, "note");
+              log("if you felt nothing, the browser accepted it and the pad ignored it —");
+              log("on macOS that usually means Bluetooth; try the USB cable.");
+            } else {
+              log(`playEffect failed: ${r.why}`, "err");
+            }
+          });
+          return;
+        }
+
+        if (args[0] === "triggers") {
+          const v = p.rumble.setTriggerRumble(args[1] !== "off");
+          return log(`trigger rumble ${onOff(v)} (${p.rumble.hasTriggerRumble() ? "supported" : "not advertised"})`);
+        }
+
         if (args[0] === "off" || args[0] === "on") {
           const v = p.rumble.setEnabled(args[0] === "on");
           return log(`rumble ${onOff(v)}`);
         }
+
         const v = p.rumble.setIntensity(num(args[0], 1));
         p.rumble.setEnabled(v > 0);
-        p.rumble.pulse(0.5, 0.5, 0.35); // let them feel what they just set
+        p.rumble.pulse(0.6, 0.6, 0.4); // let them feel what they just set
         log(`rumble = ${v.toFixed(2)}`);
+      },
+    },
+
+    padclimb: {
+      help: "flip the left stick climb axis (default: pull back to climb)",
+      run() {
+        const c = ctx.getControls();
+        if (!c) return log("dragon not loaded yet", "err");
+        const v = c.setClimbInvert(!c.getClimbInvert());
+        log(v ? "pull back to climb" : "push forward to climb");
       },
     },
 
