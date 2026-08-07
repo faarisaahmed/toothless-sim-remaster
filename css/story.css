@@ -1,0 +1,523 @@
+/* ---------------------------------------------------------------------------
+   Title screen, save slots, and the prologue overlay.
+
+   Kept out of style.css because that file is the flight HUD and this is a
+   different product surface — the two never appear at the same time, and the
+   only thing they share is the typeface.
+
+   Colour discipline: two ink tones and one ember. Nothing here is allowed a
+   fourth colour. The 3D backdrop supplies all the range this needs.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --ink:       #e8e2d4;
+  --ink-dim:   #9a9384;
+  --ember:     #ff8a3d;
+  --ember-dim: #b3541d;
+  --pane:      rgba(8, 10, 15, 0.62);
+  --edge:      rgba(232, 226, 212, 0.14);
+}
+
+/* The flight HUD must be invisible until flight actually starts. */
+body.pre-flight #hud,
+body.pre-flight #map,
+body.pre-flight #console,
+body.pre-flight #padview,
+body.pre-flight #padmon { display: none !important; }
+
+/* ===========================================================================
+   TITLE
+   =========================================================================== */
+
+#title {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  opacity: 1;
+  transition: opacity 0.65s ease;
+}
+#title.out { opacity: 0; pointer-events: none; }
+
+#title-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Vignette + a faint warm lift at the bottom, so the slot list has something
+   to sit on that isn't a panel. */
+.title-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 38%, transparent 38%, rgba(0,0,0,0.72) 100%),
+    linear-gradient(to top, rgba(4,6,10,0.86) 0%, transparent 46%);
+}
+
+.title-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  align-content: center;
+  justify-items: center;
+  padding: 5vh 4vw 4vh;
+  gap: 3.2vh;
+}
+
+/* --- The mark ------------------------------------------------------------ */
+
+.title-mark {
+  text-align: center;
+  align-self: end;
+  animation: title-rise 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes title-rise {
+  from { opacity: 0; transform: translateY(26px); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+.title-over {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: clamp(0.62rem, 1.1vw, 0.82rem);
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 1.1em;
+}
+
+.title-name {
+  font-family: Cinzel, Georgia, serif;
+  font-weight: 700;
+  font-size: clamp(3.2rem, 11vw, 9.5rem);
+  line-height: 0.86;
+  margin: 0;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  letter-spacing: 0.06em;
+  text-shadow:
+    0 0 40px rgba(255, 138, 61, 0.18),
+    0 0 120px rgba(150, 180, 240, 0.12),
+    0 6px 30px rgba(0, 0, 0, 0.9);
+}
+/* "Alone" sits back and to the right — the word should feel further away. */
+.title-name span:last-child {
+  color: var(--ink-dim);
+  font-size: 0.82em;
+  letter-spacing: 0.22em;
+  align-self: flex-end;
+  margin-top: -0.06em;
+  margin-right: 0.06em;
+}
+
+.title-rule {
+  width: min(28rem, 60vw);
+  height: 1px;
+  margin: 1.5em auto 1.1em;
+  background: linear-gradient(to right, transparent, var(--edge) 18%, var(--ember-dim) 50%, var(--edge) 82%, transparent);
+}
+
+.title-sub {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: clamp(0.7rem, 1.3vw, 0.95rem);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* --- Slots --------------------------------------------------------------- */
+
+.slots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: min(46rem, 88vw);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  animation: title-rise 1.6s 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.slot {
+  display: grid;
+  grid-template-columns: 3.1rem 1fr auto;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 0.85rem 1.2rem;
+  cursor: pointer;
+
+  background: var(--pane);
+  border: 1px solid transparent;
+  border-left: 2px solid rgba(232, 226, 212, 0.16);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+
+  transition: background 0.22s ease, border-color 0.22s ease,
+              transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slot:hover { background: rgba(12, 15, 22, 0.72); }
+
+.slot.on {
+  background: rgba(18, 14, 12, 0.8);
+  border-color: rgba(255, 138, 61, 0.28);
+  border-left-color: var(--ember);
+  transform: translateX(6px);
+}
+
+.slot-index {
+  font-family: Cinzel, Georgia, serif;
+  font-size: 1.5rem;
+  color: var(--ink-dim);
+  text-align: center;
+  transition: color 0.22s ease;
+}
+.slot.on .slot-index { color: var(--ember); }
+
+.slot-title {
+  font-family: Cinzel, Georgia, serif;
+  font-size: 1.12rem;
+  color: var(--ink);
+  letter-spacing: 0.03em;
+}
+.slot-title.empty { color: var(--ink-dim); font-style: italic; letter-spacing: 0.12em; }
+
+.slot-meta {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-top: 0.22em;
+  display: flex;
+  gap: 0.5em;
+}
+.slot-meta .dot { opacity: 0.45; }
+
+.slot-bar {
+  height: 2px;
+  margin-top: 0.6em;
+  background: rgba(232, 226, 212, 0.1);
+  overflow: hidden;
+}
+.slot-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(to right, var(--ember-dim), var(--ember));
+  transition: width 0.4s ease;
+}
+
+.slot-go {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.slot.on .slot-go { opacity: 1; color: var(--ember); transform: none; }
+
+/* --- Footer -------------------------------------------------------------- */
+
+.title-foot {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  animation: title-rise 1.6s 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.title-hint { display: flex; align-items: center; gap: 0.5em; }
+.title-hint kbd {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.72rem;
+  padding: 0.12em 0.5em;
+  border: 1px solid var(--edge);
+  color: var(--ink);
+  background: rgba(0,0,0,0.34);
+}
+/* Pad row only shows once a pad is live; main.js sets .pad-live on #hud, so
+   this mirrors it off the body instead. */
+.title-hint.pad-only { display: none; }
+body.pad-live .title-hint.pad-only { display: flex; }
+
+/* --- Erase confirmation -------------------------------------------------- */
+
+.title-confirm {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 4, 7, 0.78);
+  backdrop-filter: blur(3px);
+  z-index: 10;
+}
+.title-confirm[hidden] { display: none; }
+
+.confirm-card {
+  width: min(30rem, 86vw);
+  padding: 2rem 2.2rem;
+  background: rgba(10, 12, 18, 0.94);
+  border: 1px solid rgba(255, 138, 61, 0.24);
+  text-align: center;
+  animation: title-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.confirm-head {
+  font-family: Cinzel, Georgia, serif;
+  font-size: 1.3rem;
+  color: var(--ink);
+  margin-bottom: 0.8em;
+}
+.confirm-body {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+  line-height: 1.6;
+  margin-bottom: 1.6em;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.confirm-no  { color: var(--ink-dim); }
+.confirm-yes { color: var(--ember); }
+
+/* ===========================================================================
+   PROLOGUE
+   =========================================================================== */
+
+#prologue {
+  position: fixed;
+  inset: 0;
+  z-index: 380;
+}
+
+#prologue-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pro-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(110% 80% at 50% 50%, transparent 30%, rgba(0,0,0,0.78) 100%);
+}
+
+/* Letterboxing. The room is the only scene shot this way — it's a small space
+   and the bars make it smaller. */
+.pro-letterbox {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 7vh;
+  background: #000;
+  pointer-events: none;
+  z-index: 2;
+}
+.pro-letterbox.top { top: 0; }
+.pro-letterbox.bottom { bottom: 0; }
+
+/* --- Object label -------------------------------------------------------- */
+
+.pro-label {
+  position: absolute;
+  left: 50%;
+  bottom: 15vh;
+  transform: translateX(-50%);
+  text-align: center;
+  z-index: 3;
+  opacity: 1;
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+.pro-label[hidden] { display: none; }
+.pro-label.out { opacity: 0; transform: translateX(-50%) translateY(8px); }
+
+.pro-label-name {
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(1.3rem, 3vw, 2.1rem);
+  color: var(--ink);
+  letter-spacing: 0.1em;
+  text-shadow: 0 4px 26px rgba(0,0,0,0.95);
+}
+.pro-label-note {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: clamp(0.78rem, 1.5vw, 0.98rem);
+  color: var(--ink-dim);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-top: 0.7em;
+}
+
+/* --- Interaction prompt -------------------------------------------------- */
+
+.pro-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 11vh;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  z-index: 3;
+
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.86rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-shadow: 0 2px 14px rgba(0,0,0,0.9);
+  animation: pro-breathe 2.6s ease-in-out infinite;
+}
+.pro-prompt[hidden] { display: none; }
+
+@keyframes pro-breathe {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+.pro-prompt kbd {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.76rem;
+  padding: 0.16em 0.55em;
+  border: 1px solid var(--edge);
+  background: rgba(0,0,0,0.5);
+}
+.pro-prompt kbd.pad { display: none; }
+body.pad-live .pro-prompt kbd.pad { display: inline-block; }
+body.pad-live .pro-prompt kbd:not(.pad) { display: none; }
+
+/* --- Opening line -------------------------------------------------------- */
+
+.pro-open {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  pointer-events: none;
+
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(1.1rem, 2.4vw, 1.8rem);
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  text-shadow: 0 4px 30px rgba(0,0,0,0.95);
+
+  opacity: 0;
+  transition: opacity 1.6s ease;
+}
+.pro-open.on { opacity: 1; }
+
+/* --- Objective ----------------------------------------------------------- */
+
+.pro-objective {
+  position: absolute;
+  left: 3vw;
+  top: 11vh;
+  z-index: 3;
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  border-left: 2px solid var(--ember);
+  padding: 0.1em 0 0.1em 0.9em;
+}
+.pro-objective.on { opacity: 1; transform: none; }
+
+.pro-obj-line {
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(0.95rem, 1.6vw, 1.15rem);
+  color: var(--ink);
+  text-shadow: 0 2px 16px rgba(0,0,0,0.9);
+}
+.pro-obj-count {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-top: 0.35em;
+}
+.pro-obj-count b { color: var(--ember); font-weight: 700; }
+.pro-obj-count i { font-style: normal; opacity: 0.6; margin: 0 0.25em; }
+
+/* A short flash when the count goes up — the only feedback that a look
+   actually registered, since the objects themselves stay silent. */
+.pro-objective.tick .pro-obj-count b:first-child {
+  color: #fff;
+  text-shadow: 0 0 14px var(--ember);
+}
+.pro-objective.done { border-left-color: var(--ink); }
+.pro-objective.done .pro-obj-count { display: none; }
+
+/* --- Control hints ------------------------------------------------------- */
+
+.pro-hint {
+  position: absolute;
+  left: 3vw;
+  bottom: 11vh;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+.pro-hint.on { opacity: 1; }
+
+.pro-hint kbd {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 0.72rem;
+  padding: 0.12em 0.46em;
+  border: 1px solid var(--edge);
+  background: rgba(0,0,0,0.45);
+  margin-right: 0.22em;
+  color: var(--ink);
+}
+/* Show the keyboard row or the pad row, never both. */
+.pro-hint .p { display: none; }
+body.pad-live .pro-hint .p { display: block; }
+body.pad-live .pro-hint .k { display: none; }
+
+/* --- Fade ---------------------------------------------------------------- */
+
+.pro-fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity 2s ease;
+}
+.pro-fade.on { opacity: 1; }
+
+/* Opening fade is slower than the closing one — coming up out of black should
+   take its time; going down should feel like a decision. */
+#prologue .pro-fade { transition-duration: 2.6s; }
+#prologue .pro-fade.on { transition-duration: 1.9s; }

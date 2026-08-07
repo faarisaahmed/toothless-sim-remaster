@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Dragon Flying Prototype</title>
+  <title>Night Alone</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="./css/story.css">
   <script type="importmap">
   {
     "imports": {
@@ -108,6 +109,11 @@
         <span class="desc">Terrain contour grid</span>
       </li>
       <li>
+        <span class="combo"><kbd>P</kbd></span>
+        <span class="combo pad-combo"></span>
+        <span class="desc">Controller overlay &mdash; every input, live</span>
+      </li>
+      <li>
         <span class="combo"></span>
         <span class="combo pad-combo"><kbd class="pad">Create</kbd></span>
         <span class="desc">Hide this panel</span>
@@ -121,9 +127,13 @@
 
     <footer class="hud-foot">
       <span id="hud-burst" class="ready">Burst Ready</span>
-      <span id="hud-pad-tag" hidden>DualSense</span>
+      <button id="hud-pad-tag" type="button" hidden>Find controller</button>
     </footer>
   </aside>
+
+  <pre id="padmon" hidden></pre>
+
+  <section id="padview" hidden></section>
 
   <section id="map" aria-hidden="true">
     <canvas id="map-canvas"></canvas>
@@ -143,6 +153,6 @@
     </div>
   </section>
 
-  <script type="module" src="./js/main.js"></script>
+  <script type="module" src="./js/boot.js"></script>
 </body>
 </html>

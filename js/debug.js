@@ -172,11 +172,37 @@ export function setupDebugConsole(ctx) {
         }
         log(`claimed slot ${p.slot()}`);
         log(`id       ${p.id()}`);
+        log(`reading  ${p.source() === "hid" ? "WebHID input reports" : "Gamepad API"}`);
         log(`sticks   L ${p.lx.toFixed(2)}, ${p.ly.toFixed(2)}   R ${p.rx.toFixed(2)}, ${p.ry.toFixed(2)}`);
         log(`triggers L2 ${p.value(6).toFixed(2)}   R2 ${p.value(7).toFixed(2)}`);
         log(`rumble   ${onOff(p.rumble.isEnabled())} at ${p.rumble.getIntensity().toFixed(2)}`);
-        log(`trigger  ${p.rumble.hasTriggerRumble() ? "supported" : "not advertised"}, ` +
-            `${onOff(p.rumble.triggersOn())} — try 'rumble test'`);
+
+        const ds = ctx.dualsense;
+        if (ds?.isReady()) {
+          log(`haptics  WebHID direct — ${ds.name()} over ${ds.transport()}`, "note");
+          log(`         ${ds.reportsIn()} input reports in`);
+          log(`         ${ds.reportSize()}-byte reports, ${ds.writeCount()} sent` +
+              (ds.failures() ? `, ${ds.failures()} failing` : "") +
+              (ds.candidates() > 1 ? `, ${ds.candidates()} entries offered` : ""));
+        } else {
+          log(`haptics  Gamepad API (trigger rumble ` +
+              `${p.rumble.hasTriggerRumble() ? "supported" : "not advertised"}, ` +
+              `${onOff(p.rumble.triggersOn())})`);
+          if (ds?.isAvailable()) log("         run 'hid' for a direct link and adaptive triggers");
+          if (ds && ds.status() === "error") log(`         hid error: ${ds.error()}`, "err");
+        }
+      },
+    },
+
+    padsrc: {
+      help: "padsrc auto|hid|gamepad — which path the sticks are read from",
+      run(args) {
+        const p = ctx.pad;
+        if (!p) return log("no gamepad module", "err");
+        if (args[0]) p.setSource(args[0]);
+        log(`input preference ${p.preference()}, currently reading ` +
+            `${p.source() || "nothing"}`);
+        if (!args[0]) log("  auto prefers the direct HID link when it's live");
       },
     },
 
@@ -191,16 +217,27 @@ export function setupDebugConsole(ctx) {
         }
 
         if (args[0] === "test") {
-          if (!p.connected()) return log("no gamepad — press a button on it first", "err");
-          log("full power, both motors, 900ms…");
-          p.rumble.test().then((r) => {
+          const linked = ctx.dualsense?.isReady();
+          if (!p.connected() && !linked) {
+            return log("no gamepad — press a button on it first", "err");
+          }
+          log(linked
+            ? "walking the pad through each channel one at a time…"
+            : "full power, both motors, 900ms…");
+          p.rumble.test((stage) => log(`  → ${stage}`)).then((r) => {
             log(`effects advertised: ${r.effects ?? "?"}`);
             if (r.ok) {
-              log(`playEffect resolved: ${r.result}`, "note");
-              log("if you felt nothing, the browser accepted it and the pad ignored it —");
-              log("on macOS that usually means Bluetooth; try the USB cable.");
+              log(r.result, "note");
+              if (linked) {
+                log("felt every stage? both coils and both triggers are live.");
+                log("felt the coils but not the triggers, or vice versa? say so —");
+                log("they're different bytes in the same report and fail apart.");
+              } else {
+                log("if you felt nothing, the browser accepted it and the pad ignored it —");
+                log("on macOS that usually means Bluetooth. Run 'hid' for a direct link.");
+              }
             } else {
-              log(`playEffect failed: ${r.why}`, "err");
+              log(`failed: ${r.why}`, "err");
             }
           });
           return;
@@ -220,6 +257,47 @@ export function setupDebugConsole(ctx) {
         p.rumble.setEnabled(v > 0);
         p.rumble.pulse(0.6, 0.6, 0.4); // let them feel what they just set
         log(`rumble = ${v.toFixed(2)}`);
+      },
+    },
+
+    hid: {
+      help: "hid [off] — connect a DualSense directly for real haptics",
+      run(args) {
+        const ds = ctx.dualsense;
+        if (!ds) return log("no WebHID module", "err");
+
+        if (!ds.isAvailable()) {
+          log("this browser has no WebHID.", "err");
+          log("Chrome or Edge have it; Safari and Firefox don't.");
+          return;
+        }
+
+        if (args[0] === "off") {
+          ds.close().then(() => log("hid closed — back to Gamepad API rumble"));
+          return;
+        }
+
+        if (ds.isReady()) {
+          return log(`already connected — ${ds.name()} over ${ds.transport()}`);
+        }
+
+        log("opening the browser's device picker — choose your DualSense…");
+        ds.request().then((ok) => {
+          if (ok) {
+            log(`connected: ${ds.name()} over ${ds.transport()}`, "note");
+            log("try 'rumble test' now.");
+          } else {
+            log(`no connection: ${ds.error() || "cancelled"}`, "err");
+          }
+        });
+      },
+    },
+
+    padmon: {
+      help: "live overlay of every input the game sees — leave it on while you fly",
+      run() {
+        if (!ctx.togglePadMon) return log("no monitor available", "err");
+        log(`input monitor ${onOff(ctx.togglePadMon())}`);
       },
     },
 

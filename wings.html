@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wing Fold Lab — Night Alone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  :root { --ink:#e8e2d4; --dim:#9a9384; --ember:#ff8a3d; --edge:rgba(232,226,212,.16); }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#12151c; color:var(--ink);
+         font-family:Rajdhani,system-ui,sans-serif; overflow:hidden; }
+  canvas { display:block; }
+
+  #panel { position:fixed; top:0; left:0; height:100vh; width:300px; z-index:5;
+           background:rgba(8,10,15,.9); border-right:1px solid var(--edge);
+           padding:20px 18px; overflow-y:auto; }
+  h1 { font-family:Cinzel,serif; font-size:1.1rem; margin:0 0 2px; letter-spacing:.06em; }
+  .sub { font-size:.7rem; letter-spacing:.2em; text-transform:uppercase;
+         color:var(--dim); margin-bottom:18px; }
+
+  ol { list-style:none; margin:0; padding:0; }
+  li { padding:8px 10px; margin-bottom:3px; cursor:pointer;
+       border-left:2px solid transparent; }
+  li:hover { background:rgba(255,255,255,.05); }
+  li.on { background:rgba(255,138,61,.12); border-left-color:var(--ember); }
+  li .n { color:var(--dim); font-size:.7rem; margin-right:.6em; }
+  li.on .n { color:var(--ember); }
+  li .nm { font-family:Cinzel,serif; font-size:.92rem; }
+  li .note { display:none; font-size:.76rem; color:var(--dim); line-height:1.45; margin-top:5px; }
+  li.on .note { display:block; }
+
+  .hint { margin-top:20px; padding-top:14px; border-top:1px solid var(--edge);
+          font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--dim);
+          line-height:1.95; }
+  kbd { border:1px solid var(--edge); padding:.1em .42em; margin-right:.3em;
+        background:rgba(0,0,0,.4); font-family:inherit; font-size:.7rem; color:var(--ink); }
+
+  #hud { position:fixed; top:20px; left:330px; z-index:5; pointer-events:none; }
+  #hud .big { font-family:Cinzel,serif; font-size:1.9rem; letter-spacing:.04em; }
+  #hud .idx { font-size:.74rem; letter-spacing:.24em; text-transform:uppercase; color:var(--ember); }
+
+  #views { position:fixed; bottom:20px; left:330px; z-index:5; display:flex; gap:7px; }
+  .vbtn { font-size:.7rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim);
+          border:1px solid var(--edge); padding:6px 11px; cursor:pointer; background:rgba(0,0,0,.5); }
+  .vbtn.on { color:var(--ember); border-color:rgba(255,138,61,.4); }
+
+  #perf { position:fixed; bottom:20px; right:20px; z-index:5; font-size:.7rem;
+          letter-spacing:.14em; text-transform:uppercase; color:var(--dim); }
+  #span { position:fixed; top:20px; right:20px; z-index:5; text-align:right; }
+  #span .v { font-family:Cinzel,serif; font-size:1.6rem; color:var(--ink); }
+  #span .l { font-size:.68rem; letter-spacing:.22em; text-transform:uppercase; color:var(--dim); }
+</style>
+</head>
+<body>
+
+<aside id="panel">
+  <h1>Wing Fold Lab</h1>
+  <div class="sub">Ten candidates</div>
+  <ol id="list"></ol>
+  <div class="hint">
+    <div><kbd>1</kbd>–<kbd>0</kbd> pick a pose</div>
+    <div><kbd>←</kbd><kbd>→</kbd> step through</div>
+    <div><kbd>Space</kbd> spread / fold</div>
+    <div><kbd>W</kbd> walk bob on / off</div>
+    <div>drag to orbit &middot; scroll to zoom</div>
+  </div>
+</aside>
+
+<div id="hud">
+  <div class="idx" id="hud-idx"></div>
+  <div class="big" id="hud-name">loading…</div>
+</div>
+
+<div id="views">
+  <div class="vbtn on" data-view="rear">Behind</div>
+  <div class="vbtn" data-view="side">Side</div>
+  <div class="vbtn" data-view="top">Above</div>
+  <div class="vbtn" data-view="front">Front</div>
+</div>
+
+<div id="perf">idle</div>
+<div id="span"></div>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { POSES, applyPose } from "./js/wingposes.js";
+
+// ---------------------------------------------------------------------------
+// This page shows a STATIC pose. The first version rendered it continuously at
+// 2x pixel ratio with a 2048 soft shadow map and four lights, which is a lot of
+// GPU for a picture that isn't moving — enough to hang a machine.
+//
+// So: no shadows, pixel ratio capped, and render-on-demand. Frames are drawn
+// only when something actually changes (pose, camera, view, or while the walk
+// bob is running). Sitting and looking at a pose now costs nothing at all.
+// ---------------------------------------------------------------------------
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "default" });
+renderer.setPixelRatio(1);              // deliberately not devicePixelRatio
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+renderer.shadowMap.enabled = false;     // silhouette judging doesn't need them
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x12151c);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.05, 120);
+camera.position.set(0, 2.4, 6.8);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.9, 0);
+controls.enableDamping = false;         // damping would need a continuous loop
+controls.addEventListener("change", requestRender);
+
+// Two lights, no shadows. Enough to read a silhouette and its depth.
+scene.add(new THREE.HemisphereLight(0x9fb0d0, 0x2a2620, 2.0));
+const key = new THREE.DirectionalLight(0xfff2e0, 2.4);
+key.position.set(4, 7, 4);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x9dbaf0, 1.6);
+rim.position.set(-5, 2.5, -5);
+scene.add(rim);
+
+const grid = new THREE.GridHelper(14, 28, 0x3a4152, 0x232833);
+scene.add(grid);
+
+// --- Render on demand -------------------------------------------------------
+let dirty = true;
+let pending = 0;
+const perfEl = document.getElementById("perf");
+
+function requestRender() {
+  dirty = true;
+  if (!pending) pending = requestAnimationFrame(draw);
+}
+
+function draw() {
+  pending = 0;
+  if (walking) stepWalk();
+  if (!dirty && !walking) { perfEl.textContent = "idle"; return; }
+  dirty = false;
+  renderer.render(scene, camera);
+  perfEl.textContent = walking ? "animating" : "idle";
+  if (walking) pending = requestAnimationFrame(draw);
+}
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  requestRender();
+});
+
+// --- Model ------------------------------------------------------------------
+const bones = new Map();
+const rest = new Map();
+let rig = null, index = 0, folded = true, walking = false, walkT = 0, baseY = 0;
+
+const listEl = document.getElementById("list");
+const hudName = document.getElementById("hud-name");
+const hudIdx = document.getElementById("hud-idx");
+
+POSES.forEach((p, i) => {
+  const li = document.createElement("li");
+  li.innerHTML = `<div><span class="n">${(i + 1) % 10}</span><span class="nm">${p.name}</span></div>
+                  <div class="note">${p.note}</div>`;
+  li.addEventListener("click", () => select(i));
+  listEl.appendChild(li);
+});
+
+function select(i) {
+  index = (i + POSES.length) % POSES.length;
+  folded = true;
+  refresh();
+}
+
+const spanEl = document.getElementById("span");
+const _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3();
+
+function measureSpan() {
+  const l = bones.get("Wing_Finger018L");
+  const r = bones.get("Wing_Finger018R");
+  if (!l || !r || !rig) { spanEl.innerHTML = ""; return; }
+  rig.updateMatrixWorld(true);
+  l.getWorldPosition(_p1);
+  r.getWorldPosition(_p2);
+  const width = _p1.distanceTo(_p2);
+  const lowest = Math.min(_p1.y, _p2.y);
+  spanEl.innerHTML =
+    `<div class="v">${width.toFixed(2)} m</div>` +
+    `<div class="l">wingtip to wingtip</div>` +
+    `<div class="l" style="margin-top:.5em">tips at ${lowest.toFixed(2)} m</div>`;
+}
+
+function refresh() {
+  if (!bones.size) return;
+  if (folded) {
+    hudName.textContent = applyPose(bones, rest, index).name;
+  } else {
+    for (const [name, bone] of bones) {
+      const r = rest.get(name);
+      if (r) bone.rotation.set(r.x, r.y, r.z);
+      bone.scale.setScalar(1);
+    }
+    hudName.textContent = "Spread (bind pose)";
+  }
+  hudIdx.textContent = folded ? `Pose ${index + 1} of ${POSES.length}` : "Reference";
+  [...listEl.children].forEach((li, i) => li.classList.toggle("on", folded && i === index));
+  measureSpan();
+  requestRender();
+}
+
+function stepWalk() {
+  walkT += 0.032;
+  rig.position.y = baseY + Math.abs(Math.sin(walkT * 4)) * 0.045;
+  rig.rotation.z = Math.sin(walkT * 4) * 0.03;
+  rig.rotation.y = Math.sin(walkT * 2) * 0.05;
+}
+
+new GLTFLoader().load("./assets/models/toothless_rigged.glb", (g) => {
+  rig = g.scene;
+  rig.traverse((o) => {
+    if (o.isSkinnedMesh || o.isMesh) o.frustumCulled = false;
+    if (o.isBone) bones.set(o.name, o);
+  });
+  for (const [n, b] of bones) rest.set(n, b.rotation.clone());
+
+  // Box3 over-reports this rig badly (it claims 6.45 of height for a dragon
+  // lying flat, and understates the wingspan), so use the span measured by
+  // hand against a unit grid — the same constant assets.js is calibrated on.
+  const MEASURED_SPAN = 4.2;
+  rig.scale.setScalar(3.4 / MEASURED_SPAN);
+
+  // Ground him, but only trust the box's floor if its height is plausible —
+  // the same guard assets.js uses, for the same reason.
+  const b = new THREE.Box3().setFromObject(rig);
+  const h = b.max.y - b.min.y;
+  rig.position.y = (h > 0 && h < 5) ? -b.min.y : 0;
+  baseY = rig.position.y;
+
+  scene.add(rig);
+  refresh();
+}, undefined, (e) => {
+  hudName.textContent = "model failed to load";
+  console.error(e);
+});
+
+// --- Input ------------------------------------------------------------------
+addEventListener("keydown", (e) => {
+  if (e.code === "ArrowRight") select(index + 1);
+  else if (e.code === "ArrowLeft") select(index - 1);
+  else if (e.code === "Space") { folded = !folded; refresh(); e.preventDefault(); }
+  else if (e.code === "KeyW") {
+    walking = !walking;
+    if (!walking && rig) { rig.position.y = baseY; rig.rotation.set(0, 0, 0); }
+    requestRender();
+  } else if (/^Digit[0-9]$/.test(e.code)) {
+    const d = parseInt(e.code.slice(5), 10);
+    select(d === 0 ? 9 : d - 1);
+  }
+});
+
+const VIEWS = {
+  rear:  [0, 2.4, 6.8],     // his nose is -Z, so behind him is +Z
+  side:  [7.0, 1.8, 0],
+  top:   [0.01, 8.0, 0.6],
+  front: [0, 2.0, -6.5],
+};
+document.querySelectorAll(".vbtn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".vbtn").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    const v = VIEWS[btn.dataset.view];
+    camera.position.set(v[0], v[1], v[2]);
+    controls.target.set(0, 0.9, 0);
+    controls.update();
+    requestRender();
+  });
+});
+
+// Stop drawing entirely when the tab isn't visible.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) requestRender();
+});
+
+// Draw the first frame explicitly. With render-on-demand nothing else is
+// guaranteed to kick one off, and relying on OrbitControls happening to emit a
+// change event at startup would leave a blank canvas on any browser that
+// doesn't.
+requestRender();
+</script>
+</body>
+</html>

@@ -55,16 +55,16 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // on top of that: hold it to build, let go and he settles back down to cruise
   // on his own. L2 is the same thing downward. Nothing here is a setting you
   // leave wound in — the speed is whatever your fingers are doing right now.
-  const PEDAL_MAX   = 1.05;  // airspeed at a full R2 pull
+  const PEDAL_MAX   = 2.4;   // airspeed at a full R2 pull — ~7x cruise
   const PEDAL_MIN   = 0.08;  // and at a full L2 pull
-  const PEDAL_GAIN  = 2.8;   // how quickly he answers the gas
-  const PEDAL_BLEED = 1.7;   // and how slowly he gives it back
+  const PEDAL_GAIN  = 3.4;   // how quickly he answers the gas
+  const PEDAL_BLEED = 2.0;   // and how slowly he gives it back
   let pedalSpeed = FORWARD_SPEED;
 
   // --- Burst ---
   // A whole gear above anything the pedal can reach, so it never reads as "R2
   // but slightly more". Timers are in seconds, not frames.
-  const BURST_SPEED    = 2.6;
+  const BURST_SPEED    = 4.2;
   const BURST_DURATION = 1.9;
   const BURST_COOLDOWN = 5.5;
   let burstTimer       = 0;
@@ -105,15 +105,43 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // These are magnitudes handed to the mixer in gamepad.js, never effects played
   // straight at the actuator — see the note there for why that distinction
   // matters. Weak motor is the buzzy one, strong motor is the thumpy one.
-  const RUMBLE_IDLE         = 0.07; // never completely silent in the air
-  const RUMBLE_WIND         = 0.44; // airstream on the weak motor at full speed
+  //
+  // Nothing here is a resting level. A driving game never hums — what shakes
+  // the car is the surface under it, the revs, a kerb, a wheel letting go, and
+  // every one of those is an event with a shape. A DC level on the motor reads
+  // as a fault in the pad after about a minute, and worse, it buries everything
+  // quieter than itself. Silence in level flight is what makes the rest audible.
+  const RUMBLE_BUFFET       = 0.40; // airframe shake, and only well past cruise
+  const BUFFET_ONSET        = 0.55; // fraction of his range before it starts
   const RUMBLE_BURST_KICK   = 1.00; // the shove when a burst fires
   const RUMBLE_BURST_HOLD   = 0.62; // while it's still running
   const RUMBLE_KNIFE        = 0.30; // wing loaded up on its edge
   const RUMBLE_KNIFE_STRAIN = 0.48; // and climbing as his stamina drains
   const RUMBLE_CARVE        = 0.22; // load through a hard banked turn
-  const RUMBLE_THROTTLE     = 0.50; // R2 held down — a surge on the strong motor
-  const RUMBLE_BRAKE        = 0.48; // L2 held down — a grind on the weak one
+  const RUMBLE_THROTTLE     = 0.30; // while he's GAINING speed, not while held
+  const RUMBLE_BRAKE        = 0.40; // L2 held down — a grind on the weak one
+
+  // --- Trigger feel ---
+  // The driving-game school: the pedals have real weight from the first
+  // millimetre and they keep it. Resistance is the resting state, not news the
+  // game delivers — you shouldn't be able to tell the pad is doing anything
+  // until you notice how much effort R2 takes. Vibration is held back for one
+  // event so it still means something when it arrives.
+  const TRIG_GAS_BASE   = 0.52; // R2 at cruise — firm under the finger
+  const TRIG_GAS_TOP    = 0.82; // heavier the closer he is to his limit
+  const TRIG_BRAKE_BASE = 0.66; // the brake is the heavier pedal, as it should be
+  const TRIG_BRAKE_TOP  = 1.00;
+
+  // The one event: he's genuinely piling on speed, not merely holding the gas
+  // open. Measured as how much of his range he's currently eating, so it fades
+  // out on its own as he reaches whatever you asked for — a car that's found
+  // its grip stops scrabbling. Two thresholds, because a single one sitting
+  // near the crossover would chatter between the two effect modes.
+  const TRIG_SURGE_BUZZ  = 0.34; // slight. This is a texture, not a rumble.
+  const TRIG_SURGE_ENTER = 0.30;
+  const TRIG_SURGE_EXIT  = 0.14;
+  let surging = false;
+
   let wasAtSpeedLimit = false;
   let wasBurstCharging = false;
   let padClimbInvert = true; // pull back to climb, the flight-stick convention
@@ -333,12 +361,22 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
         (activeSpeed - SPEED_MIN) / (PEDAL_MAX - SPEED_MIN), 0, 1.5
       );
 
-      // Airstream, with a constant hum underneath it — he is a living animal
-      // holding a wing out in the wind, so the pad is never completely dead.
-      pad.rumble.sustain(
-        RUMBLE_IDLE + RUMBLE_WIND * Math.pow(windT, 1.3),
-        0.06 * windT
+      // Airframe buffet. Below the onset there is nothing at all — cruising is
+      // meant to be silent — and above it what arrives is a texture with a
+      // rhythm rather than a level. Two sines at frequencies that don't divide
+      // into each other, so it never settles into a pattern you stop noticing;
+      // the same reason a car shaking on a straight feels like the track and
+      // not like the controller.
+      const buffetT = THREE.MathUtils.clamp(
+        (windT - BUFFET_ONSET) / (1 - BUFFET_ONSET), 0, 1
       );
+      if (buffetT > 0) {
+        const shake = 0.5 + 0.5 * Math.sin(tick * 0.83) * Math.sin(tick * 0.29);
+        pad.rumble.sustain(
+          RUMBLE_BUFFET * buffetT * buffetT * shake,
+          0.07 * buffetT * shake
+        );
+      }
 
       // Load through a carve — you feel a hard turn in your palms.
       const carve = Math.abs(yawRate) / YAW_MAX;
@@ -370,13 +408,22 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
         (pedalSpeed - PEDAL_MIN) / (PEDAL_MAX - PEDAL_MIN), 0, 1
       );
 
+      // How much of his remaining range he's eating right now. This is the
+      // difference between accelerating and merely going fast, and it's what
+      // both the gas rumble and the trigger texture key off — holding the gas
+      // open at a settled speed should feel like nothing much, because it is.
+      const surge = THREE.MathUtils.clamp(
+        (pedalTarget - pedalSpeed) / (PEDAL_MAX - PEDAL_MIN), 0, 1
+      );
+      surging = surge > (surging ? TRIG_SURGE_EXIT : TRIG_SURGE_ENTER);
+
       // The main motors, so it's felt with or without trigger haptics. The gas
       // surges on the strong motor and the brake grinds on the weak one — two
       // different textures, so you can tell them apart with your eyes shut.
       if (throttle > 0) {
         pad.rumble.sustain(
-          RUMBLE_THROTTLE * 0.4 * throttle,
-          RUMBLE_THROTTLE * throttle * (0.5 + 0.5 * pedalT)
+          RUMBLE_THROTTLE * 0.4 * surge,
+          RUMBLE_THROTTLE * surge * (0.5 + 0.5 * pedalT)
         );
       } else if (throttle < 0) {
         pad.rumble.sustain(
@@ -385,11 +432,21 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
         );
       }
 
-      // And the trigger motors on top, on the pads that expose them.
+      // And the triggers themselves, on the pads that have them under the
+      // finger rather than just beside it.
+      //
+      // Both pedals are heavy the whole time, whether or not you're touching
+      // them — that weight IS the effect. The gas gets a slight texture on top
+      // only while he's actually winding up, the way a driving game buzzes the
+      // throttle while the tyres are scrabbling and goes quiet the moment they
+      // hook up. Nothing here vibrates just because a trigger is held down.
       pad.rumble.triggers(
-        pad.value(BTN.L2) * (0.2 + 0.45 * pedalT),
-        pad.value(BTN.R2) * (0.15 + 0.6 * pedalT * pedalT)
+        TRIG_BRAKE_BASE + (TRIG_BRAKE_TOP - TRIG_BRAKE_BASE) * pedalT,
+        TRIG_GAS_BASE   + (TRIG_GAS_TOP   - TRIG_GAS_BASE)   * pedalT
       );
+      if (surging && throttle > 0.05) {
+        pad.rumble.triggerBuzz(0, TRIG_SURGE_BUZZ * surge);
+      }
 
       // A single detent when the pedal reaches either stop, so you know you're
       // pinned without having to look at the HUD.

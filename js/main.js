@@ -7,6 +7,8 @@ import { setupWings } from "./wings.js";
 import { setupFlights } from "./flights.js";
 import { setupGamepad, BTN } from "./gamepad.js";
 import { setupMap } from "./map.js";
+import { setupDualSense } from "./dualsense.js";
+import { setupPadView } from "./padview.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -95,7 +97,23 @@ const BOOM_MAX = 46;
 const GROUND_RUSH_AGL = 55;  // altitude at which the pad starts to growl
 let wasGrounded = false;
 
-const pad = setupGamepad();
+// boot.js sets these up before the title screen and hands them over. Two
+// setupGamepad() calls would each poll getGamepads() and each get a snapshot,
+// so the presses would arrive at one of them and not the other. Reuse, or make
+// our own if this file was loaded directly.
+const handoff = window.__nightAlone || null;
+
+const pad = handoff?.pad || setupGamepad();
+
+// Direct HID link to a DualSense, when the browser has WebHID and the user has
+// granted the device. Silently absent otherwise — the Gamepad API path stays.
+const dualsense = handoff?.dualsense || setupDualSense();
+if (!handoff) {
+  pad.rumble.attachHID(dualsense);
+  // A device granted in an earlier session comes back without a prompt.
+  dualsense.reattach();
+}
+const padView = setupPadView(pad);
 
 // The chart reads his position and heading rather than owning them.
 const map = setupMap(() => dragon && controls ? {
@@ -134,6 +152,7 @@ window.addEventListener("keydown", (e) => {
   if (document.activeElement?.tagName === "INPUT") return;
   if (e.code === "KeyC") recentering = true;
   if (e.code === "KeyG") world.toggleGrid();
+  if (e.code === "KeyP") padView.toggle();
 });
 
 // Frame-rate independent smoothing factor for an exponential decay of rate
@@ -251,28 +270,198 @@ function updateHud() {
 // ---------------------------------------------------------------------------
 let padWasConnected = null;
 
+// Browsers report the id as a long vendor string; pull the family out of it.
+function padFamily() {
+  const id = pad.id();
+  if (/dualsense|0ce6|0df2/i.test(id)) return "DualSense";
+  if (/dualshock|054c/i.test(id)) return "DualShock";
+  return "Gamepad";
+}
+
+// --- The footer tag ---------------------------------------------------------
+// Doubles as the way in. Four states, and the label always says what the next
+// useful action is rather than just reporting status:
+//
+//   no pad, no link      -> "Find controller"   (opens the HID picker)
+//   pad, no link         -> "Enable haptics"    (same picker, different reason)
+//   link but no pad      -> "press a button"    (HID and the Gamepad API are
+//                                                separate grants; only a button
+//                                                press reveals the axes)
+//   both                 -> "DualSense · HID"
+let padTagState = "";
+let padTagBusy = false;
+
+function updatePadTag() {
+  if (padTagBusy) return;
+
+  const on   = pad.connected();
+  const link = dualsense.isReady();
+  const can  = dualsense.isAvailable();
+
+  let label, action = false;
+  if (on && link)      label = `${padFamily()} · HID`;
+  else if (on && can) { label = "Enable haptics"; action = true; }
+  else if (on)         label = padFamily();
+  else if (link)       label = "Linked · press a button";
+  else if (can)       { label = "Find controller"; action = true; }
+  else                 label = "";
+
+  const next = `${label}|${action}`;
+  if (next === padTagState) return;
+  padTagState = next;
+
+  hudPadTag.textContent = label;
+  hudPadTag.hidden = !label;
+  hudPadTag.classList.toggle("action", action);
+  hudPadTag.classList.remove("searching");
+  hudPadTag.title = action
+    ? "Connect a DualSense directly for rumble and adaptive triggers"
+    : "";
+}
+
+hudPadTag.addEventListener("click", async (e) => {
+  // Never let this reach the document handler that grabs the pointer.
+  e.stopPropagation();
+  if (!dualsense.isAvailable() || dualsense.isReady()) return;
+
+  padTagBusy = true;
+  hudPadTag.textContent = "Searching…";
+  hudPadTag.classList.add("searching");
+  hudPadTag.classList.remove("action");
+
+  // requestDevice needs the user gesture we're inside right now.
+  const ok = await dualsense.request();
+
+  padTagBusy = false;
+  padTagState = ""; // force the next frame to relabel from scratch
+
+  if (ok) {
+    hidAnnounced = true; // this message is the better one; don't say it twice
+    debugConsole.log(`hid connected — ${dualsense.name()} over ${dualsense.transport()}`, "note");
+    debugConsole.log("granted for good — it'll link itself from now on.");
+    pad.rumble.pulse(0.65, 0.85, 0.45); // confirm it in the only way that counts
+  } else {
+    const why = dualsense.error() || "cancelled";
+    debugConsole.log(`hid not connected: ${why}`, "err");
+    if (dualsense.candidates() > 1) {
+      debugConsole.log(`  ${dualsense.candidates()} entries tried, none took a report.`);
+    }
+  }
+});
+
+// --- Keeping the link up ----------------------------------------------------
+// Haptics are meant to be on by default, and after the first grant they can be:
+// getDevices() shows no UI and needs no user gesture, so re-adopting a pad we
+// already have permission for is something this can just do. Which makes the
+// footer tag's picker a first-run step rather than something to remember.
+//
+// It's a retry rather than a one-shot at load because getDevices() can resolve
+// before a Bluetooth pad has finished enumerating, and because a link that
+// drops — or one that opened but wouldn't take a write — should come back on
+// its own instead of needing the pad replugged.
+const HID_RETRY = 2.5;
+let hidRetryClock = HID_RETRY;
+let hidAnnounced = false;
+
+function keepHidLinked(dt) {
+  if (!dualsense.isAvailable() || padTagBusy) return;
+
+  if (dualsense.isReady()) {
+    if (!hidAnnounced) {
+      hidAnnounced = true;
+      debugConsole.log(
+        `hid linked — ${dualsense.name()} over ${dualsense.transport()}`, "note");
+    }
+    return;
+  }
+
+  hidAnnounced = false;
+  hidRetryClock += dt;
+  if (hidRetryClock < HID_RETRY) return;
+  hidRetryClock = 0;
+  dualsense.reattach();
+}
+
+// WebHID and the Gamepad API are separate grants, but they're also separate
+// claims on the same physical device. If we've opened it over HID and the
+// Gamepad API still sees nothing after a few seconds, say so — an open HID
+// handle is a plausible reason the sticks never show up, and `hid off` is the
+// one-word test for it.
+let hidWarnClock = 0;
+let hidWarned = false;
+
+function checkHidConflict(dt) {
+  if (hidWarned || pad.connected() || !dualsense.isReady()) {
+    if (pad.connected()) hidWarnClock = 0;
+    return;
+  }
+  hidWarnClock += dt;
+  if (hidWarnClock < 4) return;
+  hidWarned = true;
+  debugConsole.log("the pad is open over WebHID but the Gamepad API sees no pad.", "err");
+  debugConsole.log("  press any button on it first — that's what reveals the sticks.");
+  debugConsole.log("  still nothing? run 'hid off' to release the direct link, then");
+  debugConsole.log("  press a button again. If it comes back, the HID claim was the cause.");
+}
+
+// --- Live input monitor -----------------------------------------------------
+// Everything the game itself sees, on screen, updating every frame. `frame`
+// climbing proves the loop is alive; the sticks proving live while the heading
+// sits still would put the fault in the flight model rather than the input.
+const padMon = document.getElementById("padmon");
+let padMonOn = false;
+
+function togglePadMon() {
+  padMonOn = !padMonOn;
+  padMon.hidden = !padMonOn;
+  return padMonOn;
+}
+
+function updatePadMon() {
+  if (!padMonOn) return;
+
+  const btns = [];
+  for (let i = 0; i < 18; i++) if (pad.held(i)) btns.push(i);
+
+  const on = pad.connected();
+  const mark = (ok, s) => `<span class="${ok ? "good" : "bad"}">${s}</span>`;
+
+  padMon.innerHTML =
+    `<b>frame</b> ${tick}   <b>gamepad</b> ${mark(on, on ? "yes" : "NO")}` +
+    `   <b>hid</b> ${dualsense.isReady() ? "linked" : "—"}\n` +
+    `<b>id</b>    ${pad.id() || "—"}\n` +
+    `<b>stick</b> L ${pad.lx.toFixed(2)} ${pad.ly.toFixed(2)}` +
+    `    R ${pad.rx.toFixed(2)} ${pad.ry.toFixed(2)}\n` +
+    `<b>trig</b>  L2 ${pad.value(BTN.L2).toFixed(2)}  R2 ${pad.value(BTN.R2).toFixed(2)}\n` +
+    `<b>btn</b>   ${btns.join(" ") || "—"}\n` +
+    `<b>hdg</b>   ${controls ? THREE.MathUtils.radToDeg(controls.getHeading()).toFixed(1) + "°" : "—"}` +
+    `   <b>spd</b> ${controls ? controls.getSpeed().toFixed(3) : "—"}\n` +
+    `<b>pos</b>   ${dragon
+      ? `${dragon.position.x.toFixed(0)}, ${dragon.position.y.toFixed(0)}, ${dragon.position.z.toFixed(0)}`
+      : "—"}`;
+}
+
 function updatePadView(dt) {
   const on = pad.connected();
+  updatePadTag();
+  keepHidLinked(dt);
+  checkHidConflict(dt);
 
   if (on !== padWasConnected) {
     // Both columns are always in the legend; connecting a pad just brings its
-    // column forward and lets the keyboard one recede.
+    // column forward and lets the keyboard one recede. The footer tag looks
+    // after itself in updatePadTag.
     hudRoot.classList.toggle("pad-live", on);
-    hudPadTag.hidden = !on;
+    // The pre-flight surfaces key off the body instead, since they exist
+    // before the HUD does.
+    document.body.classList.toggle("pad-live", on);
     // Leave a trail in the console, so "it was connecting before" has evidence
     // behind it rather than being reconstructed from memory.
     if (padWasConnected !== null) {
       debugConsole.log(on ? `gamepad connected — ${pad.id()}` : "gamepad disconnected", "note");
     }
     padWasConnected = on;
-    if (on) {
-      // Browsers report the id as a long vendor string; pull the family out of it.
-      const id = pad.id();
-      hudPadTag.textContent = /dualsense|0ce6|0df2/i.test(id) ? "DualSense"
-                            : /dualshock|054c/i.test(id)      ? "DualShock"
-                            : "Gamepad";
-      pad.rumble.pulse(0.4, 0.55, 0.3); // say hello
-    }
+    if (on) pad.rumble.pulse(0.4, 0.55, 0.3); // say hello
   }
 
   if (!on) return;
@@ -329,6 +518,8 @@ const debugConsole = setupDebugConsole({
   world,
   tuning,
   pad,
+  dualsense,
+  togglePadMon,
   spawn: SPAWN,
   getControls: () => controls,
   getDragon: () => dragon,
@@ -344,6 +535,9 @@ function animate() {
   // Read the pad once, up front. getGamepads() returns a snapshot rather than a
   // live object, so every consumer this frame has to share this one read.
   pad.poll(dt);
+  // Straight after the poll and before anything consumes a press, so the
+  // overlay shows what arrived rather than what survived.
+  padView.update();
   updatePadView(dt);
 
   // Drain the buffered look input. Applying it here instead of inside the
@@ -373,7 +567,14 @@ function animate() {
     if (agl < GROUND_RUSH_AGL) {
       const t = 1 - Math.max(0, agl) / GROUND_RUSH_AGL;
       const speedT = controls ? controls.getSpeedT() : 0;
-      pad.rumble.sustain(0.06 * t * t, 0.30 * t * t * (0.35 + 0.65 * speedT));
+      // Surface texture rather than a proximity alarm. What you feel down here
+      // is the ground going PAST, so it scales with how fast it's going past —
+      // hovering a few metres off the deck is silent — and it's grained rather
+      // than smooth, because a surface has a grain and a warning light doesn't.
+      const rush = t * t * (0.12 + 0.88 * speedT);
+      const now = performance.now();
+      const grain = 0.55 + 0.45 * Math.sin(now * 0.047) * Math.sin(now * 0.019);
+      pad.rumble.sustain(0.08 * rush * grain, 0.34 * rush * grain);
     }
 
     if (tuning.collide) {
@@ -390,6 +591,15 @@ function animate() {
     } else {
       wasGrounded = false; // ghost mode — don't thump the moment it's turned off
     }
+  }
+
+  // Lightbar follows his state: amber at cruise, running hot toward the burst,
+  // red while he's scraping the deck. Costs nothing when there's no HID link.
+  if (dualsense.isReady() && controls) {
+    const t = controls.getSpeedT();
+    if (wasGrounded) dualsense.setLightbar(255, 40, 24);
+    else if (controls.isBursting()) dualsense.setLightbar(255, 120, 30);
+    else dualsense.setLightbar(Math.round(120 + 135 * t), Math.round(90 - 40 * t), 20);
   }
 
   // Wingbeat. Cubed so it's a thump on the downstroke rather than a sine
@@ -415,6 +625,7 @@ function animate() {
   }
 
   updateHud();
+  updatePadMon();
   map.update(dt);
 
   if (dragon) {

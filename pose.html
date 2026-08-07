@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pose Tool — Night Alone</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  :root { --ink:#e8e2d4; --dim:#9a9384; --ember:#ff8a3d; --edge:rgba(232,226,212,.16); }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#12151c; color:var(--ink);
+         font-family:Rajdhani,system-ui,sans-serif; overflow:hidden; }
+  canvas { display:block; }
+
+  #side { position:fixed; top:0; left:0; width:280px; height:100vh; z-index:5;
+          background:rgba(8,10,15,.94); border-right:1px solid var(--edge);
+          padding:16px 14px; overflow-y:auto; }
+  h1 { font-family:Cinzel,serif; font-size:1.05rem; margin:0 0 12px; }
+
+  .row { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+  button { font-family:inherit; font-size:.72rem; letter-spacing:.1em; text-transform:uppercase;
+           color:var(--ink); background:rgba(0,0,0,.45); border:1px solid var(--edge);
+           padding:7px 10px; cursor:pointer; }
+  button:hover { border-color:var(--ember); color:var(--ember); }
+  button.on { color:var(--ember); border-color:rgba(255,138,61,.5); }
+
+  .lbl { font-size:.66rem; letter-spacing:.2em; text-transform:uppercase;
+         color:var(--dim); margin:14px 0 6px; }
+
+  ul { list-style:none; margin:0; padding:0; max-height:38vh; overflow-y:auto;
+       border:1px solid var(--edge); }
+  li { padding:5px 9px; font-size:.8rem; cursor:pointer; border-left:2px solid transparent; }
+  li:hover { background:rgba(255,255,255,.06); }
+  li.on { background:rgba(255,138,61,.14); border-left-color:var(--ember); color:var(--ember); }
+
+  textarea { width:100%; height:110px; background:#0a0d13; color:var(--ink);
+             border:1px solid var(--edge); font-family:ui-monospace,monospace;
+             font-size:.68rem; padding:7px; resize:vertical; }
+
+  #read { position:fixed; top:16px; right:16px; z-index:5; text-align:right; }
+  #read .v { font-family:Cinzel,serif; font-size:1.5rem; }
+  #read .l { font-size:.64rem; letter-spacing:.2em; text-transform:uppercase; color:var(--dim); }
+
+  #tip { position:fixed; bottom:16px; left:296px; z-index:5; font-size:.7rem;
+         letter-spacing:.12em; text-transform:uppercase; color:var(--dim); line-height:1.9; }
+</style>
+</head>
+<body>
+
+<aside id="side">
+  <h1>Pose Tool</h1>
+
+  <div class="row">
+    <button id="mode-rot" class="on">Rotate</button>
+    <button id="space">Local</button>
+  </div>
+  <div class="row">
+    <button id="mirror">Mirror L&rarr;R</button>
+    <button id="reset-bone">Reset bone</button>
+  </div>
+  <div class="row">
+    <button id="reset-all">Reset all</button>
+    <button id="filter">Wing only</button>
+  </div>
+
+  <div class="lbl">Bones</div>
+  <ul id="bones"></ul>
+
+  <div class="lbl">Pose JSON</div>
+  <textarea id="out" spellcheck="false" placeholder="pose a bone, then press Copy"></textarea>
+  <div class="row" style="margin-top:6px">
+    <button id="copy">Copy</button>
+    <button id="load">Load</button>
+  </div>
+</aside>
+
+<div id="read"></div>
+
+<div id="tip">
+  drag the gizmo rings to rotate &middot; click a bone in the list to select<br>
+  orbit with right-drag &middot; scroll to zoom
+</div>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
+
+// ---------------------------------------------------------------------------
+// Manual bone poser.
+//
+// Solving a fold numerically without being able to see it was the wrong
+// approach. This just puts a rotation gizmo on a bone and gets out of the way:
+// pose it by hand, mirror it to the other side, copy the JSON out.
+//
+// Render-on-demand, no shadows, pixel ratio 1 — same discipline as the lab, so
+// this can sit open indefinitely without cooking anything.
+// ---------------------------------------------------------------------------
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.3;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x12151c);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.05, 200);
+camera.position.set(4.5, 2.6, 5.5);
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.target.set(0, 0.9, 0);
+orbit.enableDamping = false;
+orbit.mouseButtons = {
+  LEFT: null,                              // left is for the gizmo
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT: THREE.MOUSE.ROTATE,
+};
+orbit.addEventListener("change", requestRender);
+
+scene.add(new THREE.HemisphereLight(0x9fb0d0, 0x2a2620, 2.2));
+const key = new THREE.DirectionalLight(0xfff2e0, 2.4); key.position.set(4, 7, 4); scene.add(key);
+const rim = new THREE.DirectionalLight(0x9dbaf0, 1.5); rim.position.set(-5, 2.5, -5); scene.add(rim);
+scene.add(new THREE.GridHelper(14, 28, 0x3a4152, 0x232833));
+
+const gizmo = new TransformControls(camera, renderer.domElement);
+gizmo.setMode("rotate");
+gizmo.setSpace("local");
+gizmo.setSize(0.6);
+gizmo.addEventListener("change", () => { measure(); requestRender(); });
+gizmo.addEventListener("dragging-changed", (e) => { orbit.enabled = !e.value; });
+scene.add(gizmo);
+
+// --- Render on demand -------------------------------------------------------
+let pending = 0;
+function requestRender() { if (!pending) pending = requestAnimationFrame(draw); }
+function draw() { pending = 0; renderer.render(scene, camera); }
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  requestRender();
+});
+
+// --- Model ------------------------------------------------------------------
+const bones = new Map();
+const rest = new Map();
+let rig = null, selected = null, wingOnly = true;
+
+const listEl = document.getElementById("bones");
+const outEl = document.getElementById("out");
+const readEl = document.getElementById("read");
+
+function buildList() {
+  listEl.innerHTML = "";
+  for (const name of bones.keys()) {
+    if (wingOnly && !/^Wing_/.test(name)) continue;
+    const li = document.createElement("li");
+    li.textContent = name;
+    li.dataset.name = name;
+    li.addEventListener("click", () => select(name));
+    listEl.appendChild(li);
+  }
+}
+
+function select(name) {
+  selected = bones.get(name) || null;
+  if (selected) gizmo.attach(selected);
+  [...listEl.children].forEach((li) => li.classList.toggle("on", li.dataset.name === name));
+  requestRender();
+}
+
+const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+function measure() {
+  const l = bones.get("Wing_Finger018L"), r = bones.get("Wing_Finger018R");
+  if (!l || !r || !rig) return;
+  rig.updateMatrixWorld(true);
+  l.getWorldPosition(_a); r.getWorldPosition(_b);
+  readEl.innerHTML = `<div class="v">${_a.distanceTo(_b).toFixed(2)} m</div>` +
+                     `<div class="l">wingtip to wingtip</div>` +
+                     `<div class="l" style="margin-top:.4em">${selected ? selected.name : "no bone selected"}</div>`;
+}
+
+new GLTFLoader().load("./assets/models/toothless_rigged.glb", (g) => {
+  rig = g.scene;
+  rig.traverse((o) => {
+    if (o.isMesh || o.isSkinnedMesh) o.frustumCulled = false;
+    if (o.isBone) bones.set(o.name, o);
+  });
+  for (const [n, b] of bones) rest.set(n, b.rotation.clone());
+
+  rig.scale.setScalar(3.4 / 4.2);          // calibrated span, as elsewhere
+  scene.add(rig);
+
+  buildList();
+  measure();
+  requestRender();
+});
+
+// --- Buttons ----------------------------------------------------------------
+document.getElementById("space").addEventListener("click", (e) => {
+  const local = gizmo.space === "local";
+  gizmo.setSpace(local ? "world" : "local");
+  e.target.textContent = local ? "World" : "Local";
+  requestRender();
+});
+
+document.getElementById("filter").addEventListener("click", (e) => {
+  wingOnly = !wingOnly;
+  e.target.textContent = wingOnly ? "Wing only" : "All bones";
+  buildList();
+});
+
+document.getElementById("reset-bone").addEventListener("click", () => {
+  if (!selected) return;
+  const r = rest.get(selected.name);
+  if (r) selected.rotation.set(r.x, r.y, r.z);
+  measure(); requestRender();
+});
+
+document.getElementById("reset-all").addEventListener("click", () => {
+  for (const [n, b] of bones) {
+    const r = rest.get(n);
+    if (r) b.rotation.set(r.x, r.y, r.z);
+    b.scale.setScalar(1);
+  }
+  measure(); requestRender();
+});
+
+// Mirror every posed left bone onto its right twin. The usual convention for a
+// left/right mirrored armature is to negate the Y and Z components; if it comes
+// out wrong on this rig, flip the signs here — it's one line.
+document.getElementById("mirror").addEventListener("click", () => {
+  for (const [n, b] of bones) {
+    if (!n.endsWith("L")) continue;
+    const twin = bones.get(n.slice(0, -1) + "R");
+    if (!twin) continue;
+    twin.rotation.set(b.rotation.x, -b.rotation.y, -b.rotation.z);
+  }
+  measure(); requestRender();
+});
+
+// --- Import / export --------------------------------------------------------
+document.getElementById("copy").addEventListener("click", () => {
+  const out = {};
+  for (const [n, b] of bones) {
+    const r = rest.get(n);
+    if (!r) continue;
+    const dx = b.rotation.x - r.x, dy = b.rotation.y - r.y, dz = b.rotation.z - r.z;
+    if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) < 1e-4) continue;   // unchanged
+    out[n] = [+dx.toFixed(4), +dy.toFixed(4), +dz.toFixed(4)];
+  }
+  const text = JSON.stringify(out, null, 1);
+  outEl.value = text;
+  outEl.select();
+  navigator.clipboard?.writeText(text).catch(() => {});
+  console.log(text);
+});
+
+document.getElementById("load").addEventListener("click", () => {
+  let data;
+  try { data = JSON.parse(outEl.value); }
+  catch { outEl.value = "// not valid JSON\n" + outEl.value; return; }
+  for (const [n, d] of Object.entries(data)) {
+    const b = bones.get(n), r = rest.get(n);
+    if (!b || !r || !Array.isArray(d)) continue;
+    b.rotation.set(r.x + d[0], r.y + d[1], r.z + d[2]);
+  }
+  measure(); requestRender();
+});
+
+requestRender();
+</script>
+</body>
+</html>

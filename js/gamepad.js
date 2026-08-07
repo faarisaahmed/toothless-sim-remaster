@@ -44,6 +44,12 @@ const RUMBLE_NUDGE    = 0.03;  // seconds — floor on an early re-send
 const RUMBLE_JUMP     = 0.10;  // magnitude change that earns an early re-send
 const RUMBLE_SILENCE  = 0.004; // below this we stop sending rather than idle-buzz
 
+// The direct HID link has none of playEffect's constraints — no effect to be
+// preempted, no duration to outrun — so it just gets driven at a steady rate.
+// 50 Hz is well inside what the pad will take and keeps the trigger tension
+// tracking the throttle closely enough that it feels mechanical.
+const HID_PERIOD = 0.02;
+
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // Radial deadzone with a gentle expo curve. Radial (rather than per-axis) is
@@ -73,10 +79,33 @@ function curveTrigger(v) {
 // playing their own effects would just cut each other off — the last one to
 // call wins and the rest are silently dropped.
 //
-//   sustain(weak, strong)  — continuous, must be called every frame
-//   pulse(weak, strong, s) — one-shot that decays over s seconds
-//   triggers(left, right)  — DualSense trigger motors, when the browser has them
+//   sustain(weak, strong)   — continuous, must be called every frame
+//   pulse(weak, strong, s)  — one-shot that decays over s seconds
+//   triggers(left, right)   — trigger tension, when the pad can do it
+//   triggerBuzz(left, right)— trigger vibration, ditto; wins over tension
 // ---------------------------------------------------------------------------
+
+// One trigger's worth of contributions, turned into the single effect the pad
+// can actually run. There is one effect slot per trigger and the two kinds
+// genuinely can't be layered — vibration mode has no tension component — so a
+// buzz preempts the tension for as long as it lasts. That's the same trade the
+// driving games make: the pedal is heavy until something happens, and the
+// moment it stops happening the weight comes straight back.
+//
+// Start zone 0 on the tension, not 1: the weight has to be there from the first
+// millimetre of travel or the pedal feels loose at the top and only bites late.
+function triggerEffect(resist, buzz) {
+  if (buzz > 0.02) {
+    return {
+      mode: "buzz",
+      freq: Math.round(22 + 16 * buzz), // a fine texture, not a hammer
+      amp: 1 + buzz * 4,                // capped well short of the 8 maximum
+      start: 0,
+    };
+  }
+  if (resist > 0.02) return { mode: "resist", start: 0, force: 1 + resist * 7 };
+  return { mode: "off" };
+}
 function createRumble(getPad) {
   let master = 1;
   let enabled = true;
@@ -87,8 +116,12 @@ function createRumble(getPad) {
   // while you're holding a trigger. Losing the main motors is far worse than
   // missing the trigger flourish, so this is opt-in via `rumble triggers on`.
   let useTriggers = false;
+  let hid = null;
+  // While a test is running the flight's own contributions are held back —
+  // otherwise the frame loop overwrites each stage before you can feel it.
+  let testing = false;
 
-  let weak = 0, strong = 0, lTrig = 0, rTrig = 0;
+  let weak = 0, strong = 0, lTrig = 0, rTrig = 0, lBuzz = 0, rBuzz = 0;
   const pulses = [];
 
   let sentWeak = 0, sentStrong = 0;
@@ -114,7 +147,23 @@ function createRumble(getPad) {
     return triggerSupport;
   }
 
+  // A direct HID link always wins: it reaches the pad on transports where the
+  // Gamepad API's rumble doesn't, and it carries the trigger effects too.
+  function sendHID(w, s) {
+    hid.setRumble(w, s);
+    hid.setTriggerEffect("left",
+      triggerEffect(clamp01(lTrig * master), clamp01(lBuzz * master)));
+    hid.setTriggerEffect("right",
+      triggerEffect(clamp01(rTrig * master), clamp01(rBuzz * master)));
+    hid.commit();
+    sentWeak = w;
+    sentStrong = s;
+    sinceSend = 0;
+  }
+
   function send(w, s) {
+    if (hid && hid.isReady()) { sendHID(w, s); return; }
+
     const act = actuator();
     if (!act) return;
 
@@ -125,9 +174,14 @@ function createRumble(getPad) {
       strongMagnitude: s,
     };
 
-    if (useTriggers && probeTriggers(act) && (lTrig > 0 || rTrig > 0)) {
-      params.leftTrigger  = clamp01(lTrig * master);
-      params.rightTrigger = clamp01(rTrig * master);
+    // trigger-rumble is amplitude only — it has no notion of tension or of a
+    // frequency — so both kinds of trigger contribution collapse into one number.
+    const l = Math.max(lTrig, lBuzz);
+    const r = Math.max(rTrig, rBuzz);
+
+    if (useTriggers && probeTriggers(act) && (l > 0 || r > 0)) {
+      params.leftTrigger  = clamp01(l * master);
+      params.rightTrigger = clamp01(r * master);
       // If the browser lied about supporting it, fall back for good.
       act.playEffect("trigger-rumble", params).catch(() => { triggerSupport = false; });
     } else {
@@ -154,22 +208,83 @@ function createRumble(getPad) {
       rTrig = Math.max(rTrig, right);
     },
 
+    triggerBuzz(left, right) {
+      lBuzz = Math.max(lBuzz, left);
+      rBuzz = Math.max(rBuzz, right);
+    },
+
     setIntensity(v) { master = clamp01(v); return master; },
     getIntensity: () => master,
     setEnabled(v) {
       enabled = !!v;
-      if (!enabled) send(0, 0);
+      // Zero the trigger contributions first, or the send below leaves whatever
+      // tension this frame had asked for latched on the pad for good — the
+      // triggers hold their last commanded state, they don't decay.
+      if (!enabled) { lTrig = rTrig = lBuzz = rBuzz = 0; send(0, 0); }
       return enabled;
     },
     isEnabled: () => enabled,
     hasTriggerRumble: () => triggerSupport === true,
     triggersOn: () => useTriggers,
     setTriggerRumble(v) { useTriggers = !!v; return useTriggers; },
+    attachHID(h) { hid = h; },
+    hid: () => hid,
+    usingHID: () => !!hid && hid.isReady(),
 
-    // Straight diagnostic: full power on both motors, and report back what the
-    // browser actually said. This is the only way to tell "my code is wrong"
-    // apart from "this browser or this connection has no haptics".
-    async test() {
+    // Straight diagnostic, and the only way to tell "my code is wrong" apart
+    // from "this browser or this connection has no haptics".
+    //
+    // Over HID it's a sequence rather than one buzz, because "the haptics don't
+    // work" is usually only half true — the coils are addressed by different
+    // bytes from the triggers, and either half can be dead on its own. Feeling
+    // your way down the stages tells you which. `say` narrates them.
+    async test(say = () => {}) {
+      if (hid && hid.isReady()) {
+        testing = true;
+        try {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        const stages = [
+          ["right coil — the fine, buzzy one", () => hid.setRumble(1, 0), 800],
+          ["left coil — the deep, thumpy one", () => hid.setRumble(0, 1), 800],
+          ["both, ramping up", null, 0], // handled below
+          ["L2 stiffening", () => {
+            hid.setRumble(0, 0);
+            hid.setTriggerEffect("left", { mode: "resist", start: 1, force: 8 });
+          }, 900],
+          ["R2 buzzing", () => {
+            hid.setTriggerEffect("left", { mode: "off" });
+            hid.setTriggerEffect("right", { mode: "buzz", freq: 30, amp: 8, start: 1 });
+          }, 900],
+        ];
+
+        for (const [label, apply, hold] of stages) {
+          say(label);
+          if (!apply) {
+            // The ramp is its own thing: a steady climb is far easier to feel
+            // than a step, and it proves the amplitude byte is being read
+            // rather than just the "something is on" bit.
+            for (let i = 0; i <= 20; i++) {
+              hid.setRumble(i / 20, i / 20);
+              await hid.commit();
+              await wait(45);
+            }
+            continue;
+          }
+          apply();
+          await hid.commit();
+          await wait(hold);
+        }
+
+        await hid.stop();
+        return {
+          ok: hid.status() !== "error",
+          result: `${hid.writeCount()} reports written, ${hid.reportSize()}-byte payload`,
+          why: hid.error(),
+          effects: `WebHID over ${hid.transport()} — rumble and adaptive triggers`,
+        };
+        } finally { testing = false; }
+      }
+
       const act = actuator();
       if (!act) {
         return { ok: false, why: "no vibrationActuator — this browser exposes no haptics for this pad" };
@@ -187,7 +302,9 @@ function createRumble(getPad) {
 
     stop() {
       pulses.length = 0;
-      weak = strong = lTrig = rTrig = 0;
+      weak = strong = lTrig = rTrig = lBuzz = rBuzz = 0;
+      sentWeak = sentStrong = 0;
+      if (hid && hid.isReady()) { hid.stop(); return; }
       send(0, 0);
     },
 
@@ -206,18 +323,31 @@ function createRumble(getPad) {
         s += p.s * k;
       }
 
+      const clear = () => { weak = strong = lTrig = rTrig = lBuzz = rBuzz = 0; };
       weak = strong = 0;
 
-      if (!enabled) { lTrig = rTrig = 0; return; }
+      if (testing) { clear(); return; }
+      if (!enabled) { clear(); return; }
 
       w = clamp01(w * master);
       s = clamp01(s * master);
       sinceSend += dt;
 
+      // The HID path is a state push, not an effect queue: there's nothing to
+      // re-issue and nothing to preempt, so it's driven at a flat rate and never
+      // goes quiet. Skipping the sends while the motors are still would freeze
+      // the trigger tension and the lightbar along with them, since all three
+      // ride in the same report.
+      if (hid && hid.isReady()) {
+        if (sinceSend >= HID_PERIOD) sendHID(w, s);
+        clear();
+        return;
+      }
+
       const quiet = w < RUMBLE_SILENCE && s < RUMBLE_SILENCE;
       const alreadyQuiet = sentWeak < RUMBLE_SILENCE && sentStrong < RUMBLE_SILENCE;
       // Once it's stopped, stay stopped — no point re-sending zeroes forever.
-      if (quiet && alreadyQuiet) { lTrig = rTrig = 0; return; }
+      if (quiet && alreadyQuiet) { clear(); return; }
 
       const jumped = Math.abs(w - sentWeak) > RUMBLE_JUMP
                   || Math.abs(s - sentStrong) > RUMBLE_JUMP;
@@ -226,7 +356,7 @@ function createRumble(getPad) {
         send(w, s);
       }
 
-      lTrig = rTrig = 0;
+      clear();
     },
   };
 }
@@ -236,6 +366,13 @@ function createRumble(getPad) {
 export function setupGamepad() {
   let index = null;   // which slot in getGamepads() we're reading
   let id = "";
+  let source = "";    // "gamepad" | "hid" — which one poll() actually read
+  // "auto" reads the direct HID link whenever it's live and falls back to the
+  // Gamepad API. That order round the way it is because an open WebHID handle
+  // is exactly what can leave the Gamepad API reporting nothing — preferring
+  // the path we know is up beats discovering the other one is down. The other
+  // two settings exist so `padsrc` can prove which is which.
+  let prefer = "auto";
 
   const held    = new Array(20).fill(false);
   const rising  = new Array(20).fill(false);
@@ -250,14 +387,26 @@ export function setupGamepad() {
 
   const rumble = createRumble(raw);
 
+  // The direct HID link, when there is one. Holding the pad open over WebHID
+  // can leave the Gamepad API reporting nothing at all — two claims, one
+  // device — and the symptom is a pad whose haptics work perfectly while the
+  // sticks do nothing. Reading input off the same open device sidesteps it.
+  const hidInput = () => rumble.hid()?.input() ?? null;
+
   const state = {
     // Post-deadzone stick values, refreshed by poll().
     lx: 0, ly: 0, rx: 0, ry: 0,
     rumble,
 
-    connected: () => raw() !== null,
+    connected: () => raw() !== null || hidInput() !== null,
     id: () => id,
     slot: () => index,
+    source: () => source,
+    preference: () => prefer,
+    setSource(v) {
+      prefer = v === "hid" || v === "gamepad" ? v : "auto";
+      return prefer;
+    },
 
     // Everything the browser will admit to, whether we've claimed it or not.
     // The distinction that matters when a pad "won't connect": an empty list
@@ -291,7 +440,14 @@ export function setupGamepad() {
     consume(i) { rising[i] = false; held[i] = false; values[i] = 0; },
 
     poll(dt) {
-      const gp = raw() || pick();
+      // Claim a slot either way, so the id and the Gamepad-API rumble path stay
+      // available even when the input itself is coming off the HID link.
+      const api = raw() || pick();
+      const direct = prefer === "gamepad" ? null : hidInput();
+
+      const gp = prefer === "hid" ? direct : (direct || api);
+      source = !gp ? "" : gp === direct ? "hid" : "gamepad";
+      if (source === "hid" && !id) id = "DualSense (HID)";
 
       if (!gp) {
         for (let i = 0; i < held.length; i++) {

@@ -1,0 +1,206 @@
+# toothless_rigged.glb — skeleton
+
+- 95 bones, 0 animation clips, ~48492 triangles
+- Model is Y-up and lying flat; nose points along local -Z
+- `Wing_Finger001..018` are **6 digits x 3 segments**: (001,002,003) is digit 1,
+  (004,005,006) digit 2, and so on to (016,017,018) digit 6.
+
+## Hierarchy
+
+```
+Neck.003
+  Head
+  Shoulder_Clavicle.L
+    UpperArm.L
+      Forearm.L
+        Wrist.L
+          Front_Toe.L
+  Neck.002
+    Neck.001
+      Spine
+        Tail.001
+          Tail.002
+            Tail.003
+              Tail.004
+                Tail.005
+                  Tail.006
+                    Tail.007
+                      Tail.008
+                        Tail.009
+                          Tail.010
+                            Tail.011
+                              Tail_tip
+                            Tail_Fin_Strut.005.L
+                          Tail_Fin_Strut.004.R
+                        Tail_Fin_Strut.004.L
+                      Tail_Fin_Strut.003.L
+                      Tail_Fin_Strut.003.R
+                    Tail_Fin_Strut.002.L
+                    Tail_Fin_Strut.002.R
+                  Tail_Fin_Strut.001.L
+                  Tail_Fin_Strut.001.R
+        Wing_Clavicle.R
+          Wing_Shoulder.R
+            Wing_UpperArm.R
+              Wing_Finger.016.R
+                Wing_Finger.017.R
+                  Wing_Finger.018.R
+              Wing_Finger.013.R
+                Wing_Finger.014.R
+                  Wing_Finger.015.R
+              Wing_Finger.010.R
+                Wing_Finger.011.R
+                  Wing_Finger.012.R
+              Wing_Finger.007.R
+                Wing_Finger.008.R
+                  Wing_Finger.009.R
+              Wing_Finger.004.R
+                Wing_Finger.005.R
+                  Wing_Finger.006.R
+              Wing_Finger.001.R
+                Wing_Finger.002.R
+                  Wing_Finger.003.R
+        Tail_Sail_Strut_01.R
+        Tail_Sail_Strut_02.R
+        Tail_Sail_Strut_03.R
+        Hip.R
+          Thigh.R
+            Shin.R
+              Ankle.R
+                Toe.R
+        Hip.L
+          Thigh.L
+            Shin.L
+              Ankle.L
+                Toe.L
+        Shoulder_Clavicle.R
+          UpperArm.R
+            Forearm.R
+              Wrist.R
+                Front_Toe.R
+        Wing_Clavicle.L
+          Wing_Shoulder.L
+            Wing_UpperArm.L
+              Wing_Finger.016.L
+                Wing_Finger.017.L
+                  Wing_Finger.018.L
+              Wing_Finger.013.L
+                Wing_Finger.014.L
+                  Wing_Finger.015.L
+              Wing_Finger.010.L
+                Wing_Finger.011.L
+                  Wing_Finger.012.L
+              Wing_Finger.007.L
+                Wing_Finger.008.L
+                  Wing_Finger.009.L
+              Wing_Finger.004.L
+                Wing_Finger.005.L
+                  Wing_Finger.006.L
+              Wing_Finger.001.L
+                Wing_Finger.002.L
+                  Wing_Finger.003.L
+        Tail_Sail_Strut_01.L
+        Tail_Sail_Strut_02.L
+        Tail_Sail_Strut_03.L
+neutral_bone
+```
+
+## Flat list
+
+```
+Neck.003
+Head
+Shoulder_Clavicle.L
+UpperArm.L
+Forearm.L
+Wrist.L
+Front_Toe.L
+Neck.002
+Neck.001
+Spine
+Tail.001
+Tail.002
+Tail.003
+Tail.004
+Tail.005
+Tail.006
+Tail.007
+Tail.008
+Tail.009
+Tail.010
+Tail.011
+Tail_tip
+Tail_Fin_Strut.005.L
+Tail_Fin_Strut.004.R
+Tail_Fin_Strut.004.L
+Tail_Fin_Strut.003.L
+Tail_Fin_Strut.003.R
+Tail_Fin_Strut.002.L
+Tail_Fin_Strut.002.R
+Tail_Fin_Strut.001.L
+Tail_Fin_Strut.001.R
+Wing_Clavicle.R
+Wing_Shoulder.R
+Wing_UpperArm.R
+Wing_Finger.016.R
+Wing_Finger.017.R
+Wing_Finger.018.R
+Wing_Finger.013.R
+Wing_Finger.014.R
+Wing_Finger.015.R
+Wing_Finger.010.R
+Wing_Finger.011.R
+Wing_Finger.012.R
+Wing_Finger.007.R
+Wing_Finger.008.R
+Wing_Finger.009.R
+Wing_Finger.004.R
+Wing_Finger.005.R
+Wing_Finger.006.R
+Wing_Finger.001.R
+Wing_Finger.002.R
+Wing_Finger.003.R
+Tail_Sail_Strut_01.R
+Tail_Sail_Strut_02.R
+Tail_Sail_Strut_03.R
+Hip.R
+Thigh.R
+Shin.R
+Ankle.R
+Toe.R
+Hip.L
+Thigh.L
+Shin.L
+Ankle.L
+Toe.L
+Shoulder_Clavicle.R
+UpperArm.R
+Forearm.R
+Wrist.R
+Front_Toe.R
+Wing_Clavicle.L
+Wing_Shoulder.L
+Wing_UpperArm.L
+Wing_Finger.016.L
+Wing_Finger.017.L
+Wing_Finger.018.L
+Wing_Finger.013.L
+Wing_Finger.014.L
+Wing_Finger.015.L
+Wing_Finger.010.L
+Wing_Finger.011.L
+Wing_Finger.012.L
+Wing_Finger.007.L
+Wing_Finger.008.L
+Wing_Finger.009.L
+Wing_Finger.004.L
+Wing_Finger.005.L
+Wing_Finger.006.L
+Wing_Finger.001.L
+Wing_Finger.002.L
+Wing_Finger.003.L
+Tail_Sail_Strut_01.L
+Tail_Sail_Strut_02.L
+Tail_Sail_Strut_03.L
+neutral_bone
+```

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bone Probe</title>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  body { margin:0; background:#0e1117; overflow:hidden;
+         font-family:ui-monospace,Menlo,monospace; }
+  canvas { display:block; position:absolute; top:0; left:0; }
+  .tag { position:absolute; z-index:5; color:#ffcf9a; font-size:12px;
+         text-shadow:0 1px 4px #000; pointer-events:none; }
+  .tag b { color:#fff; }
+  .tag .m { color:#7fd6a0; }
+</style>
+</head>
+<body>
+<script type="module">
+// ---------------------------------------------------------------------------
+// A contact sheet of single-bone rotations.
+//
+// One model, drawn many times into scissored viewports, each with exactly one
+// bone rotated on exactly one axis. That makes it possible to LOOK at what each
+// bone does instead of inferring it, in a single screenshot, at the cost of one
+// model's worth of geometry.
+//
+// ?set=arm     the three wing-arm bones
+// ?set=digit   digit roots and mid segments
+// ?set=try     hand-composed fold attempts
+// ---------------------------------------------------------------------------
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+const SET = new URLSearchParams(location.search).get("set") || "arm";
+const A = 1.0;   // probe angle, radians
+
+const SETS = {
+  arm: [
+    { label: "reference", ops: [] },
+    { label: "UpperArm +X", ops: [["Wing_UpperArmL", "x",  A]] },
+    { label: "UpperArm -X", ops: [["Wing_UpperArmL", "x", -A]] },
+    { label: "UpperArm +Y", ops: [["Wing_UpperArmL", "y",  A]] },
+    { label: "UpperArm -Y", ops: [["Wing_UpperArmL", "y", -A]] },
+    { label: "UpperArm +Z", ops: [["Wing_UpperArmL", "z",  A]] },
+    { label: "UpperArm -Z", ops: [["Wing_UpperArmL", "z", -A]] },
+    { label: "Shoulder +X", ops: [["Wing_ShoulderL", "x",  A]] },
+    { label: "Shoulder -X", ops: [["Wing_ShoulderL", "x", -A]] },
+    { label: "Shoulder +Y", ops: [["Wing_ShoulderL", "y",  A]] },
+    { label: "Shoulder +Z", ops: [["Wing_ShoulderL", "z",  A]] },
+    { label: "Clavicle +Z", ops: [["Wing_ClavicleL", "z",  A]] },
+  ],
+
+  digit: [
+    { label: "reference", ops: [] },
+    { label: "F001 +X (lead)", ops: [["Wing_Finger001L", "x",  A]] },
+    { label: "F001 -X", ops: [["Wing_Finger001L", "x", -A]] },
+    { label: "F001 +Y", ops: [["Wing_Finger001L", "y",  A]] },
+    { label: "F001 -Y", ops: [["Wing_Finger001L", "y", -A]] },
+    { label: "F001 +Z", ops: [["Wing_Finger001L", "z",  A]] },
+    { label: "F016 +X (trail)", ops: [["Wing_Finger016L", "x",  A]] },
+    { label: "F016 -X", ops: [["Wing_Finger016L", "x", -A]] },
+    { label: "F016 +Y", ops: [["Wing_Finger016L", "y",  A]] },
+    { label: "F016 -Y", ops: [["Wing_Finger016L", "y", -A]] },
+    { label: "F002 +X (mid)", ops: [["Wing_Finger002L", "x",  A]] },
+    { label: "all roots +Y", ops: [[/^Wing_Finger(001|004|007|010|013|016)L$/, "y", A]] },
+  ],
+
+  try: [],   // filled in from ATTEMPTS below
+};
+
+// Composed from what the probes showed:
+//   - Shoulder +Z sweeps the wing back along the spine
+//   - UpperArm +X and Finger016 +X close it (016->017->018 is the MAIN SPAR;
+//     digits 001-015 barely move the wingtip at all)
+// L and R get the same X sign but mirrored Z; attempt 3 tests the opposite, in
+// case the armature mirrors X too.
+const L = (sweep, arm, f16, f17, f18, minor = 0) => [
+  ["Wing_ShoulderL",    "z",  sweep],
+  ["Wing_UpperArmL",    "x",  arm],
+  ["Wing_Finger016L",   "x",  f16],
+  ["Wing_Finger017L",   "x",  f17],
+  ["Wing_Finger018L",   "x",  f18],
+  [/^Wing_Finger(001|004|007|010|013)L$/, "x", minor],
+];
+const R = (sweep, arm, f16, f17, f18, minor = 0, xs = 1) => [
+  ["Wing_ShoulderR",    "z", -sweep],
+  ["Wing_UpperArmR",    "x",  arm * xs],
+  ["Wing_Finger016R",   "x",  f16 * xs],
+  ["Wing_Finger017R",   "x",  f17 * xs],
+  ["Wing_Finger018R",   "x",  f18 * xs],
+  [/^Wing_Finger(001|004|007|010|013)R$/, "x", minor * xs],
+];
+const both = (...a) => [...L(...a), ...R(...a)];
+
+const ATTEMPTS = [
+  { label: "reference", ops: [] },
+  { label: "A soft", ops: both(0.8, 1.0, 1.2, 0.8, 0.4) },
+  { label: "B medium", ops: both(1.0, 1.4, 1.6, 1.0, 0.6) },
+  { label: "C firm", ops: both(1.2, 1.7, 1.9, 1.2, 0.7) },
+  { label: "D tight", ops: both(1.4, 2.0, 2.2, 1.4, 0.8) },
+  { label: "E firm + struts", ops: both(1.2, 1.7, 1.9, 1.2, 0.7, 0.5) },
+  { label: "F R-mirrored X", ops: [...L(1.2, 1.7, 1.9, 1.2, 0.7), ...R(1.2, 1.7, 1.9, 1.2, 0.7, 0, -1)] },
+  { label: "G sweep only", ops: both(1.6, 0.9, 1.0, 0.6, 0.3) },
+  { label: "H arm-led", ops: both(0.9, 2.2, 1.4, 0.9, 0.5) },
+  { label: "I spar-led", ops: both(0.9, 1.0, 2.4, 1.6, 0.9) },
+  { label: "J tight+struts", ops: both(1.4, 2.0, 2.2, 1.4, 0.8, 0.6) },
+  { label: "K very tight", ops: both(1.5, 2.3, 2.5, 1.6, 0.9, 0.4) },
+];
+SETS.try = ATTEMPTS;
+
+// Refinement around G (sweep-dominant), each shown from three angles so a pose
+// can't pass by looking good from one side while clipping through the body.
+const CANDS = [
+  { label: "G1 sweep 1.4", ops: both(1.4, 0.8, 0.9, 0.5, 0.25) },
+  { label: "G2 sweep 1.6", ops: both(1.6, 0.9, 1.0, 0.6, 0.30) },
+  { label: "G3 sweep 1.8", ops: both(1.8, 1.0, 1.1, 0.7, 0.35) },
+  { label: "G4 +struts",   ops: both(1.6, 0.7, 0.9, 0.5, 0.25, 0.35) },
+];
+const VIEWS = [
+  { tag: "rear34", pos: [4.2, 3.0, 5.6],  at: [0, 0.7, 0] },
+  { tag: "side",   pos: [6.4, 1.4, 0.2],  at: [0, 0.8, 0] },
+  { tag: "top",    pos: [0.4, 7.0, 1.2],  at: [0, 0.5, 0] },
+];
+SETS.refine = [];
+for (const c of CANDS) {
+  for (const v of VIEWS) {
+    SETS.refine.push({ label: `${c.label} · ${v.tag}`, ops: c.ops, view: v });
+  }
+}
+
+const variants = SETS[SET] || SETS.arm;
+
+// --- Layout -----------------------------------------------------------------
+const COLS = SET === 'refine' ? 3 : 4;
+const ROWS = Math.ceil(variants.length / COLS);
+const W = 1800, H = 260 * ROWS;
+const TW = W / COLS, TH = H / ROWS;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+renderer.setScissorTest(true);
+renderer.autoClear = false;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0x9fb0d0, 0x2a2620, 2.2));
+const key = new THREE.DirectionalLight(0xfff2e0, 2.6); key.position.set(4, 7, 4); scene.add(key);
+const rim = new THREE.DirectionalLight(0x9dbaf0, 1.6); rim.position.set(-5, 2.5, -6); scene.add(rim);
+
+const camera = new THREE.PerspectiveCamera(42, TW / TH, 0.05, 120);
+
+// Rear three-quarter from above: his nose is -Z, so behind is +Z. This angle
+// shows both the wingspan and how the wing sits over the back.
+camera.position.set(4.2, 3.0, 5.6);
+camera.lookAt(0, 0.7, 0);
+
+const bones = new Map();
+const rest = new Map();
+let rig = null;
+
+function resetBones() {
+  for (const [n, b] of bones) {
+    const r = rest.get(n);
+    if (r) b.rotation.set(r.x, r.y, r.z);
+    b.scale.setScalar(1);
+  }
+}
+
+function applyOps(ops) {
+  for (const [who, axis, amt] of ops) {
+    if (who instanceof RegExp) {
+      for (const [n, b] of bones) if (who.test(n)) b.rotation[axis] += amt;
+    } else {
+      const b = bones.get(who);
+      if (b) b.rotation[axis] += amt;
+    }
+  }
+}
+
+const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+function span() {
+  const l = bones.get("Wing_Finger018L"), r = bones.get("Wing_Finger018R");
+  if (!l || !r) return 0;
+  rig.updateMatrixWorld(true);
+  l.getWorldPosition(_a); r.getWorldPosition(_b);
+  return _a.distanceTo(_b);
+}
+
+new GLTFLoader().load("./assets/models/toothless_rigged.glb", (g) => {
+  rig = g.scene;
+  rig.traverse((o) => {
+    if (o.isMesh || o.isSkinnedMesh) o.frustumCulled = false;
+    if (o.isBone) bones.set(o.name, o);
+  });
+  for (const [n, b] of bones) rest.set(n, b.rotation.clone());
+  rig.scale.setScalar(3.4 / 4.2);
+  scene.add(rig);
+
+  renderer.setClearColor(0x0e1117, 1);
+  renderer.clear();
+
+  variants.forEach((v, i) => {
+    const col = i % COLS, row = Math.floor(i / COLS);
+    const x = col * TW, y = H - (row + 1) * TH;
+
+    resetBones();
+    applyOps(v.ops);
+    const s = span();
+
+    if (v.view) {
+      camera.position.set(...v.view.pos);
+      camera.lookAt(...v.view.at);
+    } else {
+      camera.position.set(4.2, 3.0, 5.6);
+      camera.lookAt(0, 0.7, 0);
+    }
+
+    renderer.setViewport(x, y, TW, TH);
+    renderer.setScissor(x, y, TW, TH);
+    renderer.render(scene, camera);
+
+    const tag = document.createElement("div");
+    tag.className = "tag";
+    tag.style.left = `${x + 8}px`;
+    tag.style.top = `${row * TH + 6}px`;
+    tag.innerHTML = `<b>${i + 1}. ${v.label}</b><br><span class="m">span ${s.toFixed(2)}</span>`;
+    document.body.appendChild(tag);
+  });
+
+  document.title = `PROBE ${SET} ready`;
+});
+</script>
+</body>
+</html>
