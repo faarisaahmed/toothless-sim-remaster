@@ -83,6 +83,7 @@ table is the **single point of change**, and nothing outside it needs touching.
 | Stormcutter | **Galeshear** | Four wings, cuts crosswind. |
 | Sigrún | **Sigrún** | Already original. Keep. |
 | Eyvi | **Eyvi** | Keep. |
+| Wrack | **Wrack** | Already original. Keep. A plain old word for wreckage — the crews named them, and they named them after what they find in the morning. |
 | Halvard Sten | **Halvard Sten** | Already original. Keep. |
 | Johann / Krogan | **the Ledger** | Not people — a defeated merchant syndicate. Removes the continuity dependency entirely and sounds worse than a name. |
 | Bewilderbeast | **the Deep King** | |
@@ -200,6 +201,27 @@ lesson lands — he watches *her* sleep-purge before he understands he does it t
 hatchling's purge is tiny and harmless and she does it three times a night, which is
 exactly why he never noticed adults doing it.
 
+### Wrack — the mirror
+
+A Zippleback. Two heads that do not agree.
+
+Wrack worked out what Toothless worked out — that a dragon can fight back — and got
+there first, alone, with nobody to argue with except themselves. They have been wrecking
+hunter operations for months. Nobody has died, because Wrack is not a murderer; they are
+simply not interested in the second half of the question. Cages get opened. What happens
+to the dragons afterwards is not their department.
+
+One head wants to stop. One head has not stopped in a long time and is very tired. They
+argue constantly, wordlessly, in front of you.
+
+**They are not a boss and never become one.** There is no mission where you fight Wrack
+and no mission where you fix them. They turn up three times, uninvited, and are worse
+each time. Toothless sleeps beside them once, because that is how keys work, and the
+game makes the player hold that contradiction for a whole night.
+
+Wrack is what he would be without Sigrún. The game's only comment on this is that he can
+see it.
+
 ### The antagonist — Halvard Sten (placeholder)
 
 **Not a brute.** An engineer, a metallurgist, and Hiccup's dark mirror in the most
@@ -261,15 +283,29 @@ apart from the inside.
 lives out their life on Hollow Stack in the sun, which is more than they have ever had and
 less than they should have got.
 
-### The rig — a character
+### Dragon Hunter Island — a character
 
-Not a fortress on an island. A fortress *of* iron built across and between three sea
-stacks: a smelter, a cage tier, a dock, and a spine of walkways strung between them over
-open water. It never stops. Furnace glow visible from a long way off at night. Sound
-before sight.
+**Revised.** This section used to read "not a fortress on an island — a fortress *of*
+iron built across and between three sea stacks... over open water." That was the right
+image and the wrong place to put it, for one buildable reason: the flight model will only
+set a dragon down over land, so a base standing in open water is a base the player can
+never land on, walk around, or be somewhere in. Every phase in §7 that has him *on the
+deck* was unreachable. The iron stays; the water underneath it does not.
 
-Its size should be established by *flying past it once*, low, at night, and having it not
-end.
+So: a drowned volcano. A rim of three to five hundred metres of rock the whole way round,
+one channel cut through the wall at sea level for the ships, and a caldera floor inside
+with the compound standing on it — smelter, cage tier, dock, cranes, and a spine of
+walkways over the rock rather than over the sea. It never stops. Furnace glow visible from
+a long way off at night, thrown up onto the inside of the rim so the whole bowl glows
+before you can see a single torch. Sound before sight.
+
+The rim is doing the work the water used to do. There are exactly two ways in — over the
+top, which means arriving high, slow and lit, or through the channel, which means arriving
+at sea level in the one place everyone is looking. The island is the lock and the approach
+is the puzzle.
+
+Its size should be established by *flying into it once*, low, at night, and having the
+wall close behind you.
 
 ---
 
@@ -815,85 +851,474 @@ The wall has one entry on it. There is a great deal of wall left.
 
 ---
 
-## 4. Beyond Mission 1
+## 4. Beyond Mission 1 — the full campaign
 
-### Act structure
+Mission 1 is specified to the scene above. Everything after it used to be a page of
+gestures. This is the rest of it, at the same fidelity: what each mission *is*, what
+system it opens, what it costs, and what it permanently changes about the world.
 
-**ACT I — TWO (Missions 1–3)**
-He learns he can do this, and immediately learns he can't do it alone.
-- **M2 — The Forge.** The rig is running again. They go back for answers about the alloy
-  and find Bellows at the core — unchained, unwell, and unwilling to leave. **The mission
-  fails because the door they need to open is the dragon's own mind**, and neither of them
-  has any idea how to do that yet. They have to fly away and leave someone behind who
-  didn't want to be rescued. That's the act break, and it's a better failure than a locked
-  door.
-- **M3 — Word Travels.** Dragons are arriving at Hollow Stack because word is spreading,
-  and he is not remotely equipped for that. A rescue goes wrong because he runs it the way
-  he ran Mission 1 — alone, out of habit, without telling her. **A dragon is retaken.** Not
-  killed — retaken, and the player sees them in a cage two missions later, which is worse
-  and lasts longer. Sigrún is not sad about this. She is *furious*, and she's right.
+### 4.0 The shape
 
-**ACT II — A WING (Missions 4–7)**
-He learns to work with someone. Co-op verbs open up, the island becomes a base, and the
-sleepfire keys accumulate through relationships.
-- Species recruitment missions, each one a key and each one a night spent sleeping beside
-  somebody new
-- Halvard escalating: alloy sold to rival hunters, a second rig, dragon-proof *armour*
-- **The mirror mission:** they reach a hunter operation and find it already wrecked — by
-  dragons, and not carefully. Ships stove in, crews driven into the water, cages torn open
-  and the freed dragons scattered with no one to guide them. Nobody is dead and everybody
-  is terrified, humans and dragons both. He is not the only dragon who worked out he could
-  fight back, and the other one didn't stop to ask what happens next. **First serious
-  question about what he's building** — and the first time Sigrún is the one who says the
-  thing he doesn't want to hear.
+Three acts, ten missions, one question each:
 
-**ACT III — THE OFFER (Missions 8–10)**
-- Halvard finds the island. Not by force — he's simply *there* when they get home, sitting
-  calmly among the dragons, having touched none of them.
-- **The offer:** he has studied the fin. He can build a better one. A real tail — alloy,
-  articulated, permanent. Full autonomy, no straps, no boy, no rider. He can do it
-  tomorrow. In exchange he wants only to keep studying. *He is not lying, and it is a
-  genuinely good offer.*
-- Toothless should visibly, seriously consider it. The player should feel the pull.
-- **The refusal** is not "I don't need it." It's that the alloy in that tail would have to
-  come out of Bellows, and he has spent the whole game unable to stop thinking about a
-  dragon who has not slept in twenty years.
-- **The clock:** Halvard is retiring Bellows, kindly, and has a younger dragon picked out
-  for the job. There's no bomb and no timer — just a replacement, arriving.
-- **Finale — "Lie Down."** Not a boss fight. The two of them get into the core, and the
-  entire climax is **convincing a dragon who believes they are needed that they are
-  allowed to stop.** Dragon-speech, every verb the game has taught, and Sigrún doing the
-  part he can't — because she's a parent and he isn't.
-  Bellows lies down. Bellows sleeps. **Twenty years of purge comes up at once** and takes
-  the smelter apart from the inside while the two of them drag them clear.
-  The player's final action in the game is putting someone to bed.
+| Act | Missions | Question | Answer he arrives at |
+|---|---|---|---|
+| **I — TWO** | 1–3 | Can I do this? | Yes, and not alone. |
+| **II — A WING** | 4–7 | What am I building? | Something that will outlive my being here. |
+| **III — THE OFFER** | 8–10 | What is it for? | Somebody else's rest. |
 
-**EPILOGUE — Berk**
+The escalation is not "bigger enemies." It's **the problem changing shape underneath
+him.** Mission 1 is a locked cage. By Mission 7 the cages are not the problem — the
+*supply* is, and you cannot bite a supply chain. By Mission 10 the problem is one
+exhausted dragon who won't be told.
+
+Read that as a difficulty curve too. Act I is stealth and locks. Act II is logistics and
+other people. Act III is persuasion, and the last mission has no combat in it at all.
+
+---
+
+### 4.1 Systems that come online after Mission 1
+
+Mission 1 ships the fin, sleepfire, the lab, dragon-speech, and the stealth verbs. These
+are the five that arrive later, each because a mission needs it.
+
+#### 4.1.1 The wing — the roster
+
+Dragons freed in one mission live at Hollow Stack in the next. That's the whole
+progression system and it is deliberately not a menu.
+
+Each resident is three things at once:
+
+- **A key.** Sleep beside them, get their fire. (§4.6)
+- **A pair of hands.** They can do one job you can't, and they will only do it if the
+  relationship supports it.
+- **A liability.** They eat. They panic. They wander. The island's fish stock is finite
+  and visible, and it goes down as the roster goes up.
+
+That last one is not a survival mechanic, it's the theme. **Every dragon you save makes
+the next rescue harder**, and the game never once says so out loud. The player works it
+out from the fishing grounds thinning.
+
+#### 4.1.2 Co-op — flying with somebody
+
+From M2 Sigrún flies with you. She is not an escort and she is not a follower; she has
+her own read on a situation and acts on it. Three verbs:
+
+- **Tail-point at her** — "you take that." She'll do it her way, which is louder than
+  yours.
+- **Head-press** — "wait." Costs you time and she gets impatient, visibly.
+- **Nothing** — she picks. She's usually right and occasionally catastrophically wrong,
+  and the game never flags which in advance.
+
+**Design rule: she is never a health bar and never needs rescuing on a timer.** The
+tension in co-op is disagreement, not fragility.
+
+**Her flight is better than his.** Four wings, no prosthetic, twenty years of practice.
+She waits for him at every gap. He notices. It's never mentioned.
+
+#### 4.1.3 The alpha pressure
+
+Nobody plans this and nobody says it. It accumulates:
+
+- **M3:** two dragons at Hollow Stack move out of his way at the fishing ground. Just a
+  camera beat. Nothing else happens.
+- **M5:** a new arrival won't eat until he does. He has to be shown eating for the island
+  to eat.
+- **M6:** when he roars in anger — the first time in the game he uses roar for something
+  other than a distraction — **every dragon on the island drops flat.** Including Sigrún.
+  Including Eyvi. He didn't mean it. There is no way to apologise with the verb set.
+- **M8:** Halvard has noticed it before Toothless has, and says so, kindly, and is right.
+- **M10:** he needs it, once, and using it deliberately is the hardest thing in the game.
+
+The player's controls never change. What changes is what the world does with the same
+button. **He left Berk to stop being an instrument and is becoming an institution**, and
+that is Act II's actual subject, sitting underneath the raids.
+
+*This is the seed for the year after the game. It is never named.*
+
+#### 4.1.4 The fin, degrading
+
+Per §2.1 the fin never gets a menu upgrade. It does accumulate **condition**, tracked in
+exactly three states and shown only on the object:
+
+| State | Cause | Effect |
+|---|---|---|
+| **Sound** | — | The prototype's normal, twitchy self |
+| **Worn** | Salt, heat, hard flying — arrives by M4 regardless | Drift in sustained turns roughly doubles |
+| **Fouled** | Taking alloy-net damage in M7 | Locks at random for a half-second, once every thirty or so |
+
+Repair is a lab job with materials from missions — sailcloth, hunter cordage, boiled
+hide. It returns you to Sound. It does not improve on Sound, ever.
+
+**And once, in M7, it comes off entirely.** A net takes it. For about ninety seconds he
+flies on one fin — the flight model becomes genuinely, unfairly bad, a spiral he can
+only partly fight — and lands hard in the water. This is the only sequence in the game
+where the fin's absence is played rather than discussed, and it must be built early and
+tested to death, because it is either the best ninety seconds in the game or an
+unplayable insult.
+
+He gets it back. It is Fouled for the rest of the act.
+
+#### 4.1.5 The ledger — what you are actually fighting
+
+The single most important escalation, and it is economic.
+
+**Halvard does not hunt.** He buys. Rival crews across the archipelago catch dragons and
+sell them into his operation; he processes, alloys, and sells cages back to the people
+who supply him. It is a closed loop and it is *very well run*.
+
+The consequence for the player: **destroying a rig accomplishes almost nothing.** M1's
+rig is running again by M2. Freed dragons are replaced within a fortnight, because
+supply is not the constraint. The player will feel this before the game states it, and
+the game states it exactly once — in M6, on the wall, when Toothless scratches the same
+rig twice and has to draw a line between them.
+
+Act II's real objective is therefore not rescue. It's **making dragons not worth
+buying**: wrecking the alloy supply, making crews afraid of the water at night, and —
+the one that works — freeing dragons so visibly and so often that the price collapses.
+
+Halvard's response to this is the most human thing in the game. He does not rage. He
+**adapts**, publishes, and improves his product. Every counter-measure in Act II is him
+having read your last mission correctly.
+
+---
+
+### 4.2 ACT I — TWO (Missions 1–3)
+
+*He learns he can do this, and immediately learns he can't do it alone.*
+
+#### M2 — "The Forge"
+
+**Premise.** Two weeks on. The rig he emptied is lit again and running a night shift. He
+goes back for the metal — where does it come from, and why won't it burn — and finds the
+answer is a dragon.
+
+**Opens:** co-op (§4.1.2). **Key acquired:** none. *That's the point.*
+
+| # | Scene | Kind | Beat |
+|---|---|---|---|
+| 1 | **Hollow Stack, morning** | playable | The island with two dragons on it. Eyvi can't fish and won't stop trying. Sigrún watches Toothless fail to teach her, which is the first funny scene in the game and also the last easy one. |
+| 2 | **The rig, relit** ★ | cutscene, 30s | Approach at height. Every torch he snuffed is burning. New cages, more of them. Nobody rebuilt it in a panic; somebody rebuilt it *properly*. |
+| 3 | **Two ways in** | playable | First co-op stealth. Sigrún takes the seaward side loudly on purpose while he goes up the middle. The player discovers that a distraction they don't control is worse than no distraction. |
+| 4 | **The smelter tier** | playable | New space: heat, noise, no darkness to make. Wing-gust is useless — these are furnace-fed flames, they don't go out. The stealth toolkit's first hard counter. |
+| 5 | **Bellows** | playable | The core. A Kilnback, enormous, unchained, unmuzzled, in an open room with an open door. Working. Feeding the furnace with a sustained burn on a twenty-year rhythm. The alloy is being made *out of dragon fire.* |
+| 6 | **The conversation that isn't one** | playable | Every dragon-speech verb, in any order, for as long as the player wants. Head-press. Tail-point at the door. Chirp. Nudge. Bellows responds to all of it — they are not broken, not drugged, not afraid. They look at the door, look at the furnace, and go back to work. **They believe the furnace needs them.** |
+| 7 | **Interrupted** | playable | The shift changes. Not an alarm — a *routine*. Twenty men walk in to do their jobs and the room is suddenly the most dangerous place in the game, because there is nowhere to hide in a lit room and Bellows will not move. Escape is a chase, and it is the first time the player runs. |
+| 8 | **Leaving somebody** ★ | cutscene, 25s | From height, the two of them. The core still glowing. A dragon in it who could walk out. |
+
+**The failure is the act break.** No key, no rescue, no win. The player brought a
+crowbar to a problem that needed a conversation, and the game has not taught either of
+them how to have one. Nine missions later it will.
+
+**What it permanently changes:** the alloy has a source, and the source has a face. Every
+cage from here on is made of somebody. The wall gets a scratch that is not a test result.
+
+#### M3 — "Word Travels"
+
+**Premise.** Dragons are arriving at Hollow Stack because word has spread, and he is not
+remotely equipped for that. A rescue goes wrong because he runs it out of habit — alone,
+at night, without telling her.
+
+**Opens:** the roster (§4.1.1), the alpha pressure's first tick. **Key acquired:**
+Gronckle (molten, pools, flows downhill).
+
+| # | Scene | Kind | Beat |
+|---|---|---|---|
+| 1 | **Nine of them** | playable | The island has nine dragons on it and no arrangement. Nobody has decided anything. The fishing ground is visibly thinner. Two dragons move out of his way and he doesn't notice. |
+| 2 | **The report** | playable | A Gronckle arrives half-drowned with rope-burn and a story told entirely in body language and one exhausted tail-point: *west*. |
+| 3 | **West** | playable | Open-water traversal, weather. Establishes the second hunter crew — not Halvard's, a *supplier*. Smaller, meaner, sloppier, and therefore more dangerous. |
+| 4 | **The habit** | playable | The player is given a clean solo infiltration. It is well-built and it feels great. **The game is letting you do the thing you're good at, on purpose.** |
+| 5 | **It goes wrong** | playable | Not through player error. A second boat arrives mid-extraction, because a supplier has partners, because it's a *business*. Six dragons out, one retaken — a young Zippleback, netted while he's carrying somebody else. |
+| 6 | **Nothing to be done** | playable | He can go back. The game permits it, fully, and it does not work; the boat is out of the shallows and there is no lever. The player has to fly away, and the flying-away is playable and long. |
+| 7 | **Sigrún** ★ | cutscene, 40s | She is not sad. She is *furious*, and she is right, and the fury is entirely about being left behind — not from sentiment, from arithmetic. Two would have carried both. She says nothing because she can't. She doesn't have to. |
+| 8 | **The wall** | playable | He scratches the retaken Zippleback on the lab wall. Not a test result. A debt. **It stays on the wall until M7**, and the player sees it every single time they enter the lab. |
+
+**What it permanently changes:** he can no longer solo. Not mechanically — the game
+still allows it, and Act II's optional content quietly punishes it. The roster becomes a
+population with needs. The debt goes on the wall.
+
+---
+
+### 4.3 ACT II — A WING (Missions 4–7)
+
+*He learns to work with someone, the island becomes a place, and the keys accumulate
+through relationships. Halvard, throughout, is reading him correctly.*
+
+#### M4 — "Deep Water"
+
+**Premise.** A holding pen on the sea floor, built where a Night Fury cannot go. To reach
+it he needs a species that lives down there, and the species in question is
+constitutionally incapable of being quiet.
+
+**Key acquired:** Thunderdrum — concussive, not thermal. Shatters brittle alloy at depth,
+works underwater.
+
+The joke is the design: a stealth mission whose necessary ally is the loudest animal in
+the world. The Thunderdrum pair — an old couple, entirely uninterested in the war — will
+help, once, if he brings them something. What they want is not fish. **They want to know
+what happened to a third one**, taken years ago, and the honest answer he eventually
+gives them is that he doesn't know. They come anyway.
+
+The set piece: a sunken pen, no air, a hard breath timer, and an ally who solves the
+problem by screaming the alloy apart while the player is still trying to sneak. **The
+mission cannot be stealthed and the player will spend ten minutes trying.**
+
+*First sleepfire that isn't fire.* Teaching the player that "key" doesn't mean "burn."
+
+#### M5 — "The Stack"
+
+**Premise.** Halvard's second rig, built inside a sealed sea stack with no opening above
+the waterline. Nothing flies in. Something could *tunnel* in.
+
+**Key acquired:** Whispering Death — bores, and tunnels. Vertical routes into sealed places.
+
+The Whispering Death is a juvenile, alone, and **terrified of open sky.** It has never flown
+above ground in daylight. So the mission is inverted: for the first time in the game
+Toothless is the competent one teaching somebody else to fly badly, with the prototype
+fin, which he is still bad at.
+
+**The alpha beat lands here.** The Whispering Death won't eat until Toothless eats. He has to
+perform eating, in front of everyone, for the island to eat. It's played as a small
+warm scene and it should make an attentive player slightly cold.
+
+The stack itself is the best pure level in the game: a spiral bored upward through rock,
+lit only by what you set on fire, with the rig hanging in the middle of a hollow like
+something in a jar.
+
+**And the debt is here.** Two tiers below the route, behind glass-clear alloy, the young
+Zippleback taken in M3 — alive, four months older, and completely unreachable on this
+mission. There is no version of the level where the player can get down there. They can
+look. This is the one time the game deliberately shows you something you cannot have,
+and it is why the M7 recovery lands.
+
+#### M6 — "Wrack" — the mirror
+
+**Premise.** They reach a hunter operation and find it already wrecked. Not raided —
+*wrecked*. Ships stove in, crews driven into the water, cages torn open, and the freed
+dragons scattered into open sea with nobody to guide them. Nobody is dead. Everybody,
+humans and dragons alike, is terrified.
+
+**He is not the only dragon who worked out he could fight back.** The other one didn't
+stop to ask what happens next.
+
+**Wrack** is a Zippleback: two heads that do not agree. One of them wants to stop. One of
+them has not stopped in a long time and is very tired. They argue with each other
+constantly, wordlessly, in front of you, and it is the most upsetting thing in the game.
+
+| Beat | |
+|---|---|
+| **The aftermath** | Playable, slow, no threat. A dozen crew in the water hauling each other into a boat. A dragon on the rocks who has been free for two hours and is starving because nobody told it where fish are. |
+| **The disagreement** | Sigrún thinks this is *fine*. That's the shock — she is not appalled, she is relieved. Somebody else is doing the work. Her measure is Eyvi's safety and by that measure Wrack is an asset. |
+| **The roar** | He loses his temper. First and only time. **Every dragon on the island goes flat**, Sigrún included, Eyvi included. The verb set contains no apology. The player sits in that for as long as they like; nothing advances it but walking away. |
+| **The night** | He sleeps beside Wrack anyway, because that is how keys work, and the game makes you hold that contradiction for a full night cycle. Gets the Zippleback key: gas that hangs and ignites later. **The most dangerous key in the game, from the worst source.** |
+
+**Wrack does not become an ally and does not become a boss.** They come back twice more,
+uninvited, and are worse each time. There is no mission where you fight them and no
+mission where you fix them. They are what he would be without Sigrún, and the game's
+only comment is that he can see it.
+
+#### M7 — "The Quota" — the act break
+
+**Premise.** The big one. Everything works. It's the best mission in the game right up
+until it isn't.
+
+A coordinated strike on the transfer point where suppliers hand dragons over — the
+economic throat. All six keys in play, the full roster, Sigrún running half of it, and
+the retaken Zippleback from M3 is *there* — seen in a cage in M5, unreachable, and now
+finally in arm's reach.
+
+The heist works. They get everyone, including the debt. **The player gets to scratch out
+the mark on the wall**, and it is the single most satisfying moment in the game.
+
+Then three things happen, in this order:
+
+1. **The net.** Alloy cordage, weighted, fired from a deck gun. It takes the fin. Ninety
+   seconds of one-finned flight (§4.1.4) ending in the water. He is not captured. He is
+   just, briefly, an animal that can't fly.
+2. **The counter-measure.** He gets to the last cage and sleepfires it and **nothing
+   happens.** Halvard has pre-purged the alloy — quenched in dragon fire during forging,
+   so there is no residue left for a purge to bite. *The key does not work.* Not "is
+   harder." Does not work.
+3. **Halvard, in person, at distance, doing nothing.** Standing on the upper deck with a
+   ledger, watching, taking notes. He has been reading every mission. He is not angry
+   about tonight. Tonight was **data**.
+
+They get out with everyone. It is a total victory and it feels like a loss, which is
+exactly the right shape for an act break.
+
+**What it permanently changes:** sleepfire no longer opens alloy. The core mechanic of
+the game is switched off going into Act III, and the player has to find out what else
+they've got.
+
+---
+
+### 4.4 ACT III — THE OFFER (Missions 8–10)
+
+#### M8 — "He Is Already There"
+
+**Premise.** They come home and Halvard is sitting on Hollow Stack among the dragons,
+having touched none of them, with tea.
+
+**There is no combat and the game will not let you start one.** Bare-teeth does nothing.
+Roar does nothing except make your own island flinch — the alpha pressure, weaponised
+against you by a man who noticed it two missions ago.
+
+He talks for the length of the mission. Nobody answers him; per doctrine, dragons never
+get subtitles. He is courteous, precise, and completely uninterested in threatening
+anybody. He has three things to say:
+
+1. **He knows what Toothless is.** Not "a Night Fury" — *the one they follow*. He has
+   watched an island of dragons arrange itself around one animal who is visibly
+   miserable about it.
+2. **He has studied the fin.** He is professionally offended by it. It is a good idea
+   built by a clever child with no materials.
+3. **The offer.** A real tail. Alloy, articulated, permanent, no straps. Full autonomy,
+   no rider, no boy, tomorrow. In exchange he wants to keep studying — that's all, and
+   he means it. **He is not lying and it is a genuinely good offer.**
+
+Toothless should visibly consider it. The player should feel the pull. The mission's only
+interaction for its last two minutes is standing there.
+
+**The refusal is not "I don't need it."** It's that the alloy in that tail has to come out
+of Bellows, and he has spent six missions unable to stop thinking about a dragon who has
+not slept in twenty years.
+
+He can't say that either. He walks into the sea and swims until Halvard leaves.
+
+#### M9 — "Twenty Years"
+
+**Premise.** Get back into the forge and find out what is actually keeping Bellows there.
+
+**Key acquired:** none. **What's acquired is information**, and the mission is the game's
+one detective sequence.
+
+The forge, mapped properly this time: the shift rotas, the feed schedule, the way the
+whole works is built *around* one animal's rhythm. The answer, assembled from a dozen
+environmental pieces and never stated:
+
+- Bellows has been there since before Halvard — the operation was built around a dragon
+  who was already there, not the other way round.
+- The crew are **kind to them.** Genuinely. They bring food, they talk to them, one of
+  them has been doing it for eleven years. Nobody in this building thinks they are
+  cruel and by their own lights they are not.
+- Bellows works because **stopping would put forty people out of work** and they know
+  every one of their names.
+
+**The clock, and it is not a bomb.** Halvard is retiring Bellows. Kindly. There is a
+younger Kilnback in a pen on the lower tier, already being fed on the rhythm. The
+handover is in four days and Bellows is looking forward to the rest.
+
+Except a Kilnback that stops working after twenty years without ever purging does not
+retire. **It goes off.** And Bellows, who is not stupid, has worked this out and has
+decided that four more days of usefulness is a fine way to finish.
+
+That is the actual antagonist of this game: not a hunter. **Somebody's decision that
+they are only worth what they produce.**
+
+#### M10 — "Lie Down"
+
+**Premise.** The finale. There is no boss fight, no timer, and no combat encounter of any
+kind. The two of them get into the core and the entire climax is convincing a dragon who
+believes they are needed that they are allowed to stop.
+
+**Structure:** three phases, all dragon-speech.
+
+1. **Every verb, and none of them work.** The player will burn ten minutes on the toolkit
+   the game has spent nine missions teaching. Bellows is not confused, not afraid, and
+   not persuadable by any of it. This phase has no fail state and no progress bar; it
+   ends when the player stops.
+2. **Sigrún does the part he can't.** She is a parent and he isn't. What she does is not
+   translated and not subtitled and the player is not given the input for it. He watches
+   somebody else be better at the important thing. **This is the payoff for the entire
+   co-op system** and for M3's fury.
+3. **The alpha, on purpose, once.** It's the only thing left and he has spent the whole
+   game hating that it works. He uses it. **The hardest input in the game is a button
+   the player has had since Mission 1**, and using it here costs him the only thing he
+   was trying to protect about himself.
+
+Bellows lies down. Bellows sleeps.
+
+**Twenty years of purge comes up at once** and takes the smelter apart from the inside
+while the two of them drag forty people clear — playable, frantic, and pointedly the
+only rescue in the game that is entirely of humans.
+
+*The player's final action is putting somebody to bed.*
+
+---
+
+### 4.5 Epilogue — Berk
+
 He comes home. Hiccup is delighted, and has no idea, and never will. Toothless has no way
 to explain any of it and does not try.
 
 The wing stays out there. Sigrún holds Hollow Stack — an island of dragons that has
-nothing to do with humans, with Bellows asleep in the sun on the high rock and Eyvi, much
-bigger now, flying badly around them. **He goes back and forth for the rest of his life.**
-Berk is where he sleeps. That is where he works.
+nothing to do with humans — with Bellows asleep in the sun on the high rock, and Eyvi,
+much bigger now, flying badly around them. **He goes back and forth for the rest of his
+life.** Berk is where he sleeps. Hollow Stack is where he works.
+
+Halvard is not in prison and is not dead. He is in a workshop, retooling, because he is
+sixty and has been made redundant by an animal. The last we see of him he is drawing.
+**He will be a problem for somebody, some day, and it will not be this game.**
 
 Final shot: Toothless on the warm stone in the corner of the room, and the fin — worn,
 repaired, chewed, adjusted a hundred times — set down beside him. He fits it now.
 
 *A year later, a Bewilderbeast will look him in the eye and he will not blink.*
 
-### Sleepfire key table (draft)
+---
 
-| Species | Purge behaviour | Opens |
-|---|---|---|
-| Night Fury | Concentrated, drilling, extreme point-heat | Alloy plate, locks, bars |
-| Stormcutter | Spirals, clings, burns for a long time | Sustained burns; heat-jam mechanisms |
-| Gronckle | Molten, pools, flows downhill | Seams, floors, anything below |
-| Zippleback | Gas that hangs, ignites later | Delayed detonations; area denial |
-| Thunderdrum | Concussive rather than thermal | Shatters brittle alloy at depth; underwater |
-| Whispering Death | Bores, and *tunnels* | Vertical routes into sealed places |
+### 4.6 Sleepfire key table — full
 
-Each is a lock-and-key AND a relationship AND a night spent sleeping beside somebody.
+| Species | Mission | Purge behaviour | Opens | Relationship it costs |
+|---|---|---|---|---|
+| Night Fury | M1 | Concentrated, drilling, extreme point-heat | Alloy plate, locks, bars | His own night's sleep |
+| Stormcutter | M1 | Spirals, clings, burns a long time | Sustained burns; heat-jams mechanisms | Sigrún, who chose him |
+| Gronckle | M3 | Molten, pools, flows downhill | Seams, floors, anything below | A dragon he half-rescued |
+| Thunderdrum | M4 | Concussive rather than thermal | Brittle alloy at depth; underwater | An answer he didn't have |
+| Whispering Death | M5 | Bores, and tunnels | Vertical routes into sealed places | Teaching, badly |
+| Zippleback | M6 | Gas that hangs, ignites later | Delayed detonation; area denial | Sleeping beside Wrack |
+
+**Each is a lock, a relationship, and a night spent beside somebody.** By M7 the player
+has six and Halvard turns them all off at once, which is only devastating because they
+were earned this way and not bought.
+
+---
+
+### 4.7 Between missions — the Spider-Man cadence
+
+This is where most of the playtime actually is, and it is deliberately unglamorous.
+
+- **The lab.** New samples come back from every mission — hull plate, chain, a cage
+  hinge, muzzle cordage, and after M7 a piece of pre-purged alloy that refuses
+  everything. The wall accumulates for the whole game and is never cleaned.
+- **Island jobs.** Fish stocks. A new arrival who won't come down off a rock. Eyvi,
+  who cannot fly and gets a little better across the game in a way that is never
+  remarked on. Repairing the fin. None of these are quests and none of them have
+  markers.
+- **The wall as journal.** Failures stay on it permanently. The M3 debt stays on it until
+  M7. There is no other quest log in the game.
+- **Sleeping.** Sleep is the save, sleep is the day advance, and sleep beside somebody
+  is the upgrade. The player learns to associate *going to bed* with *progress*, which
+  is a lovely thing to teach and pays off completely in the final mission's title.
+
+---
+
+### 4.8 What each mission permanently changes
+
+The test for whether a mission earns its place. If the row is empty, cut the mission.
+
+| M | Gains | Loses | World state after |
+|---|---|---|---|
+| 1 | Sleepfire; Sigrún; Eyvi | Innocence about what the metal is | Hollow Stack exists |
+| 2 | Co-op | Belief that a locked door is the hard kind | The alloy has a face |
+| 3 | Roster; Gronckle key | A dragon, to a cage, on the wall | He can't solo any more |
+| 4 | Thunderdrum key | The idea that keys are fire | Deep water is reachable |
+| 5 | Whispering Death key | — | Sealed places are reachable; the island eats when he eats |
+| 6 | Zippleback key | Sigrún's agreement; his temper | He has seen what he'd be |
+| 7 | The debt repaid | **Sleepfire on alloy**; the fin's condition | The mechanic is off |
+| 8 | The measure of Halvard | The clean version of his own motives | Halvard knows where he lives |
+| 9 | Why Bellows stays | The idea there's a villain | Four days |
+| 10 | — | The thing he liked about himself | Bellows sleeps |
 
 ---
 
@@ -1454,7 +1879,7 @@ In order of what to drop first:
 
 ## 11. Decisions on record
 
-All five closed. Recorded here so they don't get relitigated.
+Recorded here so they don't get relitigated.
 
 1. **Hiccup does not appear mid-game.** Prologue and epilogue only. No search party, no
    sighting, no cameo in Act II. The absence is the point and one appearance would spend it.
@@ -1485,6 +1910,21 @@ All five closed. Recorded here so they don't get relitigated.
    words, no fight, and he is gone before the cage door. **The orb-and-question-mark
    placeholder makes this nearly free**, and one appearance is worth more than none — an
    antagonist who is only ever an abstraction can't be *disappointed in you*.
+
+8. **Halvard is an economy, not a hunter.** He buys dragons from suppliers and sells
+   cages back to them. Destroying a rig accomplishes nothing — M1's rig is running again
+   by M2. Act II's real objective is making dragons not worth buying. **The player must
+   feel this before the game says it**, and the game says it exactly once, on the wall.
+9. **The keys get switched off.** M7 ends with Halvard pre-purging the alloy so sleepfire
+   does nothing to it. Not "harder" — nothing. The game's core mechanic is off for the
+   whole of Act III, which is why Act III is persuasion and the finale has no combat.
+10. **The alpha thread is never named.** Dragons defer to him a little more each mission
+   and nobody comments, least of all him. He uses it deliberately exactly once, in the
+   last mission, and it costs him the thing he liked about himself. This is the seed for
+   the year after the game and it stays subtext.
+11. **Wrack is not a boss and is not redeemed.** They appear three times, are worse each
+   time, and the game never resolves them. He sleeps beside them once because that is how
+   keys work. See §1.
 
 ### Placeholder art rule *(buildable cut)*
 

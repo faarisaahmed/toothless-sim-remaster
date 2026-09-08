@@ -1,126 +1,58 @@
 import * as THREE from "three";
 import { Sky } from "three/addons/objects/Sky.js";
-import { Water } from "three/addons/objects/Water.js";
-import { ImprovedNoise } from "three/addons/math/ImprovedNoise.js";
+import {
+  terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL,
+  WIND_BEARING, fertility, islandAt, fbm, noise2,
+} from "./terrain.js";
+import { loadGround, makeTerrainMaterial } from "./terrainmat.js";
+import { bakeSeaField } from "./sea_field.js";
+import { createOcean } from "./ocean.js";
+import { createSurf } from "./surf.js";
+import { createFlora } from "./flora.js";
+
+// ---------------------------------------------------------------------------
+// The world.
+//
+// The archipelago's SHAPE lives in terrain.js and nothing here may contradict
+// it: map.js redraws the coastlines from the same terrainHeight, sea_field.js
+// bakes the surf off it, and main.js flies into it. This file is everything
+// that turns that height field into something to look at — the sky, the ground
+// material, the sea, the forests — plus the four exports the rest of the game
+// imports from here and has done since before any of it existed.
+//
+// Those four are re-exported rather than redefined, so there is exactly one
+// definition of each in the codebase:
+export { terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL };
 
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
-export const TERRAIN_SIZE = 10000;
-const TERRAIN_SEGMENTS = 480;   // ~21 world units per quad
-export const SEA_LEVEL = 0;
-const SEA_FLOOR        = -190;
+// 768, not the 480 this had. See §5 of ARCHIPELAGO_HANDOFF.md — raising this
+// is called out there as the most expensive single change available, and it is:
+// 1.18M triangles instead of 460k, a 28 MB vertex buffer, and about 0.7 s of
+// load instead of 0.3. It is still ONE draw call and no extra lights, which are
+// the two budgets that were actually hurting.
+//
+// It buys 13 m per quad instead of 21, and the reason that matters is the
+// frequency ceiling documented in terrain.js: the mesh spacing is the hard
+// limit on how fine the coastline and the crags are allowed to be, and at 21 m
+// the islands could not hold a headland under a hundred metres across.
+const TERRAIN_SEGMENTS = 768;   // ~13 world units per quad
 
-const SUN_ELEVATION = 48;  // high summer sun
+const SUN_ELEVATION = 24;  // late afternoon — noon is the flattest light there is,
+                           // and this is a game about weather and long water
 const SUN_AZIMUTH   = 150;
 
-const CLOUD_COUNT   = 90;
-const CLOUD_DRIFT   = 0.12;
+const CLOUD_COUNT   = 105;
+const CLOUD_DRIFT   = 2.4;      // m/s, downwind
 
 const GRID_SPACING = 200;
 const GRID_STEP    = 25;
 const GRID_LIFT    = 1.5;
 
-// The archipelago. `cliff` is the width of the sheer rim band as a fraction of
-// the radius — smaller means a more vertical sea cliff. Anything with a tiny
-// radius and a low cliff value comes out as a Berk-style sea stack.
-export const ISLANDS = [
-  { name: "Berk",        x:     0, z: -1100, r: 1150, h: 520, cliff: 0.30 },
-  { name: "Dragon Peak", x: -2900, z: -2000, r:  780, h: 900, cliff: 0.20 },
-  { name: "Raven Point", x:  2700, z:   500, r:  860, h: 760, cliff: 0.24 },
-  { name: "Outcast Isle",x: -2500, z:  1500, r:  960, h: 430, cliff: 0.38 },
-  { name: "Changewing",  x:  1300, z:  3100, r:  720, h: 610, cliff: 0.22 },
-  { name: "Itchy Armpit",x:  3500, z: -2500, r:  640, h: 470, cliff: 0.34 },
-  { name: "Gronckle I.", x:  -900, z:  3500, r:  560, h: 350, cliff: 0.42 },
-  { name: "Fireworm",    x:  4300, z:  2700, r:  680, h: 540, cliff: 0.28 },
+const clamp = THREE.MathUtils.clamp;
+const smoothstep = THREE.MathUtils.smoothstep;
 
-  // Sea stacks — narrow spires to thread between.
-  { x:  1000, z:   400, r: 150, h: 360, cliff: 0.12 },
-  { x:  -750, z:   950, r: 120, h: 300, cliff: 0.10 },
-  { x:  1900, z: -1600, r: 170, h: 420, cliff: 0.14 },
-  { x: -1600, z:  -400, r: 110, h: 260, cliff: 0.10 },
-  { x:  2200, z:  2000, r: 140, h: 330, cliff: 0.12 },
-  { x:  -300, z:  1800, r: 130, h: 290, cliff: 0.11 },
-  { x:  3100, z:  -600, r: 160, h: 380, cliff: 0.13 },
-];
-
-// ---------------------------------------------------------------------------
-// Height field
-// ---------------------------------------------------------------------------
-const perlin = new ImprovedNoise();
-
-function fbm(x, z, octaves) {
-  let sum = 0, amp = 1, freq = 1, norm = 0;
-  for (let i = 0; i < octaves; i++) {
-    sum  += amp * perlin.noise(x * freq, z * freq, 0);
-    norm += amp;
-    amp  *= 0.5;
-    freq *= 2;
-  }
-  return sum / norm;
-}
-
-// Ridged multifractal. Folding the noise at zero (1 - |n|) turns fBm's rounded
-// hills into sharp crests with V-cut gullies between them — this is what makes
-// rock read as rock instead of as smooth dunes. Returns 0..1.
-function ridged(x, z, octaves) {
-  let sum = 0, amp = 1, freq = 1, norm = 0;
-  for (let i = 0; i < octaves; i++) {
-    const n = 1 - Math.abs(perlin.noise(x * freq, z * freq, 0));
-    sum  += amp * n * n;
-    norm += amp;
-    amp  *= 0.5;
-    freq *= 2;
-  }
-  return sum / norm;
-}
-
-// Single source of truth — builds the mesh AND answers runtime queries.
-export function terrainHeight(x, z) {
-  // Domain warp, so coastlines wander instead of reading as circles.
-  const wx = fbm(x * 0.00075, z * 0.00075, 3) * 320;
-  const wz = fbm((x + 4200) * 0.00075, (z - 3100) * 0.00075, 3) * 320;
-  const px = x + wx;
-  const pz = z + wz;
-
-  // Perturbs where the rim falls off, so cliffs grow buttresses and gullies
-  // instead of being a smooth surface of revolution.
-  const rim = (ridged(x * 0.0055, z * 0.0055, 3) - 0.5) * 0.13;
-
-  // Tallest island wins, so overlapping ones merge into one landmass.
-  let land = 0;
-  for (let i = 0; i < ISLANDS.length; i++) {
-    const isl = ISLANDS[i];
-    const dx = px - isl.x;
-    const dz = pz - isl.z;
-    const d = Math.sqrt(dx * dx + dz * dz) / isl.r + rim;
-    if (d >= 1) continue;
-    // Flat-ish plateau out to the rim, then a sheer drop.
-    const f = 1 - THREE.MathUtils.smoothstep(d, 1 - isl.cliff, 1);
-    const contribution = isl.h * f;
-    if (contribution > land) land = contribution;
-  }
-
-  // Undulating sea bed under everything.
-  let h = SEA_FLOOR + fbm(x * 0.0005, z * 0.0005, 4) * 70;
-
-  if (land > 0) {
-    // Ridged relief gives crests and gullies rather than rolling hills.
-    const relief = ridged(x * 0.0016, z * 0.0016, 5);
-    h += land * (0.32 + 0.78 * relief);
-
-    // Crags. Scaled by how high the land is, so peaks are broken and jagged
-    // while the shoreline stays comparatively even.
-    const craggy = 0.25 + 0.75 * (land / 600);
-    h += (ridged(x * 0.011, z * 0.011, 4) - 0.45) * 34 * craggy;
-    h += (ridged(x * 0.034, z * 0.034, 3) - 0.45) * 9 * craggy;
-  }
-
-  return h;
-}
-
-// ---------------------------------------------------------------------------
-// Procedural textures
 // ---------------------------------------------------------------------------
 function makeCloudTexture() {
   const size = 256;
@@ -150,48 +82,24 @@ function makeCloudTexture() {
   return tex;
 }
 
-// Swell built from integer-frequency sines, so the texture tiles seamlessly
-// however far we repeat it across the ocean.
-function makeWaterNormals() {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  const img = ctx.createImageData(size, size);
-
-  const wave = (ix, iy) => {
-    const u = (ix / size) * Math.PI * 2;
-    const v = (iy / size) * Math.PI * 2;
-    return Math.sin(u * 3 + Math.sin(v * 2) * 0.8) * 0.5
-         + Math.sin(v * 5 - Math.sin(u * 3) * 0.6) * 0.3
-         + Math.sin((u + v) * 7) * 0.15;
-  };
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = wave(x + 1, y) - wave(x - 1, y);
-      const dy = wave(x, y + 1) - wave(x, y - 1);
-      let nx = -dx, ny = -dy, nz = 1;
-      const len = Math.hypot(nx, ny, nz);
-      nx /= len; ny /= len; nz /= len;
-
-      const i = (y * size + x) * 4;
-      img.data[i]     = (nx * 0.5 + 0.5) * 255;
-      img.data[i + 1] = (ny * 0.5 + 0.5) * 255;
-      img.data[i + 2] = (nz * 0.5 + 0.5) * 255;
-      img.data[i + 3] = 255;
-    }
-  }
-
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  return tex; // Water drives its own tiling through the `size` uniform
-}
-
-
 // ---------------------------------------------------------------------------
-export function setupWorld(scene, renderer) {
+export function setupWorld(scene, renderer, quality = {}) {
+  // Load timing. All of this is synchronous work on the main thread, which
+  // means every millisecond of it is a millisecond the tab is unresponsive —
+  // and when a load stall and a runtime stall look identical from the outside,
+  // the only way to tell them apart is to have written down which one it was.
+  const marks = [];
+  let markT = performance.now();
+  const mark = (label) => {
+    const now = performance.now();
+    marks.push(`${label} ${Math.round(now - markT)}ms`);
+    markT = now;
+  };
+  const q = {
+    shadowMap: 2048, clouds: CLOUD_COUNT, reflectEvery: 1,
+    treeNear: undefined, treeFar: undefined, grass: false,
+    ...quality,
+  };
   const sunDir = new THREE.Vector3().setFromSphericalCoords(
     1,
     THREE.MathUtils.degToRad(90 - SUN_ELEVATION),
@@ -200,15 +108,19 @@ export function setupWorld(scene, renderer) {
 
   // --- Physical sky ---
   const sky = new Sky();
-  sky.scale.setScalar(20000);
+  sky.scale.setScalar(40000);   // has to enclose a 16 km ocean disc
 
   const u = sky.material.uniforms;
   // Clear air and strong Rayleigh scattering — a deep summer blue rather than
   // the pale, hazy sky that reads as winter.
-  u.turbidity.value       = 2.2;
-  u.rayleigh.value        = 2.5;
-  u.mieCoefficient.value  = 0.003;
-  u.mieDirectionalG.value = 0.8;
+  // Turbidity is the haze knob and it was the thing washing the whole picture
+  // out: at 2.2 the twenty degrees of sky above the horizon — which is all you
+  // ever see from a dragon — came out pure white, and everything reflecting it
+  // came out grey. Clean air and hard Rayleigh instead.
+  u.turbidity.value       = 1.1;
+  u.rayleigh.value        = 3.4;
+  u.mieCoefficient.value  = 0.0022;
+  u.mieDirectionalG.value = 0.82;
   u.sunPosition.value.copy(sunDir);
 
   scene.add(sky);
@@ -218,19 +130,20 @@ export function setupWorld(scene, renderer) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   const skyScene = new THREE.Scene();
   let envRT = null;
+  let envElevation = -999;
 
   function rebuildEnvironment() {
     if (envRT) envRT.texture.dispose();
     scene.remove(sky);
     skyScene.add(sky);
-    envRT = pmrem.fromScene(skyScene, 0, 1, 60000);
+    envRT = pmrem.fromScene(skyScene, 0, 1, 120000);
     skyScene.remove(sky);
     scene.add(sky);
     scene.environment = envRT.texture;
   }
   rebuildEnvironment();
 
-  scene.fog = new THREE.FogExp2(0x8fb4d4, 0.00007);
+  scene.fog = new THREE.FogExp2(0x8fb2cf, 0.000036);
 
   // --- Lighting ---
   // scene.environment already supplies the full sky ambient, so the direct
@@ -239,7 +152,7 @@ export function setupWorld(scene, renderer) {
   const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
   sun.position.copy(sunDir).multiplyScalar(500);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 1500;
   sun.shadow.camera.left = -180;
@@ -255,7 +168,9 @@ export function setupWorld(scene, renderer) {
   const hemi = new THREE.HemisphereLight(0x9ec8f5, 0x6d7a48, 0.28);
   scene.add(hemi);
 
-  // --- Terrain ---
+  // -------------------------------------------------------------------------
+  // Terrain
+  // -------------------------------------------------------------------------
   const geo = new THREE.PlaneGeometry(
     TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS
   );
@@ -264,6 +179,12 @@ export function setupWorld(scene, renderer) {
   const pos = geo.attributes.position;
   const verts = TERRAIN_SEGMENTS + 1;
   const colors = new Float32Array(pos.count * 3);
+  // What is growing on / lying on each vertex: vegetation, sand, snow. The
+  // ground material blends its six textures with these, so the forest floor is
+  // under the forest and the beach texture is on the beach — the alternative is
+  // deciding that per pixel from height and slope alone, which puts sand
+  // halfway up a hill because the hill happens to be flat there.
+  const surf = new Float32Array(pos.count * 3);
 
   // Height once per vertex, then slope from grid neighbours — three times
   // cheaper than re-evaluating the noise for finite differences.
@@ -273,19 +194,21 @@ export function setupWorld(scene, renderer) {
     heights[i] = h;
     pos.setY(i, h);
   }
+  mark("heights");
 
   // Dark basalt cliffs under mossy green tops — the North Sea look, not chalk.
-  const seabed    = new THREE.Color(0x142b28);
-  const shallow   = new THREE.Color(0x4d8b7e);
-  const sand      = new THREE.Color(0xb8a47c);
+  const seabed    = new THREE.Color(0x0e2422);
+  const shallow   = new THREE.Color(0x3f8578);
+  const sandCol   = new THREE.Color(0xb9a887);
   const grassCool = new THREE.Color(0x3a6b28);
-  const grassWarm = new THREE.Color(0x6b8232);
-  const darkMoss  = new THREE.Color(0x264a20);
-  const rockLight = new THREE.Color(0x5e564a);
-  const rockDark  = new THREE.Color(0x2e2b26);
-  const snow      = new THREE.Color(0xdde6ea);
+  const grassWarm = new THREE.Color(0x6d8434);
+  const darkMoss  = new THREE.Color(0x24421d);
+  const rockLight = new THREE.Color(0x736a5c);
+  const rockDark  = new THREE.Color(0x3b372f);
+  const snowCol   = new THREE.Color(0xdfe8ec);
   const c = new THREE.Color();
   const rockTone = new THREE.Color();
+  const grass = new THREE.Color();
 
   const quad = TERRAIN_SIZE / TERRAIN_SEGMENTS;
 
@@ -305,76 +228,202 @@ export function setupWorld(scene, renderer) {
     // Cheap ambient occlusion: sit lower than your neighbours and you're in a
     // crevice, so you get less sky. This is what gives the cliffs depth.
     const curvature = h - (hL + hR + hU + hD) / 4;
-    const ao = THREE.MathUtils.clamp(1 + (curvature / (quad * 1.5)) * 0.45, 0.62, 1.12);
+    const ao = clamp(1 + (curvature / (quad * 1.5)) * 0.45, 0.62, 1.12);
 
-    if (h < SEA_LEVEL - 2) {
-      c.copy(shallow).lerp(sand, THREE.MathUtils.smoothstep(-h, 0, 10));
-      c.lerp(seabed, THREE.MathUtils.smoothstep(-h, 6, 90));
+    let veg = 0, sand = 0, snow = 0;
+
+    if (h < SEA_LEVEL - 1.5) {
+      // Under water the terrain is only ever seen through the sea, and the sea
+      // now goes translucent in the last three metres, so the shallows have to
+      // be a colour worth seeing: pale bar, then green, then nothing.
+      c.copy(sandCol).lerp(shallow, smoothstep(-h, 1, 11));
+      c.lerp(seabed, smoothstep(-h, 8, 85));
+      sand = 1 - smoothstep(-h, 1, 9);
     } else {
-      const alt = h / 700;
+      const isl = islandAt(x, z);
+      const bare = isl ? isl.bare : 0.45;
+      const snowLine = 320 - (isl ? isl.snow : 0);
+
+      veg = fertility(x, z, h, slope);
+
+      // Beach: the last few metres above the water, and only where it is not
+      // standing on end. A wave-cut bench of bare rock is not a beach.
+      sand = (1 - smoothstep(h, 2.5, 9)) * (1 - smoothstep(slope, 0.16, 0.42))
+           * (0.35 + 0.65 * (1 - bare));
+
+      snow = smoothstep(h, snowLine, snowLine + 130) * (1 - smoothstep(slope, 0.30, 0.72));
 
       // Large-scale patchiness so the greens aren't one flat wash.
       const patch = fbm(x * 0.0011, z * 0.0011, 3) * 0.5 + 0.5;
-      const grass = grassCool.clone().lerp(grassWarm, patch);
+      grass.copy(grassCool).lerp(grassWarm, patch);
 
-      // Horizontal strata on exposed rock.
-      const band = Math.sin(h * 0.055 + fbm(x * 0.004, z * 0.004, 2) * 2.2) * 0.5 + 0.5;
-      rockTone.copy(rockDark).lerp(rockLight, band);
+      // Horizontal strata on exposed rock, following the terracing that the
+      // height field already cut, so the banding lands on the steps rather than
+      // across them.
+      const band = Math.sin(h * 0.36 + fbm(x * 0.004, z * 0.004, 2) * 2.4) * 0.5 + 0.5;
+      rockTone.copy(rockDark).lerp(rockLight, band * 0.75 + 0.12);
 
-      c.copy(sand);
-      c.lerp(grass, THREE.MathUtils.smoothstep(h, 5, 28));        // beach line
-      c.lerp(darkMoss, THREE.MathUtils.smoothstep(alt, 0.12, 0.45) * (0.3 + patch * 0.45));
-      c.lerp(rockTone, THREE.MathUtils.smoothstep(slope, 0.26, 0.66));
-      // Summer: snow clings only to the highest peaks, and not on steep faces.
-      c.lerp(snow, THREE.MathUtils.smoothstep(alt, 0.95, 1.15) * (1 - slope * 0.8));
+      c.copy(rockTone);
+      c.lerp(grass, veg * 0.92);
+      c.lerp(darkMoss, smoothstep(veg, 0.45, 0.95) * (0.35 + patch * 0.4));
+      c.lerp(sandCol, sand);
+      // Steep ground is rock whatever grew near it.
+      c.lerp(rockTone, smoothstep(slope, 0.26, 0.62) * (1 - snow * 0.6));
+      c.lerp(snowCol, snow);
     }
 
-    const tint = ao * (1 + perlin.noise(x * 0.02, z * 0.02, 5) * 0.07);
+    surf[i * 3] = veg;
+    surf[i * 3 + 1] = sand;
+    surf[i * 3 + 2] = snow;
+
+    const tint = ao * (1 + noise2(x * 0.02, z * 0.02) * 0.06);
     colors[i * 3]     = c.r * tint;
     colors[i * 3 + 1] = c.g * tint;
     colors[i * 3 + 2] = c.b * tint;
   }
 
+  mark("colours");
+
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute("aSurf", new THREE.BufferAttribute(surf, 3));
+  // Normals are computed ONCE, across the whole grid, before it is cut up. Doing
+  // it per tile afterwards would give each tile its own idea of the normal along
+  // its edge, and a lighting seam on every tile boundary — sixteen straight
+  // lines across the archipelago, visible from the air, impossible to unsee.
   geo.computeVertexNormals();
 
-  // No tiling normal map here on purpose. The terrain's UVs are planar, so any
-  // tiled texture stretches to vertical smears on a cliff face — exactly where
-  // you most want detail. The relief is carried by geometry instead.
-  const ground = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.93,
-      metalness: 0,
-      envMapIntensity: 0.4, // rock shouldn't mirror the sky back at you
-    })
-  );
-  ground.receiveShadow = true;
-  scene.add(ground);
+  const groundMat = makeTerrainMaterial({}, SEA_LEVEL);
 
-  // --- Ocean ---
-  // three's Water does a real planar reflection pass plus sun glitter and
-  // refraction distortion, which is the difference between "blue plane" and
-  // something that reads as sea.
-  const waterNormals = makeWaterNormals();
-  const water = new Water(
-    new THREE.PlaneGeometry(TERRAIN_SIZE * 3, TERRAIN_SIZE * 3),
-    {
-      textureWidth: 512,
-      textureHeight: 512,
-      waterNormals,
-      sunDirection: sunDir.clone(),
-      sunColor: 0xfff1d6,
-      waterColor: 0x0a3a4c,
-      distortionScale: 5.5,
-      fog: true,
+  // -------------------------------------------------------------------------
+  // Cut the terrain into tiles.
+  //
+  // It was one 768 x 768 mesh: 1.18 million triangles in a single draw call,
+  // which sounds efficient and is the most expensive thing in the frame. A mesh
+  // is culled as a unit, and this one's bounding sphere is ten kilometres
+  // across, so it is never off screen — every triangle in the archipelago was
+  // being transformed every frame no matter where the camera pointed, and then
+  // again for the water's reflection.
+  //
+  // Cut into 8 x 8, each tile is 1.25 km across with its own bounding sphere,
+  // and three's frustum culling does the obvious thing: flying level you see
+  // maybe a third of them, and the mirror camera sees fewer. The cost is 64
+  // draw calls instead of 1, which is nothing — draw calls are cheap and
+  // vertices are not. Same vertices, same normals, same colours; the only thing
+  // that changes is how much of it can be skipped.
+  // -------------------------------------------------------------------------
+  const GROUND_TILES = 8;
+  const TSEG = TERRAIN_SEGMENTS / GROUND_TILES;      // 96 quads per tile
+  const TVERT = TSEG + 1;
+
+  const gpos = geo.attributes.position.array;
+  const gnrm = geo.attributes.normal.array;
+  const guv  = geo.attributes.uv.array;
+
+  // Every tile is the same grid, so they share one index buffer — one upload,
+  // one GPU allocation, 64 users. (Which is also why no tile is ever disposed
+  // on its own: three would free the shared buffer out from under the rest.)
+  const tileIdx = new Uint16Array(TSEG * TSEG * 6);
+  let w = 0;
+  for (let iy = 0; iy < TSEG; iy++) {
+    for (let ix = 0; ix < TSEG; ix++) {
+      const a = ix + TVERT * iy;
+      const b = ix + TVERT * (iy + 1);
+      const c = ix + 1 + TVERT * (iy + 1);
+      const d = ix + 1 + TVERT * iy;
+      tileIdx[w++] = a; tileIdx[w++] = b; tileIdx[w++] = d;
+      tileIdx[w++] = b; tileIdx[w++] = c; tileIdx[w++] = d;
     }
-  );
-  water.rotation.x = -Math.PI / 2;
-  water.position.y = SEA_LEVEL;
-  water.material.uniforms.size.value = 6;
-  scene.add(water);
+  }
+  const sharedIndex = new THREE.BufferAttribute(tileIdx, 1);
+
+  const ground = new THREE.Group();
+  ground.name = "terrain";
+  const groundTiles = [];
+
+  for (let tj = 0; tj < GROUND_TILES; tj++) {
+    for (let ti = 0; ti < GROUND_TILES; ti++) {
+      const n = TVERT * TVERT;
+      const tp = new Float32Array(n * 3), tn = new Float32Array(n * 3);
+      const tc = new Float32Array(n * 3), ts = new Float32Array(n * 3);
+      const tu = new Float32Array(n * 2);
+
+      let o3 = 0, o2 = 0;
+      for (let ly = 0; ly < TVERT; ly++) {
+        // Rows are contiguous in the source grid, so a tile row is one straight
+        // run of 97 vertices — no per-vertex index arithmetic in the inner loop.
+        let s3 = ((tj * TSEG + ly) * verts + ti * TSEG) * 3;
+        let s2 = ((tj * TSEG + ly) * verts + ti * TSEG) * 2;
+        for (let lx = 0; lx < TVERT; lx++, o3 += 3, s3 += 3, o2 += 2, s2 += 2) {
+          tp[o3] = gpos[s3]; tp[o3 + 1] = gpos[s3 + 1]; tp[o3 + 2] = gpos[s3 + 2];
+          tn[o3] = gnrm[s3]; tn[o3 + 1] = gnrm[s3 + 1]; tn[o3 + 2] = gnrm[s3 + 2];
+          tc[o3] = colors[s3]; tc[o3 + 1] = colors[s3 + 1]; tc[o3 + 2] = colors[s3 + 2];
+          ts[o3] = surf[s3]; ts[o3 + 1] = surf[s3 + 1]; ts[o3 + 2] = surf[s3 + 2];
+          tu[o2] = guv[s2]; tu[o2 + 1] = guv[s2 + 1];
+        }
+      }
+
+      const tg = new THREE.BufferGeometry();
+      tg.setAttribute("position", new THREE.BufferAttribute(tp, 3));
+      tg.setAttribute("normal", new THREE.BufferAttribute(tn, 3));
+      tg.setAttribute("uv", new THREE.BufferAttribute(tu, 2));
+      tg.setAttribute("color", new THREE.BufferAttribute(tc, 3));
+      tg.setAttribute("aSurf", new THREE.BufferAttribute(ts, 3));
+      tg.setIndex(sharedIndex);
+      tg.computeBoundingSphere();
+
+      const tile = new THREE.Mesh(tg, groundMat);
+      tile.receiveShadow = true;
+      tile.castShadow = false;    // 1.18M triangles into a 360 m shadow box
+      tile.matrixAutoUpdate = false;
+      ground.add(tile);
+      groundTiles.push(tile);
+    }
+  }
+  scene.add(ground);
+  geo.dispose();                  // the uncut original has done its job
+  mark("tiles");
+
+  // The photographs are the one thing here that has to come off the network, so
+  // the terrain is built with flat stand-ins and they are swapped in when they
+  // land. Nothing recompiles: the uniforms already point at a 1x1 texture of the
+  // same type, and only the value changes.
+  const groundReady = loadGround().then((tex) => {
+    const u2 = groundMat.userData.uniforms;
+    const set = (key, slot, prop) => {
+      const t = slot && slot[prop];
+      if (t) u2[key].value = t;
+    };
+    set("tRockD", tex.rock, "map");     set("tRockN", tex.rock, "normal");
+    set("tRockA", tex.rock, "arm");
+    set("tScreeD", tex.scree, "map");   set("tScreeN", tex.scree, "normal");
+    set("tGrassD", tex.grass, "map");   set("tGrassN", tex.grass, "normal");
+    set("tForestD", tex.forest, "map"); set("tForestN", tex.forest, "normal");
+    set("tSandD", tex.sand, "map");     set("tSandN", tex.sand, "normal");
+    set("tSnowD", tex.snow, "map");     set("tSnowN", tex.snow, "normal");
+    groundMat.needsUpdate = false;      // uniform values only — no relink needed
+    const have = Object.entries(tex).filter(([, t]) => t && t.map).map(([k]) => k);
+    console.info(`world: ground textures in — ${have.join(", ") || "none"}`);
+    return tex;
+  }).catch((e) => { console.warn("world: ground textures failed", e); return null; });
+
+  // -------------------------------------------------------------------------
+  // Sea
+  // -------------------------------------------------------------------------
+  const seaField = bakeSeaField();
+  mark("seaField");
+  const ocean = createOcean({ scene, renderer, seaField, sunDirection: sunDir });
+  const surfSpray = createSurf({ scene, seaField, foamTexture: ocean.foamTexture });
+  mark("ocean+surf");
+
+  // -------------------------------------------------------------------------
+  // Forests
+  // -------------------------------------------------------------------------
+  const flora = createFlora(scene, {
+    grass: q.grass,
+    nearLod: q.treeNear,
+    farLod: q.treeFar,
+  });
+  mark("flora");
 
   // --- Contour grid overlay (G) ---
   const half = TERRAIN_SIZE / 2;
@@ -395,6 +444,7 @@ export function setupWorld(scene, renderer) {
 
   const gridGeo = new THREE.BufferGeometry();
   gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(gridPts, 3));
+  mark("contourGrid");
   const grid = new THREE.LineSegments(
     gridGeo,
     new THREE.LineBasicMaterial({
@@ -409,45 +459,95 @@ export function setupWorld(scene, renderer) {
   scene.add(grid);
 
   // --- Clouds ---
+  // Two decks. The low one is what he flies through and it drifts fast; the
+  // high one barely moves and is mostly there so the sky is not empty above the
+  // altitude where the low deck has gone past.
   const cloudTex = makeCloudTexture();
   const clouds = [];
+  // One parent for all of them. Cloud sprites are big, transparent and
+  // overlapping, which makes them the most fill-rate-hungry thing in the frame
+  // per unit of visual interest — and in a 512-pixel reflection they are a
+  // white smear. Grouping them is what lets the water skip the lot.
+  const cloudGroup = new THREE.Group();
+  cloudGroup.name = "clouds";
+  scene.add(cloudGroup);
+  const windX = Math.sin(WIND_BEARING), windZ = Math.cos(WIND_BEARING);
 
-  for (let i = 0; i < CLOUD_COUNT; i++) {
+  const cloudCount = q.clouds;
+  for (let i = 0; i < cloudCount; i++) {
+    const high = i > cloudCount * 0.62;
     const mat = new THREE.SpriteMaterial({
       map: cloudTex,
       transparent: true,
       depthWrite: false,
-      opacity: 0.35 + Math.random() * 0.3,
+      opacity: high ? 0.13 + Math.random() * 0.12 : 0.20 + Math.random() * 0.24,
       fog: true,
     });
     const cloud = new THREE.Sprite(mat);
 
     const a = Math.random() * Math.PI * 2;
-    const r = 300 + Math.random() * 4400;
+    const r = 700 + Math.random() * 6000;
+    // The low deck used to sit at 460 m with sprites a kilometre across, which
+    // meant a single one of them filled the screen with white the moment he
+    // climbed off a ridge. Cloud base goes at 900: high enough to fly under all
+    // day, low enough to fly INTO on purpose.
     cloud.position.set(
       Math.cos(a) * r,
-      520 + Math.random() * 1100,
+      high ? 2300 + Math.random() * 1500 : 900 + Math.random() * 700,
       Math.sin(a) * r
     );
-    const s = 500 + Math.random() * 850;
-    cloud.scale.set(s, s * (0.45 + Math.random() * 0.25), 1);
+    const s = (high ? 1000 : 420) + Math.random() * (high ? 1400 : 700);
+    cloud.scale.set(s, s * (0.32 + Math.random() * 0.26), 1);
+    cloud.userData.drift = high ? 0.35 : 1;
 
-    scene.add(cloud);
+    cloudGroup.add(cloud);
     clouds.push(cloud);
   }
 
   // --- Renderer setup that has to match the sky's dynamic range ---
   if (renderer) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.62;
+    renderer.toneMappingExposure = 0.60;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
 
+  // One line in the console saying what this actually is, because "the trees
+  // did not load" and "the trees loaded and you are too high to see them" look
+  // identical from the cockpit.
+  mark("clouds");
+  console.info(`world: build ${marks.join(", ")}`);
+  console.info(
+    `world: ${ISLANDS.length} islands (${ISLANDS.filter((i) => i.name).length} named), ` +
+    `${flora.treeCount} trees over ${flora.tileCount} tiles, ${flora.boulderCount} boulders, ` +
+    `${surfSpray.siteCount} surf sites, ${groundTiles.length} terrain tiles, ` +
+    `${clouds.length} clouds, shadows ${q.shadowMap}, grass ${flora.hasGrass ? "on" : "off"}`);
+
+  // -------------------------------------------------------------------------
+  // What the sea is allowed to see.
+  //
+  // The reflection is 512 pixels across, mirrored, and then torn up by a
+  // four-layer scrolling normal map before anyone looks at it. What survives
+  // that is the sky, the shape of the land and the dragon. Everything else in
+  // this list was being drawn a second time every frame to contribute less than
+  // a pixel of blur, and the trees alone are ~30 instanced draw calls.
+  // -------------------------------------------------------------------------
+  ocean.excludeFromReflection(flora.root, cloudGroup, surfSpray.mesh, grid);
+  ocean.setReflectionEvery(q.reflectEvery);
+
+  const water = ocean.mesh;
+
   return {
+    /** So main.js can add the compound and the stack once they have loaded. */
+    excludeFromReflection: (...o) => ocean.excludeFromReflection(...o),
+    groundTiles,
     clouds,
     ground,
     water,
+    ocean,
+    surf: surfSpray,
+    flora,
+    seaField,
     grid,
     sun,
     hemi,
@@ -455,18 +555,30 @@ export function setupWorld(scene, renderer) {
     islands: ISLANDS,
     getHeightAt: terrainHeight,
     seaLevel: SEA_LEVEL,
+    size: TERRAIN_SIZE,
+    /** Resolves when the downloaded ground textures are in. Nothing waits on it. */
+    ready: groundReady,
 
     toggleGrid() { grid.visible = !grid.visible; return grid.visible; },
     toggleWireframe() {
-      ground.material.wireframe = !ground.material.wireframe;
-      return ground.material.wireframe;
+      groundMat.wireframe = !groundMat.wireframe;
+      return groundMat.wireframe;
     },
     toggleClouds() {
       const v = !clouds[0].visible;
-      for (const c of clouds) c.visible = v;
+      for (const cl of clouds) cl.visible = v;
       return v;
     },
     toggleWater() { water.visible = !water.visible; return water.visible; },
+    toggleTrees() {
+      const v = !flora.enabled;
+      flora.setEnabled(v);
+      return v;
+    },
+    toggleSpray() {
+      surfSpray.mesh.visible = !surfSpray.mesh.visible;
+      return surfSpray.mesh.visible;
+    },
 
     setSun(elevationDeg, azimuthDeg = SUN_AZIMUTH) {
       sunDir.setFromSphericalCoords(
@@ -476,25 +588,42 @@ export function setupWorld(scene, renderer) {
       );
       sky.material.uniforms.sunPosition.value.copy(sunDir);
       sun.position.copy(sunDir).multiplyScalar(500);
-      water.material.uniforms.sunDirection.value.copy(sunDir);
-      rebuildEnvironment(); // reflections have to follow the sun
+      ocean.setSun(sunDir);
+      // The night transition in main.js drives this once per frame for about
+      // three seconds. A PMREM prefilter is six render passes and a mip chain;
+      // doing it 180 times to walk the sun down 62 degrees is the difference
+      // between a fade and a freeze. The uniforms above are cheap and exact, so
+      // only the prefiltered reflection is rate-limited, and two degrees of sun
+      // is not visible in a blurred environment map.
+      if (Math.abs(elevationDeg - envElevation) > 2) {
+        envElevation = elevationDeg;
+        rebuildEnvironment();
+      }
     },
 
     update(focus, dt = 0.016) {
       if (focus) {
         sun.target.position.copy(focus);
         sun.position.copy(focus).addScaledVector(sunDir, 500);
-        water.position.x = focus.x;
-        water.position.z = focus.z;
       }
 
-      // Water animates itself off this uniform — it scrolls four noise layers
-      // at different rates internally, so there's no visible repeat.
-      water.material.uniforms.time.value += dt * 0.55;
+      ocean.update(focus, dt);
+      surfSpray.update(focus, dt);
+      flora.update(focus, dt);
 
       for (const cloud of clouds) {
-        cloud.position.x += CLOUD_DRIFT;
-        if (cloud.position.x > half) cloud.position.x -= TERRAIN_SIZE;
+        const d = CLOUD_DRIFT * dt * cloud.userData.drift;
+        cloud.position.x += windX * d;
+        cloud.position.z += windZ * d;
+        // Wrap around the player rather than around the origin, so he never
+        // flies out from under the weather.
+        if (focus) {
+          const dx = cloud.position.x - focus.x, dz = cloud.position.z - focus.z;
+          if (Math.hypot(dx, dz) > 7000) {
+            cloud.position.x = focus.x - dx * 0.92;
+            cloud.position.z = focus.z - dz * 0.92;
+          }
+        }
       }
     },
   };

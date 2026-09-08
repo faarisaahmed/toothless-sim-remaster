@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { BTN } from "./gamepad.js";
+import { heldIn, isAction, claimedKeys } from "./keymap.js";
 
 // Shortest signed angle from a to b, wrap-safe.
 export function angleDelta(a, b) {
@@ -9,68 +10,129 @@ export function angleDelta(a, b) {
   return d;
 }
 
+// ---------------------------------------------------------------------------
+// Units
+//
+// One world unit is one metre. That is not a new convention — world.js sizes
+// its islands in metres, places.js says outright that "a 4.5 m cage is 4.5 m",
+// and the ground code down in main.js already walks him at 4 m/s under real
+// gravity. Flight was the one system that never got the memo: it moved him a
+// fixed distance *per frame* with no dt anywhere, so his top speed was a
+// property of your monitor. On a 120 Hz panel he flew twice as fast as the
+// numbers said. Everything below is metres and seconds.
+//
+// The speeds themselves are the franchise's, not invented:
+//
+//   Size    DreamWorks' published Night Fury measurements are 26 ft long and
+//           45 ft across the wings — 7.9 m and 13.7 m. The GLB measures 8.6 x
+//           15.1 at scale 1, so he is shipped at very nearly life size and the
+//           right thing to do is leave him there.
+//
+//   Speed   The Book of Dragons and the HTTYD2 bonus feature both say a Night
+//           Fury flies faster than sound: 750 mph, 1207 km/h. That is the
+//           number BURST_SPEED is set to, and it is the only thing in the game
+//           that reaches it — it is his top speed, not his cruise.
+// ---------------------------------------------------------------------------
+
+const MPH = 0.44704;                          // mph -> m/s
+
+/** 750 mph. Faster than sound, per the Book of Dragons. */
+export const CANON_TOP_SPEED = 750 * MPH;     // 335.3 m/s
+
 // `pad` is optional — everything below falls back to the keyboard without it.
 export function setupDragonControls(dragon, getCamYaw, pad = null) {
   const keys = {};
   const keysJustPressed = {};
 
-  const FORWARD_SPEED     = 0.35;
-  const STRAFE_ACCEL      = 0.045;
-  const THRUST_ACCEL      = 0.05;
-  const VERT_ACCEL        = 0.06;
-  const MAX_STRAFE        = 0.45;
-  const MAX_THRUST        = 0.6;
-  const MAX_VERT          = 0.62;
-  const FRICTION_H        = 0.88;
-  const FRICTION_V        = 0.88;
-  const HOVER_DAMP        = 0.92;
-  const TILT_AMOUNT       = 0.35;
-  // ~30 degrees of nose attitude at a full climb or dive — enough to read
-  // clearly from the chase camera without pitching him vertical.
-  const PITCH_AMOUNT      = 0.85;
-  const PITCH_MAX         = 0.6;
-  const PITCH_LAMBDA      = 4.5;  // matches the old per-frame feel at 60fps
-  const SPEED_WOBBLE      = 0.003;
-  const SPEED_WOBBLE_FREQ = 0.12;
+  // --- The speed ladder, in m/s ------------------------------------------
+  // Four gears with real daylight between them, so you can always tell which
+  // one you are in without looking at the HUD. The bottom of the ladder is a
+  // dead stop, not a crawl: let go of W and he stops, which is the hover.
+  const SPEED_MIN     = 0;                    //   0 mph — hovering on the spot
+  const SPEED_CRUISE  = 55;                   // 123 mph — W held
+  const PEDAL_MAX     = 180;                  // 403 mph — W and Shift held
+  const BURST_SPEED   = CANON_TOP_SPEED;      // 750 mph — the canon top speed
+  const REVERSE_SPEED = 9;                    //  20 mph — S held, backing off
 
-  // --- Turning: rate-based, not target-based ---
-  // Holding A/D ramps the turn rate in; releasing lets it bleed off. A tap is a
-  // couple of degrees, a hold carves a continuous arc. Nothing snaps to a
-  // compass point, so any heading in between is reachable.
-  let   YAW_ACCEL   = 0.00087; // rad per frame^2 while held
-  let   YAW_MAX     = 0.0135;  // rad per frame at full deflection
-  const YAW_DAMP    = 0.90;   // decay per frame once released
-  const YAW_DEADZONE = 0.0004;
-  const MAX_BANK    = 0.62;   // roll at full turn rate
-  const BANK_SMOOTH = 0.07;
+  // How quickly he answers. These are exponential rates in s^-1: at GAIN 1.5 he
+  // has eaten ~78% of a speed change in a second. Deliberately slower than the
+  // old numbers because the range is now six times wider — winding from cruise
+  // to 400 mph should be a thing you feel happening, not a step change.
+  const PEDAL_GAIN    = 1.5;
+  const PEDAL_BLEED   = 0.9;
+
+  // --- Top gear ----------------------------------------------------------
+  // This used to be a burst: a 1.9-second shove with a 5.5-second cooldown and
+  // a charge meter. It is a GEAR now — hold it and he flies at it, let go and
+  // he slides back down the ladder. No timer, no cooldown, nothing to manage.
+  //
+  // The reason that works without a cost attached is that the cost is already
+  // in the flight model. Two different limits govern the turn: below about
+  // 135 m/s it is YAW_RATE_MAX, a flat cap on how fast he can rotate, and above
+  // it TURN_G, a cap on lateral acceleration. Under the second one the radius
+  // grows with the SQUARE of his speed. Measured on the real rig:
+  //
+  //   cruise    48 m/s, 1.44 rad/s (rate-capped)  ->   33 m radius
+  //   top gear 330 m/s, 0.59 rad/s (g-capped)     ->  563 m radius
+  //
+  // The archipelago's islands are three hundred to nine hundred metres across.
+  // Top gear therefore cannot be flown near anything — it is for crossing open
+  // water, and the player drops out of it to manoeuvre without being told to.
+  // A cooldown on top of that was taxing what the geometry already taxes.
+  const BURST_GAIN     = 5.5;                 // slams up to it
+  const BURST_BLEED    = 1.7;                 // and slides back off it
+
+  // --- Up and down -------------------------------------------------------
+  // Space and Ctrl, and they do exactly one thing: change his altitude. They
+  // never change his speed, and W never changes his altitude. That separation
+  // is the whole point of the scheme — it is what every game with a flying
+  // mount does, and it is what lets him hold a level while flying forward and
+  // rise straight up while standing still.
+  //
+  // The RATE still scales with airspeed, because a dragon hanging on his wings
+  // and a dragon doing 400 mph are not going to climb at the same speed. At a
+  // hover it is a lift; at full throttle it is a zoom.
+  const VERT_HOVER     = 9;                   // m/s of climb with no airspeed
+  const VERT_PER_SPEED = 0.45;                // ...plus this much of his airspeed
+  const CLIMB_RATE_CAP = 140;                 // m/s, so a burst zoom stays on the map
+  const VERT_LAMBDA    = 3.2;                 // how fast the climb answers the key
+  // Denominator floor when working out which way his nose points. Without it a
+  // climb from a standstill is atan2(9, 0) and he stands on his tail.
+  const PATH_REF_SPEED = 25;
+
+  // --- Turning -----------------------------------------------------------
+  // Rate-based: hold to carve a continuous arc, tap for a couple of degrees.
+  // The cap is a lateral-acceleration limit rather than a constant, which is
+  // what stops a supersonic pass turning on a sixpence — at 750 mph the same
+  // full stick gives him a third of the yaw rate it gives him at cruise, and
+  // his turning circle grows with the square of his speed, exactly as a real
+  // one does. TURN_G is set high because he is a dragon: about 20 g.
+  let   YAW_RATE_MAX  = 1.45;                 // rad/s, and only at low speed
+  let   TURN_G        = 196;                  // m/s^2 of lateral acceleration
+  const YAW_LAMBDA    = 3.6;                  // stick to turn rate
+  const YAW_DAMP      = 6.0;                  // and the bleed-off on release
+  const YAW_DEADZONE  = 0.02;                 // rad/s
+  const MAX_BANK      = 1.00;                 // ~57 degrees at full turn rate
+  const BANK_LAMBDA   = 4.6;
   const ALIGN_TOLERANCE = 0.02;
 
-  const SPEED_MIN         = 0.1;
-  const SPEED_MAX         = 0.8;
-  const SPEED_STEP        = 0.02;
-  let currentForwardSpeed = FORWARD_SPEED;
+  // --- Sideslip ----------------------------------------------------------
+  const STRAFE_MAX    = 26;                   // m/s sideways, heading unchanged
+  const STRAFE_ACCEL  = 90;                   // m/s^2
+  const STRAFE_DAMP   = 4.2;
 
-  // --- Throttle ---
-  // Hands off the triggers he flies at the cruise speed, always. R2 is a pedal
-  // on top of that: hold it to build, let go and he settles back down to cruise
-  // on his own. L2 is the same thing downward. Nothing here is a setting you
-  // leave wound in — the speed is whatever your fingers are doing right now.
-  const PEDAL_MAX   = 2.4;   // airspeed at a full R2 pull — ~7x cruise
-  const PEDAL_MIN   = 0.08;  // and at a full L2 pull
-  const PEDAL_GAIN  = 3.4;   // how quickly he answers the gas
-  const PEDAL_BLEED = 2.0;   // and how slowly he gives it back
-  let pedalSpeed = FORWARD_SPEED;
+  const PITCH_MAX     = 0.72;                 // visual nose attitude
+  const PITCH_LAMBDA  = 4.5;
+  const AOA_SLOW      = 0.22;                 // nose held high when he's slow
+  const BOB_SPEED     = 0.9;                  // m/s of idle bob
+  const BOB_FREQ      = 1.1;                  // Hz
 
-  // --- Burst ---
-  // A whole gear above anything the pedal can reach, so it never reads as "R2
-  // but slightly more". Timers are in seconds, not frames.
-  const BURST_SPEED    = 4.2;
-  const BURST_DURATION = 1.9;
-  const BURST_COOLDOWN = 5.5;
-  let burstTimer       = 0;
-  let burstCooldown    = 0;
+  // Retrimmable by the debug console; W alone accelerates toward this.
+  let currentForwardSpeed = SPEED_CRUISE;
 
-  // --- Knife edge ---
+  let bursting      = false;
+
+  // --- Knife edge ---------------------------------------------------------
   // Hold to roll onto a wingtip and slip through a vertical gap. It runs on a
   // stamina budget so it stays a deliberate move rather than a flight mode.
   const KNIFE_ANGLE   = 1.45;  // ~83 degrees of roll
@@ -78,28 +140,34 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   const KNIFE_OUT     = 5.2;   // but snap level again the moment you let go
   const KNIFE_HOLD    = 3.0;   // seconds of stamina
   const KNIFE_RECOVER = 2.0;   // seconds to refill from empty
-  const KNIFE_SINK    = 0.010; // lost lift per frame at full deflection
-  const KNIFE_YAW     = 0.0022;// a wing down pulls the nose that way
+  const KNIFE_SINK    = 22;    // m/s of lost lift at full deflection
+  const KNIFE_YAW     = 0.35;  // rad/s — a wing down pulls the nose that way
   const KNIFE_TREMBLE = 0.022; // he can't hold it perfectly still
   let knifeAmount = 0;         // smoothed, -1 (right wing down) .. +1 (left down)
   let knifeCharge = KNIFE_HOLD;
 
-  dragon.scale.setScalar(2);
+  // Life size. The GLB is 8.6 m nose to tail and 15.1 m across the wings at
+  // scale 1, against DreamWorks' published 7.9 m and 13.7 m — so this is the
+  // scale that makes him the dragon the films measured, in a world whose other
+  // props are already in metres.
+  dragon.scale.setScalar(1);
   // Yaw first, then pitch and roll in his own frame — the aircraft convention.
   // With the default XYZ order, rotation.x pitches about the WORLD x axis, so
   // it silently turns into a roll once he's flying east or west.
   dragon.rotation.order = "YXZ";
 
-  let velocityX = 0; // strafe
-  let velocityY = 0; // climb
-  let velocityZ = 0; // forward/back thrust on top of cruise speed
+  let strafeVel   = 0;   // m/s, sideways
+  let climbVel    = 0;   // m/s, straight up. Owned by Space/Ctrl and nothing else
+  let pathAngle   = 0;   // radians off the horizontal — derived, for the visuals
+  let airspeed    = SPEED_CRUISE;
   let currentRoll  = 0;
   let currentPitch = 0;
-  let heading   = null; // lazily seeded from the camera on frame one
-  let yawRate   = 0;
+  let heading   = null;  // lazily seeded from the camera on frame one
+  let yawRate   = 0;     // rad/s
+  let yawMaxNow = YAW_RATE_MAX;
   let alignTarget = null; // set by H, cleared on manual input or arrival
-  let activeSpeed = currentForwardSpeed;
-  let tick = 0;
+  let activeSpeed = airspeed;
+  let elapsed = 0;
 
   // --- Rumble ---
   // These are magnitudes handed to the mixer in gamepad.js, never effects played
@@ -143,8 +211,9 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   let surging = false;
 
   let wasAtSpeedLimit = false;
-  let wasBurstCharging = false;
   let padClimbInvert = true; // pull back to climb, the flight-stick convention
+
+  const damp = (lambda, dt) => 1 - Math.exp(-lambda * dt);
 
   // While the debug console has focus, keystrokes belong to it, not the dragon.
   function typingInConsole() {
@@ -157,13 +226,33 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     if (!keys[e.code]) keysJustPressed[e.code] = true;
     keys[e.code] = true;
     // Stop the page scrolling out from under the canvas.
-    if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
+    // Whatever the current scheme claims, the page does not get: Space scrolls,
+    // the arrows scroll, and "/" opens quick-find in some browsers.
+    if (claimedKeys().has(e.code)) e.preventDefault();
   });
   window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
+  /** True on the frame any key bound to `action` went down. */
+  function pressedAction(action) {
+    for (const code in keysJustPressed) {
+      if (keysJustPressed[code] && isAction(action, code)) return true;
+    }
+    return false;
+  }
+  // Right mouse is the other burst button, for a hand already on the mouse.
+  // Right mouse used to be the other top-gear button. It is AIM now — that is
+  // what right mouse means in every game that has both — so top gear is the
+  // keyboard key, B, and Cross. See js/aim.js.
+  window.addEventListener("contextmenu", (e) => {
+    if (document.pointerLockElement) e.preventDefault();
+  });
+
   function update(dt = 0.016) {
     if (!dragon) return;
-    tick++;
+    // A tab that has been in the background hands back a huge first dt. At 335
+    // m/s that is a teleport through a mountain, so cap it.
+    dt = Math.min(dt, 0.05);
+    elapsed += dt;
 
     const camYaw = getCamYaw();
     if (heading === null) heading = camYaw + Math.PI; // no 180 spin on spawn
@@ -173,59 +262,73 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // --- Align to camera (H / D-pad up) ---
     // D-pad up points him at the camera, D-pad down brings the camera round to
     // him. Same job from either end, mirrored on the stick.
-    if (keysJustPressed["KeyH"] || (padOn && pad.pressed(BTN.DUP))) {
+    if (pressedAction("alignDragon") || (padOn && pad.pressed(BTN.DUP))) {
       alignTarget = camYaw + Math.PI;
     }
 
-    // --- Speed ---
-    // Keyboard steps per frame; the triggers are analog and run on real time.
-    if (keys["KeyJ"]) currentForwardSpeed = Math.min(SPEED_MAX, currentForwardSpeed + SPEED_STEP);
-    if (keys["KeyK"]) currentForwardSpeed = Math.max(SPEED_MIN, currentForwardSpeed - SPEED_STEP);
+    // --- Forward and back (W / S, or the left stick) -----------------------
+    // The standard flying-mount scheme and nothing cleverer: W flies him
+    // forward, Shift is the sprint on top of it, S backs him off, and letting
+    // go of both stops him. Stopped IS the hover — there is no mode to enter.
+    //
+    // This replaces a throttle that lived on the triggers and returned to a
+    // cruise you could retrim. That was a nice pedal and nobody could find it:
+    // "forward" was not a key at all, he simply always flew, and W — the key
+    // every player on earth reaches for to go forward — pitched him at the sky.
+    let moveInput = 0;
+    if (heldIn(keys, "forward")) moveInput += 1;
+    if (heldIn(keys, "back"))    moveInput -= 1;
+    const sprinting = heldIn(keys, "sprint");
 
-    // --- Throttle pedal (R2 gas, L2 brake) ---
-    let throttle = 0; // -1 hard on the brake .. +1 hard on the gas
     if (padOn) {
-      throttle = pad.value(BTN.R2) - pad.value(BTN.L2);
-      // L3 puts the CRUISE back to default — the speed the pedal returns to.
-      if (pad.pressed(BTN.L3)) currentForwardSpeed = FORWARD_SPEED;
+      // Stick forward reads as -y. Squared so the middle of the stick's travel
+      // sits near the cruise speed and the top end is the sprint — one analog
+      // axis covering everything W and Shift cover between them.
+      const fwd = -pad.ly;
+      if (Math.abs(fwd) > 0.02) {
+        moveInput = THREE.MathUtils.clamp(moveInput + Math.sign(fwd) * fwd * fwd, -1, 1);
+      }
+      if (pad.pressed(BTN.L3)) currentForwardSpeed = SPEED_CRUISE;
     }
 
-    // With the triggers released this collapses to the cruise speed, which is
-    // what makes him settle back rather than hold whatever you last asked for.
-    // Taking the extremes against the cruise speed matters: the console can set
-    // a cruise above PEDAL_MAX, and without this the gas would start subtracting.
-    const ceiling = Math.max(PEDAL_MAX, currentForwardSpeed);
-    const floor   = Math.min(PEDAL_MIN, currentForwardSpeed);
-    const pedalTarget = currentForwardSpeed
-      + Math.max(0, throttle) * (ceiling - currentForwardSpeed)
-      + Math.min(0, throttle) * (currentForwardSpeed - floor);
-    const pedalRate = pedalTarget > pedalSpeed ? PEDAL_GAIN : PEDAL_BLEED;
-    pedalSpeed += (pedalTarget - pedalSpeed) * (1 - Math.exp(-pedalRate * dt));
+    // What he is being asked to do, in m/s.
+    const top = sprinting ? Math.max(PEDAL_MAX, currentForwardSpeed) : currentForwardSpeed;
+    let pedalTarget;
+    if (moveInput > 0)      pedalTarget = moveInput * top;
+    else if (moveInput < 0) pedalTarget = moveInput * REVERSE_SPEED;
+    else                    pedalTarget = 0;
+    // Kept for the rumble mixer below, which wants to know whether he is being
+    // driven or coasting rather than which key did it.
+    const throttle = moveInput;
 
-    // --- Burst (L / Cross) ---
-    const wantBurst = keysJustPressed["KeyL"] || (padOn && pad.pressed(BTN.CROSS));
-    if (wantBurst && burstCooldown <= 0) {
-      burstTimer    = BURST_DURATION;
-      burstCooldown = BURST_COOLDOWN;
-      pad?.rumble.pulse(0.75, RUMBLE_BURST_KICK, 0.5);
-    } else if (wantBurst) {
-      // Asked for it while it was still charging — a flat little "not yet" tap.
-      pad?.rumble.pulse(0.35, 0, 0.09);
-    }
+    // --- Top gear (held: the burst key, right mouse, or Cross) ---
+    // Held, not tapped. Space used to fire this; Space is "up" now, the way it
+    // is in every game with a flying mount, so the signature move has its own
+    // key and that key is a throttle position rather than a trigger.
+    const wasBursting = bursting;
+    bursting = heldIn(keys, "burst") || (padOn && pad.held(BTN.CROSS));
 
-    const wasBursting = burstTimer > 0;
-    if (burstTimer    > 0) burstTimer    = Math.max(0, burstTimer - dt);
-    if (burstCooldown > 0) burstCooldown = Math.max(0, burstCooldown - dt);
-    if (wasBursting && burstTimer === 0) pad?.rumble.pulse(0.28, 0.4, 0.3); // letting go
-    if (burstCooldown === 0 && wasBurstCharging) pad?.rumble.pulse(0.34, 0.16, 0.2);
-    wasBurstCharging = burstCooldown > 0;
+    // The kick is on the EDGE, not on the hold — it is the shove of getting
+    // there, and sustaining it for as long as the player holds the key would
+    // turn the one moment of physical feedback in the game into background hum.
+    if (bursting && !wasBursting) pad?.rumble.pulse(0.75, RUMBLE_BURST_KICK, 0.5);
+    if (!bursting && wasBursting) pad?.rumble.pulse(0.28, 0.4, 0.3);
 
     for (const key in keysJustPressed) delete keysJustPressed[key];
 
+    // One airspeed, chasing one target. Top gear simply outranks the pedal
+    // while it is held, and comes off it fast enough that the drop back to
+    // 400-odd is its own event.
+    const speedTarget = bursting ? Math.max(BURST_SPEED, pedalTarget) : pedalTarget;
+    const rate = bursting
+      ? BURST_GAIN
+      : (speedTarget > airspeed ? PEDAL_GAIN : (airspeed > PEDAL_MAX ? BURST_BLEED : PEDAL_BLEED));
+    airspeed += (speedTarget - airspeed) * damp(rate, dt);
+
     // --- Knife edge (Z / X, or L1 / R1 held) ---
     let knifeWant = 0;
-    if (keys["KeyZ"] || (padOn && pad.held(BTN.L1))) knifeWant =  1; // left wing down
-    if (keys["KeyX"] || (padOn && pad.held(BTN.R1))) knifeWant = -1; // right wing down
+    if (heldIn(keys, "knifeL") || (padOn && pad.held(BTN.L1))) knifeWant =  1; // left wing down
+    if (heldIn(keys, "knifeR") || (padOn && pad.held(BTN.R1))) knifeWant = -1; // right wing down
 
     if (knifeWant !== 0) {
       knifeCharge = Math.max(0, knifeCharge - dt);
@@ -240,16 +343,22 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
 
     // Rolling in is decisive; coming out of it is a relax, not a snap.
     const knifeRate = Math.abs(knifeTarget) > Math.abs(knifeAmount) ? KNIFE_IN : KNIFE_OUT;
-    knifeAmount += (knifeTarget - knifeAmount) * (1 - Math.exp(-knifeRate * dt));
+    knifeAmount += (knifeTarget - knifeAmount) * damp(knifeRate, dt);
 
     // --- Yaw (A/D, arrows, or the left stick) ---
     let turnInput = 0;
-    if (keys["KeyA"] || keys["ArrowLeft"])  turnInput += 1; // +heading is left
-    if (keys["KeyD"] || keys["ArrowRight"]) turnInput -= 1;
+    if (heldIn(keys, "turnL")) turnInput += 1; // +heading is left
+    if (heldIn(keys, "turnR")) turnInput -= 1;
     // Stick right is +x, and turning right means a falling heading.
     if (padOn) turnInput = THREE.MathUtils.clamp(turnInput - pad.lx, -1, 1);
 
     if (turnInput !== 0) alignTarget = null; // manual input always wins
+
+    // What he can physically pull at this airspeed. A turn is lateral
+    // acceleration, lateral acceleration is v * omega, and he has a finite
+    // amount of it — so the faster he goes the lazier the arc, and a supersonic
+    // pass has to be lined up rather than steered.
+    yawMaxNow = Math.min(YAW_RATE_MAX, TURN_G / Math.max(airspeed, 1));
 
     if (alignTarget !== null) {
       // Drive the same rate-based turn toward the camera so H produces a real
@@ -259,97 +368,119 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
         alignTarget = null;
       } else {
         // Ease the rate down on approach so it settles instead of overshooting.
-        const desired = THREE.MathUtils.clamp(delta * 0.12, -YAW_MAX, YAW_MAX);
-        yawRate += (desired - yawRate) * 0.15;
+        const desired = THREE.MathUtils.clamp(delta * 1.6, -yawMaxNow, yawMaxNow);
+        yawRate += (desired - yawRate) * damp(YAW_LAMBDA, dt);
       }
     } else if (turnInput !== 0) {
-      yawRate += turnInput * YAW_ACCEL;
       // A part-deflected stick tops out at a proportionally lazier arc. Without
       // this an inch of stick would wind up to exactly the same rate as full
       // lock, just slower — which is what makes analog steering feel digital.
-      const cap = YAW_MAX * Math.abs(turnInput);
-      if (Math.sign(yawRate) === Math.sign(turnInput) && Math.abs(yawRate) > cap) {
-        yawRate = Math.sign(yawRate) * cap;
-      }
+      const want = turnInput * yawMaxNow;
+      yawRate += (want - yawRate) * damp(YAW_LAMBDA, dt);
     } else {
-      yawRate *= YAW_DAMP;
+      yawRate *= Math.exp(-YAW_DAMP * dt);
       if (Math.abs(yawRate) < YAW_DEADZONE) yawRate = 0;
     }
 
-    yawRate = THREE.MathUtils.clamp(yawRate, -YAW_MAX, YAW_MAX);
-    heading += yawRate;
+    yawRate = THREE.MathUtils.clamp(yawRate, -yawMaxNow, yawMaxNow);
+    heading += yawRate * dt;
     // On a wingtip he slices toward the low wing. Applied outside the clamp so
     // it reads as the maneuver dragging him round, not as extra steering.
-    heading += knifeAmount * KNIFE_YAW;
+    heading += knifeAmount * KNIFE_YAW * dt;
     // `heading` is the direction of TRAVEL. The GLB's nose points down local -Z,
     // so the model has to sit a half turn off the travel vector to face forward.
     dragon.rotation.y = heading + Math.PI;
 
     // --- Strafe (Q/E or Square/Circle): sideways, heading unchanged ---
-    if (keys["KeyQ"] || (padOn && pad.held(BTN.SQUARE))) velocityX -= STRAFE_ACCEL;
-    if (keys["KeyE"] || (padOn && pad.held(BTN.CIRCLE))) velocityX += STRAFE_ACCEL;
+    let strafeIn = 0;
+    if (heldIn(keys, "strafeL") || (padOn && pad.held(BTN.SQUARE))) strafeIn -= 1;
+    if (heldIn(keys, "strafeR") || (padOn && pad.held(BTN.CIRCLE))) strafeIn += 1;
+    strafeVel += strafeIn * STRAFE_ACCEL * dt;
+    if (strafeIn === 0) strafeVel *= Math.exp(-STRAFE_DAMP * dt);
+    strafeVel = THREE.MathUtils.clamp(strafeVel, -STRAFE_MAX, STRAFE_MAX);
 
-    // --- Forward / back thrust (W/S) on top of the cruise speed ---
-    if (keys["KeyW"]) velocityZ += THRUST_ACCEL;
-    if (keys["KeyS"]) velocityZ -= THRUST_ACCEL;
-
-    // --- Rise / dive: Space or R up, Shift or F down, or the left stick ---
+    // --- Up and down (Space / Ctrl, or R2 / L2) ----------------------------
+    //
+    // One axis, one job. This does not touch his speed and W does not touch
+    // this, so "fly forward and hold your altitude" and "rise straight up
+    // without drifting" are both just a key, rather than two things you have to
+    // balance against each other.
+    //
+    // It used to be W/S driving a flight path ANGLE, which is lovely aircraft
+    // physics and completely wrong for a creature that can stop in mid-air:
+    // with no forward speed an angle carries you nowhere, so a hovering dragon
+    // could not go up at all.
     let verticalInput = 0;
-    if (keys["Space"]      || keys["KeyR"] || keys["ArrowUp"])   verticalInput += 1;
-    if (keys["ShiftLeft"]  || keys["KeyF"] || keys["ArrowDown"]) verticalInput -= 1;
-    // Flight-stick convention: push away to put the nose down, pull back to
-    // bring it up. Stick forward reads as -y, so the sign goes straight on.
+    if (heldIn(keys, "up"))   verticalInput += 1;
+    if (heldIn(keys, "down")) verticalInput -= 1;
     if (padOn) {
-      const climb = padClimbInvert ? pad.ly : -pad.ly;
-      verticalInput = THREE.MathUtils.clamp(verticalInput + climb, -1, 1);
+      const v = pad.value(BTN.R2) - pad.value(BTN.L2);
+      verticalInput = THREE.MathUtils.clamp(
+        verticalInput + (padClimbInvert ? v : -v), -1, 1
+      );
     }
 
-    if (verticalInput !== 0) {
-      velocityY += verticalInput * VERT_ACCEL;
-    } else {
-      velocityY *= HOVER_DAMP;
-    }
+    // Fast dragons climb faster than slow ones, so the rate rides on airspeed —
+    // but it never falls to nothing, because hovering and rising is exactly the
+    // thing this axis exists to make possible.
+    const vertRate = Math.min(
+      VERT_HOVER + Math.abs(airspeed) * VERT_PER_SPEED, CLIMB_RATE_CAP
+    );
+    climbVel += (verticalInput * vertRate - climbVel) * damp(VERT_LAMBDA, dt);
+
+    activeSpeed = airspeed;
 
     // Wings vertical means almost no lift, so he sinks. Holding a knife edge
     // through a gap costs you altitude unless you pull up into it.
-    velocityY -= Math.abs(knifeAmount) * KNIFE_SINK;
+    const climbRate = climbVel
+      - Math.abs(knifeAmount) * KNIFE_SINK
+      + Math.sin(elapsed * BOB_FREQ * Math.PI * 2) * BOB_SPEED;
 
-    velocityX = Math.max(-MAX_STRAFE, Math.min(MAX_STRAFE, velocityX));
-    velocityY = Math.max(-MAX_VERT,   Math.min(MAX_VERT,   velocityY));
-    velocityZ = Math.max(-MAX_THRUST, Math.min(MAX_THRUST, velocityZ));
-    velocityX *= FRICTION_H;
-    velocityY *= FRICTION_V;
-    velocityZ *= FRICTION_H;
+    // Which way his nose points is now DERIVED from where he is actually going
+    // rather than being the thing you steer. The reference speed in the
+    // denominator is what keeps a climb from a standstill reading as a dragon
+    // tilting back to gain height instead of one standing on his tail.
+    const pathTarget = Math.atan2(
+      climbRate, Math.max(Math.abs(activeSpeed), PATH_REF_SPEED)
+    );
+    pathAngle += (pathTarget - pathAngle) * damp(PITCH_LAMBDA, dt);
 
     // --- Translation: always along his own nose ---
-    activeSpeed = (burstTimer > 0 ? BURST_SPEED : pedalSpeed) + velocityZ;
-    dragon.position.x += Math.sin(heading) * activeSpeed;
-    dragon.position.z += Math.cos(heading) * activeSpeed;
+    dragon.position.x += Math.sin(heading) * activeSpeed * dt;
+    dragon.position.z += Math.cos(heading) * activeSpeed * dt;
 
-    dragon.position.x -= Math.cos(heading) * velocityX;
-    dragon.position.z += Math.sin(heading) * velocityX;
+    dragon.position.x -= Math.cos(heading) * strafeVel * dt;
+    dragon.position.z += Math.sin(heading) * strafeVel * dt;
 
-    dragon.position.y += velocityY;
-    dragon.position.y += Math.sin(tick * SPEED_WOBBLE_FREQ) * SPEED_WOBBLE;
+    dragon.position.y += climbRate * dt;
 
     // --- Roll ---
     // Signs are set for the half-turned model: +roll drops the left wing, which
     // is what you want banking into a left (+yawRate) turn. Knife edge takes
     // over from ordinary banking as it comes on rather than fighting it.
-    const bank = (yawRate / YAW_MAX) * MAX_BANK - velocityX * TILT_AMOUNT;
+    // Banking is how a wing turns, so it only makes sense once there is air
+    // going over it. Spinning on the spot in a hover is flat, the way a
+    // helicopter's is, and the bank fades in as he picks up speed.
+    const bankScale = THREE.MathUtils.clamp(activeSpeed / SPEED_CRUISE, 0, 1);
+    const bank = ((yawRate / Math.max(yawMaxNow, 1e-4)) * MAX_BANK
+               - (strafeVel / STRAFE_MAX) * 0.30) * bankScale;
     const knifeBlend = Math.abs(knifeAmount);
     // Nothing alive holds a wingtip-down attitude perfectly still.
-    const tremble = Math.sin(tick * 0.31) * Math.sin(tick * 0.13) * KNIFE_TREMBLE * knifeBlend;
+    const tremble = Math.sin(elapsed * 18.6) * Math.sin(elapsed * 7.8) * KNIFE_TREMBLE * knifeBlend;
     const targetRoll = knifeAmount * KNIFE_ANGLE + (1 - knifeBlend) * bank + tremble;
-    currentRoll += (targetRoll - currentRoll) * BANK_SMOOTH;
+    currentRoll += (targetRoll - currentRoll) * damp(BANK_LAMBDA, dt);
     dragon.rotation.z = currentRoll;
 
-    // --- Pitch: nose up when climbing, and a little more on a wingtip where
-    //     he has to hold the nose high to keep from dropping ---
+    // --- Pitch ---
+    // His nose sits on the flight path, plus the angle of attack he needs to
+    // hold himself up — which is large when he is slow and nearly nothing at
+    // speed. That is why a slow pass looks like he is hanging off his wings and
+    // a fast one looks like a thrown spear.
+    const slowT = 1 - THREE.MathUtils.clamp((activeSpeed - SPEED_MIN) / (SPEED_CRUISE * 2), 0, 1);
     const targetPitch = THREE.MathUtils.clamp(
-      velocityY * PITCH_AMOUNT + knifeBlend * 0.14, -PITCH_MAX, PITCH_MAX
+      pathAngle + slowT * AOA_SLOW + knifeBlend * 0.14, -PITCH_MAX, PITCH_MAX
     );
-    currentPitch += (targetPitch - currentPitch) * (1 - Math.exp(-PITCH_LAMBDA * dt));
+    currentPitch += (targetPitch - currentPitch) * damp(PITCH_LAMBDA, dt);
     dragon.rotation.x = currentPitch;
 
     // --- Rumble ---------------------------------------------------------
@@ -371,7 +502,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
         (windT - BUFFET_ONSET) / (1 - BUFFET_ONSET), 0, 1
       );
       if (buffetT > 0) {
-        const shake = 0.5 + 0.5 * Math.sin(tick * 0.83) * Math.sin(tick * 0.29);
+        const shake = 0.5 + 0.5 * Math.sin(elapsed * 49.8) * Math.sin(elapsed * 17.4);
         pad.rumble.sustain(
           RUMBLE_BUFFET * buffetT * buffetT * shake,
           0.07 * buffetT * shake
@@ -379,7 +510,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       }
 
       // Load through a carve — you feel a hard turn in your palms.
-      const carve = Math.abs(yawRate) / YAW_MAX;
+      const carve = Math.abs(yawRate) / Math.max(yawMaxNow, 1e-4);
       pad.rumble.sustain(RUMBLE_CARVE * carve * carve, 0.10 * carve);
 
       // Knife edge: a wing held on its edge is a wing under strain, and the
@@ -387,39 +518,34 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       // the visual tremble — nothing alive holds this attitude cleanly.
       if (knifeBlend > 0.01) {
         const strain = 1 - knifeCharge / KNIFE_HOLD;
-        const flutter = 0.78 + 0.22 * Math.sin(tick * 0.9);
+        const flutter = 0.78 + 0.22 * Math.sin(elapsed * 54);
         pad.rumble.sustain(
           (RUMBLE_KNIFE + RUMBLE_KNIFE_STRAIN * strain) * knifeBlend * flutter,
           0.10 * knifeBlend * strain
         );
       }
 
-      if (burstTimer > 0) {
-        // Falls off across the burst so it reads as a shove that's spending itself.
-        const left = burstTimer / BURST_DURATION;
-        pad.rumble.sustain(0.30 * left, RUMBLE_BURST_HOLD * left);
+      if (bursting) {
+        // A steady hard note while he is held at it. There is no timer to spend
+        // any more, so this does not fall off — it is the sound of the airframe
+        // at its limit, and it stops when the player lets go.
+        pad.rumble.sustain(0.30, RUMBLE_BURST_HOLD);
       }
 
-      // --- Throttle and brake ---
-      // How far up his range the pedal currently has him. Both triggers get
-      // heavier the higher this is: the gas because he's near everything he's
-      // got, the brake because there's more speed to scrub off.
-      const pedalT = THREE.MathUtils.clamp(
-        (pedalSpeed - PEDAL_MIN) / (PEDAL_MAX - PEDAL_MIN), 0, 1
-      );
-
-      // How much of his remaining range he's eating right now. This is the
-      // difference between accelerating and merely going fast, and it's what
-      // both the gas rumble and the trigger texture key off — holding the gas
-      // open at a settled speed should feel like nothing much, because it is.
-      const surge = THREE.MathUtils.clamp(
-        (pedalTarget - pedalSpeed) / (PEDAL_MAX - PEDAL_MIN), 0, 1
+      // --- Acceleration, and the two triggers ---
+      // How far up his range he currently is, and how much of the range he is
+      // eating right now. The second is the difference between accelerating and
+      // merely going fast, and it is what the motors key off — holding W at a
+      // settled 400 mph should feel like nothing much, because it is.
+      const pedalT = THREE.MathUtils.clamp(activeSpeed / PEDAL_MAX, 0, 1);
+      const surge  = THREE.MathUtils.clamp(
+        (pedalTarget - activeSpeed) / PEDAL_MAX, 0, 1
       );
       surging = surge > (surging ? TRIG_SURGE_EXIT : TRIG_SURGE_ENTER);
 
-      // The main motors, so it's felt with or without trigger haptics. The gas
-      // surges on the strong motor and the brake grinds on the weak one — two
-      // different textures, so you can tell them apart with your eyes shut.
+      // Winding up thumps on the strong motor; backing off grinds on the weak
+      // one — two different textures, so you can tell them apart with your eyes
+      // shut.
       if (throttle > 0) {
         pad.rumble.sustain(
           RUMBLE_THROTTLE * 0.4 * surge,
@@ -432,71 +558,95 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
         );
       }
 
-      // And the triggers themselves, on the pads that have them under the
-      // finger rather than just beside it.
-      //
-      // Both pedals are heavy the whole time, whether or not you're touching
-      // them — that weight IS the effect. The gas gets a slight texture on top
-      // only while he's actually winding up, the way a driving game buzzes the
-      // throttle while the tyres are scrabbling and goes quiet the moment they
-      // hook up. Nothing here vibrates just because a trigger is held down.
+      // The triggers are the altitude axis now rather than a gas pedal, so
+      // what they weigh is the effort of shifting him vertically — which rises
+      // with airspeed, because that is what the climb rate does. Both stay
+      // heavy whether or not you are touching them: that weight IS the effect,
+      // and you should only notice it as how much work R2 takes. The texture on
+      // top arrives while he is genuinely still gaining, and goes quiet once he
+      // has settled at whatever you asked for.
+      const effort = THREE.MathUtils.clamp(
+        (VERT_HOVER + activeSpeed * VERT_PER_SPEED) / CLIMB_RATE_CAP, 0, 1
+      );
       pad.rumble.triggers(
-        TRIG_BRAKE_BASE + (TRIG_BRAKE_TOP - TRIG_BRAKE_BASE) * pedalT,
-        TRIG_GAS_BASE   + (TRIG_GAS_TOP   - TRIG_GAS_BASE)   * pedalT
+        TRIG_BRAKE_BASE + (TRIG_BRAKE_TOP - TRIG_BRAKE_BASE) * effort,
+        TRIG_GAS_BASE   + (TRIG_GAS_TOP   - TRIG_GAS_BASE)   * effort
       );
       if (surging && throttle > 0.05) {
         pad.rumble.triggerBuzz(0, TRIG_SURGE_BUZZ * surge);
       }
 
-      // A single detent when the pedal reaches either stop, so you know you're
-      // pinned without having to look at the HUD.
-      const atLimit = throttle !== 0 &&
-        (pedalSpeed >= PEDAL_MAX - 0.01 || pedalSpeed <= PEDAL_MIN + 0.01);
+      // A single detent when he reaches either end of his speed range, so you
+      // know you are pinned without having to look at the HUD.
+      const atLimit = throttle !== 0 && !bursting &&
+        (activeSpeed >= PEDAL_MAX - 1 || activeSpeed <= 1);
       if (atLimit && !wasAtSpeedLimit) pad.rumble.pulse(0.4, 0.15, 0.1);
       wasAtSpeedLimit = atLimit;
     }
   }
 
-  // 0 at a dead stop, 1 flat out in a burst. One definition, so the camera, the
-  // wing rig and the HUD can't drift apart from each other.
+  // 0 at a dead stop, 1 flat out in a burst — which is to say 1 is 750 mph.
+  // One definition, so the camera, the wing rig and the HUD can't drift apart.
   const speedRatio = () =>
     THREE.MathUtils.clamp((activeSpeed - SPEED_MIN) / (BURST_SPEED - SPEED_MIN), 0, 1);
 
   return {
     update,
     getHeading:  () => heading ?? 0,
+    /** Hand the heading back after something else has been steering him — a
+     *  landing, a walk across an island, a cutscene. Without this, taking off
+     *  snaps him round to wherever he was pointed when he touched down. */
+    setHeading(h) { heading = h; dragon.rotation.y = h + Math.PI; },
+    /** Metres per second. */
     getSpeed:    () => activeSpeed,
+    getSpeedMph: () => activeSpeed / MPH,
     getSpeedT:   speedRatio,
+    /** Metres per second along his nose. The plasma needs it — see plasma.js. */
+    getAirspeed: () => airspeed,
+    /** How far up his range the sustained throttle has him, burst excluded. */
+    getPedalT:   () => THREE.MathUtils.clamp(
+      (activeSpeed - SPEED_MIN) / (PEDAL_MAX - SPEED_MIN), 0, 1),
+    getClimb:    () => THREE.MathUtils.clamp(climbVel / CLIMB_RATE_CAP * 3, -1, 1),
+    /** Radians off the horizontal — the camera uses this to lead him. */
+    getPathAngle: () => pathAngle,
+    getYawRate:  () => yawRate,
+    /** -1..1 of everything he can currently pull. Drives the camera lean. */
+    getTurnT:    () => THREE.MathUtils.clamp(yawRate / Math.max(yawMaxNow, 1e-4), -1, 1),
+    getRoll:     () => currentRoll,
     isTurning:   () => Math.abs(yawRate) > YAW_DEADZONE * 4,
-    isBursting:  () => burstTimer > 0,
-    burstReady:  () => burstCooldown <= 0,
+    isBursting:  () => bursting,
 
     // Drives the wing rig.
     getFlightState: () => ({
-      climb:  THREE.MathUtils.clamp(velocityY / MAX_VERT, -1, 1),
+      climb:  THREE.MathUtils.clamp(climbVel / CLIMB_RATE_CAP * 3, -1, 1),
       speedT: speedRatio(),
       knife:  knifeAmount,
+      // How hard he is carving, -1 .. +1. js/flightrig.js steers the tail fins
+      // and leans his head with it; wings.js ignores it.
+      turn:   THREE.MathUtils.clamp(yawRate / Math.max(yawMaxNow, 1e-4), -1, 1),
     }),
     getKnifeCharge: () => knifeCharge / KNIFE_HOLD,
 
     // --- debug console hooks ---
-    getTurnRate: () => YAW_MAX,
+    /** Peak turn rate in rad/s at low speed. The high-speed cap is TURN_G. */
+    getTurnRate: () => YAW_RATE_MAX,
     setTurnRate(v) {
-      YAW_MAX = THREE.MathUtils.clamp(v, 0.002, 0.06);
-      YAW_ACCEL = YAW_MAX / 15.5; // keep the wind-up feel proportional
-      return YAW_MAX;
+      YAW_RATE_MAX = THREE.MathUtils.clamp(v, 0.1, 4);
+      TURN_G = YAW_RATE_MAX * 135;  // keep the speed falloff proportional
+      return YAW_RATE_MAX;
     },
     getCruiseSpeed: () => currentForwardSpeed,
     setCruiseSpeed(v) {
-      currentForwardSpeed = THREE.MathUtils.clamp(v, 0, 10);
+      currentForwardSpeed = THREE.MathUtils.clamp(v, 0, 400);
       return currentForwardSpeed;
     },
     getClimbInvert: () => padClimbInvert,
     setClimbInvert(v) { padClimbInvert = !!v; return padClimbInvert; },
-    setHeading(rad) { heading = rad; },
     clearKeys() {
       for (const k in keys) keys[k] = false;
-      velocityX = velocityY = velocityZ = 0;
+      strafeVel = 0;
+      pathAngle = 0;
+      yawRate = 0;
     },
   };
 }

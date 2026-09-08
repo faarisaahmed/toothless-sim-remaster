@@ -8,11 +8,15 @@ const loader = new GLTFLoader();
 const cache = new Map();
 
 /**
- * Load the first path that works. The rigged Toothless is the one we want
- * everywhere; the older dragon is kept as a fallback so a missing or broken
- * export degrades to a placeholder-shaped thing rather than a black screen.
+ * Load the first path that works. The 152-bone rig is the one we want
+ * everywhere now; the two older exports are kept behind it so a missing or
+ * broken file degrades to a worse dragon rather than a black screen.
+ *
+ * All three present identically in world space — 15.09 across, Y up, nose on
+ * -Z — so they are interchangeable without touching any of the scaling below.
  */
 export function loadDragon(paths = [
+  "./assets/models/dragon_rigged_hd.glb",
   "./assets/models/toothless_rigged.glb",
   "./assets/models/dragon_rigged.glb",
 ]) {
@@ -41,9 +45,8 @@ export function loadDragon(paths = [
  * Wrap a loaded model in a group scaled to a known size, so every scene can ask
  * for "three and a half metres of dragon" without knowing the export's units.
  *
- * Two things about toothless_rigged.glb that this has to work around, both
- * confirmed by rendering it against an axis helper rather than by trusting the
- * numbers:
+ * Two things about these exports that this has to work around, both confirmed
+ * by rendering against an axis helper rather than by trusting the numbers:
  *
  *  1. It is already Y-up and lying flat. An earlier version here inferred the
  *     up-axis from the bounding box and rotated it, which stood him on his tail.
@@ -96,7 +99,7 @@ function measure(root) {
 /**
  * Calibrated horizontal spans, in model units at scale 1.
  *
- * Neither automatic measurement works on toothless_rigged.glb: the bind-pose
+ * Neither automatic measurement works on these rigs: the bind-pose
  * Box3 says 2.06 across (too small — he rendered at double that), and the posed
  * SkinnedMesh box overshoots badly because the bone chains reach well past the
  * mesh (he rendered at a fifth the size). Rather than keep guessing, this was
@@ -106,6 +109,8 @@ function measure(root) {
  * GridHelper and count squares across the wings.
  */
 const KNOWN_SPAN = {
+  // Same mesh, same units, so the calibration carries across the rigs.
+  "dragon_rigged_hd.glb": 4.2,
   "toothless_rigged.glb": 4.2,
 };
 

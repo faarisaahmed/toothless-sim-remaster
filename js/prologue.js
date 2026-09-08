@@ -4,6 +4,8 @@ import { makeOrb } from "./placeholder.js";
 import * as tex from "./textures.js";
 import * as input from "./input.js";
 import { bindDragon, noseSign } from "./dragonrig.js";
+import { music } from "./audio.js";
+import { setupPost } from "./postfx.js";
 
 // ---------------------------------------------------------------------------
 // B1 — The Room
@@ -21,7 +23,9 @@ import { bindDragon, noseSign } from "./dragonrig.js";
 // and nothing else. What they mean is the player's job.
 // ---------------------------------------------------------------------------
 
-const ROOM = { w: 14, d: 16, h: 5.4 };      // metres; he's ~3.4 long and needs room to walk
+const ROOM = { w: 11.5, d: 13, h: 4.8 };    // metres; he's 3.4 long and needs room to turn around
+                                           // in, and not one metre more — this scene is
+                                           // about the room being small.
 
 // Where the interesting things are. `face` is the yaw the camera swings to when
 // he studies it, so each object gets a composed shot rather than whatever angle
@@ -57,6 +61,7 @@ const OBJECTS = [
 const SLAB = { pos: [-0.6, 0, 5.2], radius: 2.6 };
 
 export function runPrologue(pad = null, save = null) {
+  music.play("prologue");
   return new Promise((resolve) => {
     // --- DOM ----------------------------------------------------------------
     const root = document.createElement("div");
@@ -73,7 +78,7 @@ export function runPrologue(pad = null, save = null) {
       </div>
 
       <div class="pro-prompt" id="pro-prompt" hidden>
-        <kbd>E</kbd><kbd class="pad shape">&#9651;</kbd>
+        <kbd>R</kbd><kbd class="pad shape">&#9651;</kbd>
         <span></span>
       </div>
 
@@ -85,7 +90,7 @@ export function runPrologue(pad = null, save = null) {
       <div class="pro-hint" id="pro-hint">
         <span class="k"><kbd>W</kbd><kbd>S</kbd> walk</span>
         <span class="k"><kbd>A</kbd><kbd>D</kbd> turn</span>
-        <span class="k"><kbd>E</kbd> look at what you're near</span>
+        <span class="k"><kbd>R</kbd> look at what you're near</span>
         <span class="p"><kbd class="pad">L&#9679;</kbd> walk</span>
         <span class="p"><kbd class="pad shape">&#9651;</kbd> look at</span>
       </div>
@@ -118,18 +123,29 @@ export function runPrologue(pad = null, save = null) {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 2.6;
+    renderer.toneMappingExposure = 1.85;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060a);
-    scene.fog = new THREE.Fog(0x1d1822, 22, 70);
+    scene.fog = new THREE.Fog(0x0d1018, 16, 46);
 
     const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 160);
+
+    // Bloom for the hearth and the orb, vignette and split-tone for the corners.
+    // Threshold is low here because the only bright things in the room are ones
+    // that should glow.
+    const post = setupPost(renderer, scene, camera, {
+      bloom: { strength: 0.62, radius: 0.62, threshold: 0.42 },
+      vignette: 0.80,
+      grain: 0.016,
+      tint: { cool: 0x1c2740, warm: 0x2a1a08, mix: 0.55 },
+    });
 
     const onResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      post.setSize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener("resize", onResize);
 
@@ -242,7 +258,7 @@ export function runPrologue(pad = null, save = null) {
       hearth.add(log);
     }
 
-    const fireLight = new THREE.PointLight(0xff9448, 34, 56, 1.25);
+    const fireLight = new THREE.PointLight(0xff8c3c, 26, 20, 1.5);
     fireLight.position.set(0, 0.5, 0);
     fireLight.castShadow = true;
     fireLight.shadow.mapSize.set(1024, 1024);
@@ -287,18 +303,33 @@ export function runPrologue(pad = null, save = null) {
     moonLight.target.position.set(-1, 0, 0);
     room.add(moonLight, moonLight.target);
 
-    const bounce = new THREE.PointLight(0xffbb84, 11, 44, 1.55);
-    bounce.position.set(-3.2, 3.2, 0.6);
+    // Cold spill through the shutter gaps, on before it is ever opened. This is
+    // the counterweight to the fire and it is doing most of the work in the
+    // frame: without a cold source the whole room is one warm value and reads
+    // as brown, however good the textures are.
+    const leak = new THREE.PointLight(0x7fa0e0, 6.5, 13, 1.6);
+    leak.position.set(ROOM.w / 2 - 0.6, 2.5, 1.8);
+    room.add(leak);
+
+    // And a low cold bounce off the floorboards on that side, so the darkness
+    // in the corners is blue rather than black.
+    const coldFill = new THREE.DirectionalLight(0x6f8fd0, 0.22);
+    coldFill.position.set(6, 3, 4);
+    coldFill.target.position.set(-2, 0.6, -1);
+    room.add(coldFill, coldFill.target);
+
+    const bounce = new THREE.PointLight(0xffbb84, 3.2, 16, 1.8);
+    bounce.position.set(-3.0, 2.9, 0.4);
     room.add(bounce);
 
     // Ambient floor. Low, but not so low that half the room is pure void —
     // "dark" has to still mean "you can see the shape of the place".
-    scene.add(new THREE.HemisphereLight(0x6d7ba8, 0x3a2a1c, 2.6));
+    scene.add(new THREE.HemisphereLight(0x3f5480, 0x14100c, 0.62));
 
     // Wall lamps. A longhouse at night has more than one fire in it, and two
     // practicals on the far walls stop the corners reading as void.
-    for (const [lx, lz] of [[-ROOM.w / 2 + 0.5, -4.5], [ROOM.w / 2 - 0.5, 2.5]]) {
-      const lamp = new THREE.PointLight(0xffb268, 9, 26, 1.7);
+    for (const [lx, lz] of [[-ROOM.w / 2 + 0.5, -4.0]]) {
+      const lamp = new THREE.PointLight(0xffb268, 5.5, 15, 1.9);
       lamp.position.set(lx, 3.0, lz);
       room.add(lamp);
       const bowl = new THREE.Mesh(
@@ -468,10 +499,10 @@ export function runPrologue(pad = null, save = null) {
     // --- State --------------------------------------------------------------
     let yaw = Math.PI;
     let camYaw = Math.PI;
-    let camPitch = 0.16;          // radians above the horizontal
+    let camPitch = 0.24;          // radians above the horizontal
     let orbit = 0;                // player's own offset from behind-his-back
     let orbitPitch = 0;
-    let camDist = 4.4;
+    let camDist = 5.8;
 
     let groundSpeed = 0;          // m/s, measured from actual displacement
     const lastPos = new THREE.Vector3();
@@ -490,6 +521,9 @@ export function runPrologue(pad = null, save = null) {
     // Click to capture, same as the flight sim. The offset is the PLAYER's, and
     // nothing else writes it — the camera still follows him, but where it sits
     // around him is theirs. Drifts back to behind his shoulder when they stop.
+    const SHOULDER = 0.62;   // radians off dead-astern. Straight behind a dragon is a
+                             // view of a tail — and his tail fins are the palest thing
+                             // on him, so dead astern is also the worst-lit angle.
     const LOOK_SENS = 0.0026;
     const PITCH_MIN = -0.35, PITCH_MAX = 0.95;
     let lookIdle = 0;
@@ -694,7 +728,7 @@ export function runPrologue(pad = null, save = null) {
         + Math.sin(elapsed * 7.3) * 0.06
         + Math.sin(elapsed * 2.1) * 0.09
         + Math.sin(elapsed * 13.7) * 0.03;
-      fireLight.intensity = 34 * flick;
+      fireLight.intensity = 26 * flick;
       fireLight.position.x = Math.sin(elapsed * 1.7) * 0.06;
       for (const e of embers) {
         e.material.emissiveIntensity =
@@ -723,14 +757,13 @@ export function runPrologue(pad = null, save = null) {
         orbitPitch -= orbitPitch * k;
       }
 
-      let targetYaw = yaw + Math.PI + orbit;
-      let targetDist = 8.4;
-      let targetHeight = 0;                 // resolved from pitch below
-      let pitch = 0.16 + orbitPitch;
+      let targetYaw = yaw + Math.PI + orbit + SHOULDER;
+      let targetDist = 5.8;
+      let pitch = 0.24 + orbitPitch;
 
       if (studying) {
         targetYaw = studying.face;
-        targetDist = 3.4;
+        targetDist = 2.9;
         pitch = 0.10;
       }
 
@@ -738,16 +771,17 @@ export function runPrologue(pad = null, save = null) {
       camDist += (targetDist - camDist) * damp(2.6, dt);
       camPitch += (pitch - camPitch) * damp(6.5, dt);
 
-      const focusX = studying ? studying.pos[0] : body.position.x;
-      const focusY = studying ? studying.pos[1] + 0.3 : 0.85;
-      const focusZ = studying ? studying.pos[2] : body.position.z;
+      const LEAD = 1.15;   // metres ahead of his origin, i.e. at his shoulders
+      const focusX = studying ? studying.pos[0] : body.position.x + Math.sin(yaw) * LEAD;
+      const focusY = studying ? studying.pos[1] + 0.3 : 0.80;
+      const focusZ = studying ? studying.pos[2] : body.position.z + Math.cos(yaw) * LEAD;
 
       // Orbit on a sphere around him rather than at a fixed height, so looking
       // up and down actually moves the camera instead of just tilting it.
       const flat = camDist * Math.cos(camPitch);
       camera.position.set(
         focusX + Math.sin(camYaw) * flat,
-        focusY + 1.1 + camDist * Math.sin(camPitch),
+        focusY + 0.95 + camDist * Math.sin(camPitch),
         focusZ + Math.cos(camYaw) * flat
       );
       // Never let the camera get outside the house or inside the floor.
@@ -756,7 +790,7 @@ export function runPrologue(pad = null, save = null) {
       camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.7, ROOM.h - 0.4);
       camera.lookAt(focusX, focusY, focusZ);
 
-      renderer.render(scene, camera);
+      post.render(dt);
       input.finishFrame(dt);
     }
 

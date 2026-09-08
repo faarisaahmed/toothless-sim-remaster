@@ -94,6 +94,27 @@ canvas { display: block; }
   transition: color 0.2s ease;
 }
 
+/* Six pips, because six is the number and a number you can count at a glance
+   beats a bar you have to read. The part-filled one is the shot coming back. */
+.hold-note { font-size:9px; letter-spacing:.1em; text-transform:uppercase;
+             color:rgba(160,185,210,.6); margin-left:4px; }
+
+.hud-shots { display:inline-flex; gap:3px; align-items:center; }
+.hud-shots s { width:9px; height:9px; border-radius:50%; display:block;
+               background:rgba(143,107,255,.16);
+               box-shadow:inset 0 0 0 1px rgba(143,107,255,.34); }
+.hud-shots s.on { background:#a482ff; box-shadow:0 0 8px rgba(143,107,255,.8); }
+.hud-shots s.charging { background:rgba(143,107,255,.45); }
+
+.hud-unit {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(160, 185, 210, 0.62);
+  margin-left: 3px;
+}
+
 #hud-speed.bursting {
   color: #ff9d5c;
   text-shadow: 0 0 16px rgba(255, 157, 92, 0.5);
@@ -235,7 +256,10 @@ kbd.pad.shape {
   box-shadow: 0 0 8px currentColor;
 }
 
-#hud-burst.ready { color: #8fe0a8; }
+/* `.ready` now means ENGAGED, not available — he is in top gear right now —
+   so it reads as the hot amber everything else at speed uses rather than the
+   green of a recharged ability. */
+#hud-burst.ready { color: #ffb268; }
 
 #hud-pad-tag {
   flex-shrink: 0;
@@ -593,3 +617,57 @@ kbd.pad.shape {
     transform-origin: left center;
   }
 }
+
+/* --- Aiming ---------------------------------------------------------------
+   The crosshair exists only in scoped mode. No-scope deliberately has none —
+   reading where his head is pointed off the model IS the mode, and a reticle
+   would hand back the exact thing that mode is choosing not to give you. */
+#aim-ui {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+#aim-reticle {
+  width: 96px;
+  height: 96px;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  overflow: visible;
+}
+#aim-reticle circle,
+#aim-reticle line {
+  fill: none;
+  stroke: rgba(255, 210, 170, 0.9);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9));
+}
+#aim-reticle .pip { fill: #ff8a3d; stroke: none; }
+
+#aim-bar {
+  width: 128px;
+  height: 3px;
+  background: rgba(232, 226, 212, 0.16);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+#aim-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  background: #ffcf9a;
+  box-shadow: 0 0 8px rgba(255, 190, 120, 0.8);
+  transition: background 0.2s ease;
+}
+/* Locked out. The bar refills left-to-right as the three seconds run down, so
+   it is a countdown to being allowed back rather than a bar that is just off. */
+#aim-bar.locked i { background: #d97a63; box-shadow: 0 0 8px rgba(217, 122, 99, 0.7); }

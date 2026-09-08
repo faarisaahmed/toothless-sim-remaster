@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fold Probe</title>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body style="margin:0;background:#111;color:#ccc;font:13px ui-monospace,monospace">
+<pre id="out">loading…</pre>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+// Headless fold probe. The point of doing this in three.js rather than in
+// Blender is that `bone.rotation.z += d` is NOT the same rotation Blender's
+// pose-bone euler gives you — with three's XYZ order, a delta on X turns about
+// the bone's own axis but a delta on Z turns about the *parent's*. Numbers
+// tuned in Blender therefore do not transfer, which is exactly what went wrong
+// the first time. So: measure through the path the game actually uses.
+
+const THETA = [109, 85, 64, 40, 19, -2];      // digit spread, degrees
+const SEG = [0.55, 0.28, 0.17];
+
+const gltf = await new GLTFLoader().loadAsync("./assets/models/dragon_rigged_hd.glb");
+const root = gltf.scene;
+let mesh = null;
+root.traverse((o) => { if (o.isSkinnedMesh && !mesh) mesh = o; });
+
+const bones = new Map();
+root.traverse((o) => { if (o.isBone) bones.set(o.name, o); });
+const rest = new Map();
+for (const [n, b] of bones) rest.set(n, b.rotation.clone());
+
+// Membrane sample: bind-pose vertices out past the body.
+const pos = mesh.geometry.attributes.position;
+const idx = [];
+for (let i = 0; i < pos.count; i++) if (Math.abs(pos.getX(i)) > 1.05) idx.push(i);
+
+const v = new THREE.Vector3();
+function measure() {
+  root.updateMatrixWorld(true);
+  let span = 0, ground = 0, ahead = 0, ontop = 0, back = 0, maxY = -9, flare = 0;
+  for (const i of idx) {
+    mesh.applyBoneTransform(i, v.set(pos.getX(i), pos.getY(i), pos.getZ(i)));
+    span = Math.max(span, Math.abs(v.x));
+    maxY = Math.max(maxY, v.y);
+    ground += Math.max(0, 0.06 - v.y);     // through the floor
+    ontop  += Math.max(0, v.y - 1.45);     // draped over the back instead of the flank
+    // How far the membrane stands off the flank. This, not span, is what makes
+    // a fold read as folded: a sheet laid flat across the back scores a fine
+    // span and still looks like a pancake.
+    flare  += Math.max(0, Math.abs(v.x) - 0.62);
+    ahead  += Math.max(0, -2.30 - v.z);    // past the shoulders toward the nose (-Z)
+    back   += Math.max(0, v.z - 1.30);     // riding back over the hips
+  }
+  const n = idx.length;
+  return { span: span * 2, maxY, flare: flare / n,
+           ground: ground / n, ontop: ontop / n, ahead: ahead / n, back: back / n };
+}
+
+const restQ = new Map();
+for (const [n, b] of bones) restQ.set(n, b.quaternion.clone());
+
+function reset() {
+  for (const [n, b] of bones) { const r = rest.get(n); b.rotation.set(r.x, r.y, r.z); }
+}
+
+const AX = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+const q = new THREE.Quaternion();
+
+let MODE = "euler";
+function turn(name, axis, d) {
+  const b = bones.get(name);
+  if (!b) return;
+  if (MODE === "euler") {
+    b.rotation[axis] += d;                       // three's XYZ: post-mul on x, PRE-mul on y/z
+  } else {
+    // Post-multiply: a turn about the bone's own axis, which is what Blender's
+    // pose-bone euler does and what the measured numbers were derived in.
+    b.quaternion.multiply(q.setFromAxisAngle(AX[axis], d));
+  }
+}
+
+window.probe = (sweep, elbow, phi, armx, sail, sweepAxis = "z", elbowAxis = "z", mode = "euler", drop = 0) => {
+  MODE = mode;
+  reset();
+  for (const [s, sign] of [["L", 1], ["R", -1]]) {
+    // Drop BEFORE sweep, and the order is the whole point: once the shoulder
+    // has swung 100 degrees back, its local X no longer points fore-aft, it
+    // points down the span — so the same "drop" becomes a twist and does
+    // nothing. Rolled first, it is a real drop onto the flank.
+    turn(`Wing_Shoulder${s}`, "x", drop);
+    turn(`Wing_Shoulder${s}`, sweepAxis, sweep * sign);
+    turn(`Wing_UpperArm${s}`, "x", armx);
+    turn(`Wing_Forearm${s}`, elbowAxis, elbow * sign);
+    for (let i = 1; i <= 3; i++) turn(`Tail_Sail_Strut_0${i}${s}`, "z", sail * sign);
+    for (let d = 0; d < 6; d++) {
+      const t = (phi - THETA[d]) * Math.PI / 180;
+      for (let g = 0; g < 3; g++) {
+        turn(`Wing_Finger${String(d * 3 + g + 1).padStart(3, "0")}${s}`, "x", t * SEG[g]);
+      }
+    }
+  }
+  return measure();
+};
+
+reset();
+window.__ready = true;
+document.getElementById("out").textContent =
+  `ready — ${bones.size} bones, ${idx.length} membrane samples\n` +
+  `bind: ${JSON.stringify(measure())}`;
+</script>
+</body>
+</html>

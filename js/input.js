@@ -51,15 +51,15 @@ const ROOM = {
   back:    { keys: ["KeyS", "ArrowDown"] },
   turnL:   { keys: ["KeyA", "ArrowLeft"] },
   turnR:   { keys: ["KeyD", "ArrowRight"] },
-  look:    { keys: ["KeyE"],  pads: [BTN.TRIANGLE] },   // hold to study a thing
-  confirm: { keys: ["Enter", "Space", "KeyE"], pads: [BTN.CROSS] },
+  look:    { keys: ["KeyR"],  pads: [BTN.TRIANGLE] },   // hold to study a thing
+  confirm: { keys: ["Enter", "Space", "KeyR"], pads: [BTN.CROSS] },
   back:    { keys: ["Escape"], pads: [BTN.CIRCLE] },
   rest:    { keys: ["KeyR"],  pads: [BTN.SQUARE] },     // lie back down
   skip:    { keys: ["Escape"], pads: [BTN.OPTIONS] },
 };
 
 const CINEMA = {
-  advance: { keys: ["Enter", "Space", "KeyE"], pads: [BTN.CROSS] },
+  advance: { keys: ["Enter", "Space", "KeyR"], pads: [BTN.CROSS] },
   skip:    { keys: ["Escape"], pads: [BTN.OPTIONS] },
 };
 

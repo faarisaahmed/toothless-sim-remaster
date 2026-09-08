@@ -20,7 +20,6 @@ const HALF     = TERRAIN_SIZE / 2;
 const INK       = "#43301b";
 const SEA       = "#d2c29b";
 const SEA_DEEP  = "#c3b088";
-const GOLD      = "#a8802b";
 const MARKER    = "#a5372a";
 
 // Elevation bands, shallowest first. Sea is left as bare parchment so the wave
@@ -102,6 +101,14 @@ function contourSegments(field, n, level) {
 
   return segs;
 }
+
+let SITES = [];
+/**
+ * Tell the chart about mission locations. Each is { x, z, label, found }.
+ * Unfound sites are not drawn — the chart shows where you have been, not where
+ * the game would like you to go.
+ */
+export function setMapSites(list) { SITES = list || []; }
 
 export function setupMap(getPlayer) {
   const root   = document.getElementById("map");
@@ -797,6 +804,7 @@ export function setupMap(getPlayer) {
     ];
 
     paintTrail(ctx, toPx);
+    paintSites(ctx, toPx);
 
     const player = getPlayer();
     if (player) {
@@ -805,6 +813,35 @@ export function setupMap(getPlayer) {
       // right and +z down — so the screen angle falls straight out of it.
       paintDragon(ctx, px, py, Math.atan2(Math.cos(player.heading), Math.sin(player.heading)), clock);
       paintReadout(ctx, player, size);
+    }
+  }
+
+  /** Mission sites, inked in the same hand as the rest of the chart. */
+  function paintSites(g, toPx) {
+    for (const s of SITES) {
+      if (!s.found) continue;
+      const [x, y] = toPx(s.x, s.z);
+      g.save();
+      g.strokeStyle = "rgba(150, 60, 28, 0.9)";
+      g.fillStyle = "rgba(150, 60, 28, 0.9)";
+      g.lineWidth = Math.max(1.2, size * 0.0022);
+
+      // A cross rather than a pin. Somebody drew this with a quill.
+      const r = size * 0.010;
+      g.beginPath();
+      g.moveTo(x - r, y - r); g.lineTo(x + r, y + r);
+      g.moveTo(x + r, y - r); g.lineTo(x - r, y + r);
+      g.stroke();
+      g.beginPath();
+      g.arc(x, y, r * 1.8, 0, Math.PI * 2);
+      g.globalAlpha = 0.55;
+      g.stroke();
+      g.globalAlpha = 1;
+
+      g.font = `600 ${Math.round(size * 0.017)}px Rajdhani, system-ui, sans-serif`;
+      g.textAlign = "center";
+      g.fillText(s.label.toUpperCase(), x, y + r * 4.2);
+      g.restore();
     }
   }
 

@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { setupWings } from "./wings.js";
+import { wingRoots } from "./dragonrig.js";
+import { setupFlightRig } from "./flightrig.js";
 
 // Wild dragons flying aerobatic routines in small family groups.
 //
@@ -58,7 +60,9 @@ function wingTuning(base, rateMul, ampMul) {
 function makeDragon(template, tuning, isBaby) {
   const obj = cloneSkinned(template);
   obj.rotation.order = "YXZ";
-  obj.scale.setScalar(isBaby ? BABY_SCALE * 2 : 2);
+  // Life size, matching the player — the GLB is authored in metres and so is
+  // the world. These used to be doubled to match a player who was also doubled.
+  obj.scale.setScalar(isBaby ? BABY_SCALE : 1);
 
   let skel = null;
   obj.traverse((o) => {
@@ -71,19 +75,20 @@ function makeDragon(template, tuning, isBaby) {
     }
   });
 
-  let updateWings = null;
-  if (skel) {
-    const wl = skel.getBoneByName("Bone004");
-    const wr = skel.getBoneByName("Bone005");
-    // Small wings beat faster and deeper. Most of what makes them read as babies.
-    if (wl && wr) {
-      updateWings = setupWings(wl, wr, isBaby ? wingTuning(tuning, 2.0, 1.15) : tuning);
-    }
-  }
+  // Small wings beat faster and deeper. Most of what makes them read as babies.
+  const wing = wingRoots(skel);
+  const updateWings = wing
+    ? setupWings(wing[0], wing[1], isBaby ? wingTuning(tuning, 2.0, 1.15) : tuning)
+    : null;
+
+  // Same rig the player gets, so the flight overhead is not four dragons
+  // gliding past with their legs down.
+  const flightRig = setupFlightRig(obj);
 
   return {
     obj,
     updateWings,
+    flightRig,
     isBaby,
     lag: 0,
     side: 0,
@@ -240,11 +245,15 @@ export function setupFlights(scene, template, tuning, world, flightCount = 7, sp
     m.obj.rotation.set(sample.pitch, sample.heading + Math.PI, sample.roll);
 
     if (m.updateWings) {
-      m.updateWings(dt, {
+      const st = {
         climb: THREE.MathUtils.clamp(sample.pitch / 0.6, -1, 1),
         speedT: THREE.MathUtils.clamp((sample.speed - 22) / 60, 0, 1),
         knife: f.rollMode === "knife" ? Math.min(1, Math.abs(sample.roll) / 1.42) : 0,
-      });
+        // They have no stick, so read the carve off the bank they are holding.
+        turn: THREE.MathUtils.clamp(sample.roll / 0.62, -1, 1),
+      };
+      m.updateWings(dt, st);
+      if (m.flightRig) m.flightRig(dt, st, m.updateWings.getBeat());
     }
   }
 

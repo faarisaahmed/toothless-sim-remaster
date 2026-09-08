@@ -71,5 +71,12 @@ export function setupWings(boneLeft, boneRight, tuning) {
   // downstroke rather than to a timer of its own.
   update.getBeat = () => ({ phase, amp });
 
+  /** Put the clavicles back. Stop calling this and they freeze mid-beat, which
+   *  is why a landed dragon used to stand there with his wings half open. */
+  update.release = () => {
+    boneLeft.quaternion.copy(restL);
+    boneRight.quaternion.copy(restR);
+  };
+
   return update;
 }

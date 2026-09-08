@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rig Demo — Night Alone</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  :root { --ink:#e8e2d4; --dim:#9a9384; --ember:#ff8a3d; --edge:rgba(232,226,212,.16); }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0d1016; color:var(--ink);
+         font-family:Rajdhani,system-ui,sans-serif; overflow:hidden; }
+  canvas { display:block; }
+
+  #title { position:fixed; top:18px; left:24px; z-index:5; pointer-events:none; }
+  #title h1 { font-family:Cinzel,serif; font-size:1.25rem; margin:0; letter-spacing:.04em; }
+  #title p  { margin:3px 0 0; font-size:.78rem; color:var(--dim); letter-spacing:.06em; }
+
+  #bar { position:fixed; bottom:0; left:0; right:0; z-index:5;
+         background:linear-gradient(to top, rgba(6,8,12,.96), rgba(6,8,12,.0));
+         padding:34px 24px 20px; display:flex; gap:26px; align-items:flex-end;
+         flex-wrap:wrap; }
+  .grp { display:flex; flex-direction:column; gap:7px; }
+  .grp .lbl { font-size:.62rem; letter-spacing:.22em; text-transform:uppercase; color:var(--dim); }
+  .btns { display:flex; gap:6px; flex-wrap:wrap; }
+  button { font-family:inherit; font-size:.76rem; letter-spacing:.09em; text-transform:uppercase;
+           color:var(--ink); background:rgba(0,0,0,.5); border:1px solid var(--edge);
+           padding:9px 13px; cursor:pointer; transition:border-color .12s, color .12s; }
+  button:hover { border-color:var(--ember); color:var(--ember); }
+  button.on { color:#12151c; background:var(--ember); border-color:var(--ember); font-weight:700; }
+
+  .sl { display:flex; flex-direction:column; gap:4px; min-width:150px; }
+  .sl span { font-size:.7rem; color:var(--dim); }
+  input[type=range] { width:100%; accent-color:var(--ember); }
+
+  #note { position:fixed; right:24px; top:18px; z-index:5; width:250px; text-align:right;
+          font-size:.76rem; line-height:1.5; color:var(--dim); pointer-events:none; }
+  #note b { color:var(--ember); font-weight:600; }
+  #err { position:fixed; inset:0; display:none; place-items:center; z-index:9;
+         background:rgba(8,10,15,.9); color:#ff8a8a; font-size:.95rem; padding:40px;
+         text-align:center; }
+</style>
+</head>
+<body>
+
+<div id="title">
+  <h1>Rig Demo</h1>
+  <p id="sub">loading&hellip;</p>
+</div>
+
+<div id="note"></div>
+<div id="err"></div>
+
+<div id="bar">
+  <div class="grp">
+    <div class="lbl">Animation</div>
+    <div class="btns" id="acts"></div>
+  </div>
+  <div class="grp">
+    <div class="lbl">Show</div>
+    <div class="btns">
+      <button id="skel">Skeleton</button>
+      <button id="orbitb" class="on">Auto-orbit</button>
+      <button id="old">Old rig</button>
+    </div>
+  </div>
+  <div class="sl">
+    <span>Speed <b id="v-rate">1.0&times;</b></span>
+    <input id="rate" type="range" min="0" max="2" step="0.05" value="1">
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { bindDragon } from "./js/dragonrig.js";
+import { setupWings } from "./js/wings.js";
+
+// ---------------------------------------------------------------------------
+// Animation showcase for the 152-bone rig.
+//
+// Everything you see is the game's own rig code -- js/dragonrig.js for the
+// gait, the fold, breathing and the tail wave, js/wings.js for the beat. The
+// only thing this page adds is the `extras` layer at the bottom, which drives
+// the bones the old 95-bone rig did not have (jaw, ears, eyes, fin struts) and
+// so has nowhere else to live yet.
+// ---------------------------------------------------------------------------
+
+const NEW_MODEL = "./assets/models/dragon_rigged_hd.glb";
+const OLD_MODEL = "./assets/models/toothless_rigged.glb";
+const SPAN = 5.2;                 // both files measure 15.09 across at scale 1
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.9;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1016);
+scene.fog = new THREE.Fog(0x0d1016, 14, 40);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 200);
+camera.position.set(2.5, 1.20, 2.9);
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.target.set(0, 0.42, 0);
+orbit.enableDamping = true;
+orbit.minDistance = 1.6;
+orbit.maxDistance = 30;
+
+// Toothless is very nearly black. Point lights alone leave him a silhouette,
+// so the readable thing is image-based light: a room probe fills the shadow
+// side so the folded membrane still has form in it.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 1.1;
+
+scene.add(new THREE.HemisphereLight(0x8fa8cc, 0x2e2822, 1.6));
+const key = new THREE.DirectionalLight(0xfff0dc, 3.2);
+key.position.set(6, 9, 5);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -9; key.shadow.camera.right = 9;
+key.shadow.camera.top = 9;   key.shadow.camera.bottom = -9;
+key.shadow.bias = -0.0012;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x86a6e8, 2.2);
+rim.position.set(-6, 3.5, -6);
+scene.add(rim);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 80),
+  new THREE.MeshStandardMaterial({ color: 0x191d26, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Two interleaved grids so one can scroll under his feet without the seam
+// showing when it wraps.
+const GRID_STEP = 1;
+const grid = new THREE.GridHelper(80, 80, 0x3d4658, 0x252b36);
+grid.position.y = 0.002;
+scene.add(grid);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// --- Model ------------------------------------------------------------------
+const loader = new GLTFLoader();
+const TUNING = { flapSpeed: 1, flapAmplitude: 1, sweepAmount: 1, tuckSign: 1 };
+
+async function build(path) {
+  const gltf = await loader.loadAsync(path);
+  const root = gltf.scene;
+
+  const holder = new THREE.Group();
+  holder.add(root);
+  holder.scale.setScalar(SPAN / 15.09);
+  scene.add(holder);
+
+  root.traverse((o) => {
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    // Bind-pose bounds miss a beating wing, so he pops out of frame mid-flap.
+    if (o.isSkinnedMesh) o.frustumCulled = false;
+  });
+
+  const rig = bindDragon(root);
+  const wings = setupWings(
+    rig.bones.get("Wing_ClavicleL"), rig.bones.get("Wing_ClavicleR"), TUNING);
+
+  const rest = new Map();
+  for (const [n, b] of rig.bones) rest.set(n, b.rotation.clone());
+
+  const helper = new THREE.SkeletonHelper(root);
+  helper.visible = false;
+  scene.add(helper);
+
+  return { path, holder, root, rig, wings, rest, helper, count: rig.bones.size };
+}
+
+let A = null, B = null, showOld = false;
+
+build(NEW_MODEL).then((m) => {
+  A = m;
+  A.rig.snapFold(1);
+  document.getElementById("sub").textContent =
+    `${m.count} bones · ${m.path.split("/").pop()}`;
+  setAct("walk");
+}).catch(fail);
+
+function fail(e) {
+  const el = document.getElementById("err");
+  el.style.display = "grid";
+  el.textContent = "Could not load the model: " + e.message +
+    "  —  serve this over http, not file://";
+  console.error(e);
+}
+
+// --- Acts -------------------------------------------------------------------
+// Each act is a target state the loop eases toward, so switching between them
+// is itself animated rather than a cut.
+const ACTS = {
+  idle:  { label: "Idle",        fold: 1, speed: 0,   climb: 0,     air: 0,    pitch: 0,     note: "Breathing and a slow tail wave. Wings packed on the flank." },
+  walk:  { label: "Walk",        fold: 1, speed: 1.6, climb: 0,     air: 0,    pitch: 0,     note: "Four-beat diagonal gait out of <b>dragonrig.js</b> — front-left with rear-right. Knees only flex on the recovery half." },
+  fold:  { label: "Fold wings",  fold: null, speed: 0.3, climb: 0,  air: 0,    pitch: 0,     note: "Spread and pack, on a loop. The sweep at <b>Wing_Shoulder</b> does most of it; the spars furl behind." },
+  flap:  { label: "Flap",        fold: 0, speed: 0,   climb: 0.75,  air: 1.5,  pitch: -0.10, note: "Climbing beat. <b>wings.js</b> drives the clavicles; the six digit spars carry the membrane." },
+  glide: { label: "Glide",       fold: 0, speed: 0,   climb: 0.0,   air: 1.5,  pitch: 0.0,   note: "Wings still and swept, riding it out." },
+  dive:  { label: "Dive",        fold: 0, speed: 0,   climb: -0.95, air: 2.2,  pitch: 0.42,  note: "Tucked into a stoop — shallow, fast beats." },
+  head:  { label: "Head & jaw",  fold: 1, speed: 0,   climb: 0,     air: 0,    pitch: 0,     note: "<b>New bones:</b> jaw, eyes and five ear plates a side. The 95-bone rig had none of these." },
+  tail:  { label: "Tail fin",    fold: 1, speed: 0,   climb: 0,     air: 0,    pitch: 0,     note: "<b>New bones:</b> six two-segment struts a side, furling the fin. The old rig had them unmirrored on top of each other." },
+};
+
+let act = "walk";
+const target = { fold: 1, speed: 0, climb: 0, air: 0, pitch: 0 };
+const cur = { fold: 1, speed: 0, climb: 0, air: 0, pitch: 0 };
+let foldPhase = 0;
+
+const actsEl = document.getElementById("acts");
+for (const [k, v] of Object.entries(ACTS)) {
+  const b = document.createElement("button");
+  b.textContent = v.label;
+  b.dataset.act = k;
+  b.addEventListener("click", () => setAct(k));
+  actsEl.appendChild(b);
+}
+
+function setAct(k) {
+  act = k;
+  const a = ACTS[k];
+  target.speed = a.speed; target.climb = a.climb;
+  target.air = a.air; target.pitch = a.pitch;
+  if (a.fold !== null) target.fold = a.fold;
+  foldPhase = 0;
+  document.getElementById("note").innerHTML = a.note;
+  actsEl.querySelectorAll("button").forEach(
+    (b) => b.classList.toggle("on", b.dataset.act === k));
+}
+
+document.getElementById("skel").addEventListener("click", (e) => {
+  e.currentTarget.classList.toggle("on");
+  const on = e.currentTarget.classList.contains("on");
+  [A, B].forEach((m) => m && (m.helper.visible = on));
+});
+
+let autoOrbit = true;
+document.getElementById("orbitb").addEventListener("click", (e) => {
+  e.currentTarget.classList.toggle("on");
+  autoOrbit = e.currentTarget.classList.contains("on");
+});
+
+document.getElementById("old").addEventListener("click", async (e) => {
+  e.currentTarget.classList.toggle("on");
+  showOld = e.currentTarget.classList.contains("on");
+  if (showOld && !B) {
+    e.currentTarget.textContent = "loading";
+    try { B = await build(OLD_MODEL); } catch (err) { return fail(err); }
+    e.currentTarget.textContent = "Old rig";
+  }
+  if (B) B.holder.visible = showOld;
+  if (A) A.holder.position.x = showOld ? -3.2 : 0;
+  if (B) B.holder.position.x = 3.2;
+});
+
+const rateEl = document.getElementById("rate");
+
+// --- The extra layer --------------------------------------------------------
+// Bones the game does not drive yet, because until now they did not exist.
+// Written as rest + delta, same discipline as dragonrig.js.
+function extras(m, t, mode) {
+  const set = (name, axis, v) => {
+    const b = m.rig.bones.get(name);
+    const r = m.rest.get(name);
+    if (!b || !r) return;
+    b.rotation.set(r.x, r.y, r.z);
+    b.rotation[axis] += v;
+  };
+
+  // Always on: a slow blink and an idle ear twitch. Cheap, and it is most of
+  // what stops a static pose reading as a mannequin.
+  const blink = Math.max(0, Math.sin(t * 0.9) - 0.93) * 8;
+  set("EyeL", "x", blink * 0.35);
+  set("EyeR", "x", blink * 0.35);
+
+  const twitch = Math.sin(t * 0.7) * 0.05 + Math.max(0, Math.sin(t * 1.9) - 0.97) * 4;
+  for (const s of ["L", "R"]) {
+    const sign = s === "L" ? 1 : -1;
+    set(`Ear_A001${s}`, "z", (twitch + (mode === "head" ? Math.sin(t * 2.2) * 0.30 : 0)) * sign);
+    set(`Ear_A002${s}`, "z", (twitch * 0.6) * sign);
+    set(`Ear_B001${s}`, "z", (twitch * 0.5) * sign);
+    set(`Ear_B002${s}`, "z", (twitch * 0.4) * sign);
+    set(`Ear_C${s}`, "z", (twitch * 0.3) * sign);
+  }
+
+  // Jaw: shut unless the head act is running.
+  const jaw = mode === "head" ? (0.5 - Math.cos(t * 1.6) * 0.5) * 0.5 : 0;
+  set("Jaw", "x", -jaw);
+  set("Jaw_Tip", "x", -jaw * 0.3);
+
+  // Tail fin. It furls with the wings — a dragon does not fly with the fin
+  // spread and the wings packed — and fans wide for the tail act.
+  // Furls as the wings pack away, spreads when he is working the air. The sign
+  // matters: positive fans the blades apart, so folding wants the negative.
+  const fan = mode === "tail"
+    ? -0.15 - Math.sin(t * 1.1) * 0.5
+    : cur.fold * 0.5 - Math.max(0, cur.climb) * 0.35;
+  for (const s of ["L", "R"]) {
+    for (let i = 1; i <= 6; i++) {
+      const k = (i - 1) / 5;
+      set(`Tail_Fin_Strut${String(i).padStart(3, "0")}${s}`, "x", fan * (0.4 + k * 0.9));
+      set(`Tail_Fin_Tip${String(i).padStart(3, "0")}${s}`, "x", fan * (0.3 + k * 0.6));
+    }
+  }
+
+  // Dorsal crest lifts a little when he is working.
+  for (let i = 1; i <= 8; i++) {
+    set(`Dorsal${String(i).padStart(3, "0")}`, "x",
+        -0.18 * Math.max(cur.speed / 1.6, Math.max(0, cur.climb)));
+  }
+
+  if (mode === "head") {
+    const yaw = Math.sin(t * 0.55) * 0.34;
+    for (let i = 1; i <= 3; i++) {
+      const b = m.rig.bones.get(`Neck00${i}`);
+      if (b) b.rotation.z += yaw * 0.3;
+    }
+    const h = m.rig.bones.get("Head");
+    if (h) { h.rotation.z += yaw * 0.5; h.rotation.x += Math.sin(t * 0.8) * 0.12; }
+  }
+}
+
+
+// Debug hook: measures the real skinned wing span for whatever pose is showing.
+// _foldprobe.html does this for tuning; this one is for checking the live page.
+window.__setCam = (x, y, z) => { camera.position.set(x, y, z); autoOrbit = false; };
+window.__setAct = (k) => setAct(k);
+window.__only = (name) => { A.root.traverse((o) => { if (o.isMesh) o.visible = [].concat(o.material).some((m) => m.name === name); }); };
+window.__hide = (name) => { A.root.traverse((o) => { if (o.isMesh && [].concat(o.material).some((m) => m.name === name)) o.visible = false; }); };
+window.__hideBones = (re) => { for (const [n, b] of A.rig.bones) if (new RegExp(re).test(n)) b.scale.setScalar(0.01); };
+window.__matDump = () => { const out = []; A.root.traverse((o) => { if (!o.isMesh) return; for (const m of [].concat(o.material)) out.push({ name: m.name, color: '#' + m.color.getHexString(), rough: +m.roughness.toFixed(2), metal: +m.metalness.toFixed(2), map: !!m.map }); }); return out; };
+window.__texDump = () => {
+  const out = [], mats = new Map();
+  A.root.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) if (m.map) mats.set(m.name, m.map); });
+  for (const [name, tex] of mats) {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'); g.drawImage(tex.image, 0, 0, 128, 128);
+    const d = g.getImageData(0, 0, 128, 128).data;
+    let r = 0, gg = 0, bb = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; bb += d[i + 2]; }
+    const n = d.length / 4;
+    out.push({ name, avg: [Math.round(r / n), Math.round(gg / n), Math.round(bb / n)],
+               size: tex.image.width + 'x' + tex.image.height });
+  }
+  return out;
+};
+window.__showAll = () => { A.root.traverse((o) => { if (o.isMesh) o.visible = true; }); };
+window.__meshes = () => { const out = []; A.root.traverse((o) => { if (o.isMesh) out.push({ mat: [].concat(o.material).map((m) => m.name).join('+'), visible: o.visible }); }); return out; };
+
+// Per-digit read-out: where each spar points relative to the wrist once folded.
+// If the fan is shutting these converge; if it is not they stay 20-25 degrees
+// apart, the same as the bind pose. Cheaper to read than another screenshot.
+window.__digitDirs = () => {
+  const m = A; if (!m) return null;
+  m.root.updateMatrixWorld(true);
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  const aim = (name) => {
+    const b = m.rig.bones.get(name);
+    if (!b) return null;
+    b.matrixWorld.decompose(p, q, sc);
+    const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    return +(Math.atan2(dir.z, dir.x) * 180 / Math.PI).toFixed(0);
+  };
+  const rows = [];
+  for (let d = 0; d < 6; d++) {
+    rows.push([1, 2, 3].map((g) =>
+      aim(`Wing_Finger${String(d * 3 + g).padStart(3, "0")}L`)));
+  }
+  const meta = rows.map((r) => r[0]);
+  return { arm: [aim("Wing_ShoulderL"), aim("Wing_UpperArmL"), aim("Wing_ForearmL")],
+           metaSpread: +(Math.max(...meta) - Math.min(...meta)).toFixed(0),
+           perDigit: rows };
+};
+
+window.__spanProbe = () => {
+  const m = A; if (!m) return null;
+  let mesh = null;
+  m.root.traverse((o) => { if (o.isSkinnedMesh && !mesh) mesh = o; });
+  m.root.updateMatrixWorld(true);
+  const pos = mesh.geometry.attributes.position;
+  const v = new THREE.Vector3();
+  let span = 0, maxY = -9, reach = 0, sumX = 0, n = 0, sumY = 0;
+  const wrist = new THREE.Vector3();
+  const wb = m.rig.bones.get("Wing_ForearmL");
+  if (wb) wb.getWorldPosition(wrist);
+  for (let i = 0; i < pos.count; i += 7) {
+    if (Math.abs(pos.getX(i)) < 1.05) continue;
+    mesh.applyBoneTransform(i, v.set(pos.getX(i), pos.getY(i), pos.getZ(i)));
+    span = Math.max(span, Math.abs(v.x)); maxY = Math.max(maxY, v.y);
+    if (pos.getX(i) > 1.05) reach = Math.max(reach, v.distanceTo(wrist));
+    sumX += Math.abs(v.x); sumY += v.y; n++;
+  }
+  // `reach` is the one that says whether the hand actually folded: how far the
+  // furthest membrane vertex still is from the wrist. Span cannot see it,
+  // because the widest point of a folded wing is the root at the shoulder.
+  // outX is the one that says "resting on his sides" rather than "piled on his
+  // back": the average distance of the membrane from the midline. His ribcage
+  // is about 0.65 half-width, so a wing lying on the flank wants to be near
+  // that, and a wing heaped over the spine reads far lower.
+  return { span: +(span * 2).toFixed(3), reach: +reach.toFixed(2),
+           outX: +(sumX / n).toFixed(2), avgY: +(sumY / n).toFixed(2),
+           maxY: +maxY.toFixed(2), fold: +m.rig.getFold().toFixed(2) };
+};
+
+// --- Loop -------------------------------------------------------------------
+const clock = new THREE.Clock();
+let t = 0;
+const damp = (l, dt) => 1 - Math.exp(-l * dt);
+
+function frame() {
+  requestAnimationFrame(frame);
+  const rate = +rateEl.value;
+  document.getElementById("v-rate").textContent = rate.toFixed(2) + "×";
+
+  const dt = Math.min(clock.getDelta(), 0.05) * rate;
+  t += dt;
+
+  // The fold act loops spread <-> packed on its own.
+  if (act === "fold") {
+    foldPhase += dt;
+    target.fold = (foldPhase % 6) < 3 ? 0 : 1;
+  }
+
+  for (const k of ["speed", "climb", "air", "pitch"]) {
+    cur[k] += (target[k] - cur[k]) * damp(2.4, dt);
+  }
+
+  for (const m of [A, B]) {
+    if (!m || !m.holder.visible) continue;
+    m.rig.setFold(target.fold);
+    cur.fold = m.rig.getFold();
+
+    m.rig.update(dt, { speed: cur.speed, maxSpeed: 1.9 });
+    if (cur.fold < 0.85) {
+      m.wings(dt, { climb: cur.climb, speedT: Math.abs(cur.pitch) * 1.6, knife: 0 });
+    } else {
+      // Hand the clavicles back when the beat stops. wings.js owns them and
+      // dragonrig.js does not, so without this they keep whatever rotation the
+      // last frame of the last wingbeat left on them, and the folded wing sits
+      // at a different angle depending on which mode you came from.
+      for (const s of ["L", "R"]) {
+        const b = m.rig.bones.get(`Wing_Clavicle${s}`);
+        const r = m.rest.get(`Wing_Clavicle${s}`);
+        if (b && r) b.rotation.set(r.x, r.y, r.z);
+      }
+    }
+    extras(m, t, act);
+
+    m.holder.position.y = cur.air;
+    m.holder.rotation.x = cur.pitch;
+    // A touch of bank and bob so a hover does not look like a hanging prop.
+    m.holder.rotation.z = cur.air > 0.2 ? Math.sin(t * 0.5) * 0.10 : 0;
+    m.holder.position.y += cur.air > 0.2 ? Math.sin(t * 1.3) * 0.10 : 0;
+  }
+
+  // Ground scrolls under a walk so the stride reads as travel.
+  grid.position.z = (grid.position.z + cur.speed * dt * (SPAN / 15.09) * 9) % GRID_STEP;
+
+  if (autoOrbit) {
+    const r = Math.hypot(camera.position.x, camera.position.z);
+    const a = Math.atan2(camera.position.z, camera.position.x) + dt * 0.16;
+    camera.position.x = Math.cos(a) * r;
+    camera.position.z = Math.sin(a) * r;
+  }
+  orbit.target.y = 0.42 + cur.air;
+  orbit.update();
+  renderer.render(scene, camera);
+}
+frame();
+</script>
+</body>
+</html>

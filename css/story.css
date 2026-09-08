@@ -224,6 +224,24 @@ body.pre-flight #padmon { display: none !important; }
 }
 .slot.on .slot-go { opacity: 1; color: var(--ember); transform: none; }
 
+/* --- The options row ------------------------------------------------------
+   Same component as a slot so the cursor reads as one continuous list, but set
+   apart: it is a setting, not a journey, and it should not look like a fifth
+   save that happens to be full. */
+.opts { margin-top: 0.9rem; }
+
+.slot.opt {
+  border-left-color: rgba(232, 226, 212, 0.1);
+  background: rgba(10, 12, 18, 0.42);
+}
+.slot.opt .slot-index {
+  font-family: Rajdhani, system-ui, sans-serif;
+  font-size: 1.25rem;
+  opacity: 0.7;
+}
+.slot.opt .slot-title { font-size: 0.98rem; letter-spacing: 0.03em; }
+.slot.opt.on { background: rgba(18, 14, 12, 0.72); }
+
 /* --- Footer -------------------------------------------------------------- */
 
 .title-foot {

@@ -1,12 +1,73 @@
 import * as THREE from "three";
+import { music, TRACKS, CREDITS } from "./audio.js";
 
 // Master control panel. Backtick opens it, Escape closes. Everything here is a
 // dev tool — it mutates live state directly rather than going through gameplay.
+const MODES_OK = (a, id) => id === "scoped" || id === "noscope";
+
+// ---------------------------------------------------------------------------
+// The key monitor.
+//
+// There is one class of "the controls don't work" bug that no amount of reading
+// the code will find, because it never reaches the code: KEYBOARD GHOSTING.
+// Most keyboards — every laptop and every membrane board — wire their keys as a
+// grid and can only report a limited number of simultaneous presses. Hold three
+// keys that share the wrong rows and columns and the third one is simply never
+// sent to the browser. The game sees two keys held and behaves perfectly
+// correctly, which is exactly what makes it impossible to debug by feel.
+//
+// So this shows what the BROWSER says is held, not what the game thinks. If you
+// hold three keys and only two light up, the missing one never arrived and no
+// change to this project can fix it — the answer is a different key or a
+// different device.
+// ---------------------------------------------------------------------------
+function createKeyMon() {
+  const el = document.createElement("div");
+  el.id = "keymon";
+  el.style.cssText =
+    "position:fixed;left:18px;bottom:18px;z-index:200;display:none;padding:10px 13px;" +
+    "background:rgba(8,10,16,.86);border:1px solid rgba(232,226,212,.16);border-radius:6px;" +
+    "font:11px/1.6 ui-monospace,monospace;color:#e8e2d4;pointer-events:none;min-width:210px";
+  document.body.appendChild(el);
+
+  const down = new Set();
+  let peak = 0, on = false;
+
+  const draw = () => {
+    if (!on) return;
+    const list = [...down].map((c) => c.replace(/^Key|^Digit/, "")).join("  ") || "—";
+    el.innerHTML =
+      `<div style="color:#9a9384;letter-spacing:.18em;font-size:9px">HELD &nbsp;${down.size}` +
+      `&nbsp; PEAK ${peak}</div><div style="margin-top:4px;color:#ffcf9a">${list}</div>` +
+      `<div style="margin-top:6px;color:#6f6a5f;font-size:9px">if a key you are pressing is` +
+      `<br>missing here, the keyboard dropped it</div>`;
+  };
+
+  window.addEventListener("keydown", (e) => {
+    down.add(e.code);
+    if (down.size > peak) peak = down.size;
+    draw();
+  });
+  window.addEventListener("keyup", (e) => { down.delete(e.code); draw(); });
+  window.addEventListener("blur", () => { down.clear(); draw(); });
+
+  return {
+    toggle() {
+      on = !on;
+      peak = 0;
+      el.style.display = on ? "block" : "none";
+      draw();
+      return on;
+    },
+  };
+}
+
 export function setupDebugConsole(ctx) {
   const root   = document.getElementById("console");
   const logEl  = document.getElementById("console-log");
   const input  = document.getElementById("console-input");
 
+  let keyMon = null;
   const history = [];
   let historyIndex = -1;
   let open = false;
@@ -39,22 +100,233 @@ export function setupDebugConsole(ctx) {
     },
 
     speed: {
-      help: "speed <n> — set cruise speed (default 0.35)",
+      help: "speed <n> — set cruise speed in m/s (default 55, ~123 mph)",
       run(args) {
         const c = ctx.getControls();
         if (!c) return log("dragon not loaded yet", "err");
-        if (!args[0]) return log(`speed = ${c.getCruiseSpeed().toFixed(3)}`);
-        log(`speed = ${c.setCruiseSpeed(num(args[0], 0.35)).toFixed(3)}`);
+        const show = (v) => `speed = ${v.toFixed(1)} m/s (${Math.round(v / 0.44704)} mph)`;
+        if (!args[0]) return log(show(c.getCruiseSpeed()));
+        log(show(c.setCruiseSpeed(num(args[0], 55))));
+      },
+    },
+
+    keys: {
+      help: "keys — live overlay of what the KEYBOARD is actually sending",
+      run() {
+        keyMon = keyMon || createKeyMon();
+        const on = keyMon.toggle();
+        log(`key monitor ${onOff(on)}`);
+        if (on) {
+          log("close this console, then hold the combination that fails.");
+          log("every key you are holding should appear. one that does not");
+          log("appear was never delivered — that is keyboard ghosting, and");
+          log("it is the board, not the game.");
+        }
+      },
+    },
+
+    aim: {
+      help: "aim [scoped|noscope] — which aiming mode the aim button uses",
+      run(args) {
+        const a = ctx.aim;
+        if (!a) return log("no aim system on this scene", "err");
+        if (args[0]) {
+          if (!MODES_OK(a, args[0])) return log(`unknown mode "${args[0]}" — scoped or noscope`, "err");
+          a.setMode(args[0]);
+        }
+        log(`mode      ${a.mode}`);
+        log(`aiming    ${onOff(a.active)}${a.scoped ? " (scoped — camera and clock)" : ""}`);
+        log(`stamina   ${(a.stamina * 100).toFixed(0)}%`);
+        log(`lockout   ${a.lockout > 0 ? a.lockout.toFixed(1) + "s" : "none"}`);
+        log(`head      yaw ${(a.yaw * 57.3).toFixed(0)}°  pitch ${(a.pitch * 57.3).toFixed(0)}°`);
+      },
+    },
+
+    plasma: {
+      help: "plasma [fire|refill] — the magazine, and what is in the air",
+      run(args) {
+        const p = ctx.plasma;
+        if (!p) return log("no plasma system on this scene", "err");
+        if (args[0] === "fire") {
+          // Straight through the game's own fire path, so this tests the muzzle
+          // and the aiming rather than a shortcut into plasma.fire().
+          if (!ctx.fireBlast) return log("no fire path on this scene", "err");
+          ctx.fireBlast(true);
+        } else if (args[0] === "refill") {
+          p.refill();
+        } else if (args[0]) {
+          return log(`unknown "${args[0]}" — fire or refill`, "err");
+        }
+        log(`shots     ${p.shots} / ${p.maxShots}${p.ready ? "" : "  (not ready)"}`);
+        log(`recharge  ${(p.rechargeT * 100).toFixed(0)}% toward the next one`);
+        // A bolt leaves at 600 plus whatever HE is doing along the same line,
+        // so this is the difference between the muzzle speed and what actually
+        // crosses the world. Worth printing: a shot that reads as slow is
+        // nearly always a shot fired while hovering.
+        const air = ctx.grounded ? 0 : (ctx.getControls?.()?.getAirspeed?.() ?? 0);
+        log(`his own   ${Math.round(air)} m/s along his nose, added to the muzzle` +
+            (ctx.grounded ? " (on the ground — nothing to inherit)" : ""));
+        // Where the bolt is born. It leaves the HEAD bone, not the dragon's
+        // origin, because he can look off-axis — firing from the origin down a
+        // swung head puts the bolt out of his ribs. If this reads as zero the
+        // model has not loaded and the fire path is falling back to the origin.
+        const head = ctx.aim?.headPosition?.();
+        const org = ctx.getDragon?.()?.position;
+        if (head && org) {
+          const d = head.clone().sub(org);
+          // Projected onto his NOSE, because that is the only component that
+          // answers the question. A head 2.9 m from his origin is either his
+          // mouth or his tail depending on the sign, and a world-space offset
+          // alone cannot tell you which.
+          const c = ctx.getControls?.();
+          const h = c?.getHeading?.() ?? 0, pa = c?.getPathAngle?.() ?? 0;
+          const nose = new THREE.Vector3(
+            Math.sin(h) * Math.cos(pa), Math.sin(pa), Math.cos(h) * Math.cos(pa));
+          const ahead = d.dot(nose);
+          log(`muzzle    head bone, ${ahead.toFixed(1)} m ahead of his origin and ` +
+              `${d.y.toFixed(1)} m up, then 1.4 m more down the barrel` +
+              (ahead < 0.5 ? "  ← THAT IS NOT HIS MOUTH" : ""));
+        } else {
+          log(`muzzle    no head bone — falling back to his origin + 5.2 m`, "warn");
+        }
+        const live = p.liveBolts();
+        log(`in the air ${live.length}`);
+        for (const b of live) {
+          log(`  ${Math.round(b.speed)} m/s, ${Math.round(b.travelled)} m out, ` +
+              `at ${b.pos.x.toFixed(0)} ${b.pos.y.toFixed(0)} ${b.pos.z.toFixed(0)}`);
+        }
+      },
+    },
+
+    ground: {
+      help: "ground [on|off] — put him down where he is, or get him back up",
+      run(args) {
+        if (!ctx.land || !ctx.takeOff) return log("no ground mode on this scene", "err");
+        // Reaching the ground normally means finding land, getting under 22 m
+        // AGL and under cruise, then holding the land key. That is the right
+        // shape for a player and a bad shape for a script.
+        if (args[0] === "off") ctx.takeOff();
+        else if (!args[0] || args[0] === "on") ctx.land();
+        else return log(`unknown "${args[0]}" — on or off`, "err");
+        log(`grounded  ${onOff(ctx.grounded)}`);
+      },
+    },
+
+    controls: {
+      help: "controls [wasd|arrows] — which hand steers and which one acts",
+      run(args) {
+        const km = ctx.keymap;
+        if (!km) return log("no keymap on this scene", "err");
+        if (args[0]) {
+          if (!km.SCHEMES[args[0]]) return log(`unknown scheme "${args[0]}" — wasd or arrows`, "err");
+          km.setScheme(args[0]);
+        }
+        const sc = km.SCHEMES[km.getScheme()];
+        log(`scheme  ${sc.label} — ${sc.hint}`);
+        const show = (a) => km.keysFor(a).map(km.label).join(" / ") || "—";
+        log(`steer   ${show("forward")} ${show("back")} ${show("turnL")} ${show("turnR")}`);
+        log(`height  up ${show("up")}   down ${show("down")}   sprint ${show("sprint")}`);
+        log(`act     blast ${show("fire")}   sleepfire ${show("sleepfire")}`);
+        log(`        burst ${show("burst")}   land/use ${show("landUse")}`);
+        log(`trim    strafe ${show("strafeL")} ${show("strafeR")}   knife ${show("knifeL")} ${show("knifeR")}`);
+      },
+    },
+
+    quality: {
+      help: "quality [scale|auto] — render scale, tier and what the governor is doing",
+      run(args) {
+        const g = ctx.governor, post = ctx.post;
+        if (!g || !post) return log("no governor on this scene", "err");
+        if (args[0] === "auto") {
+          g.setEnabled(true);
+          return log("render scale: auto");
+        }
+        if (args[0]) {
+          const v = Math.min(2, Math.max(0.25, num(args[0], 1)));
+          g.setEnabled(false, v);
+          post.setScale(v);
+          return log(`render scale pinned at ${v.toFixed(2)}`);
+        }
+        log(`tier          ${ctx.tier ?? "?"}`);
+        log(`render scale  ${post.scale.toFixed(2)} (${g.enabled ? "auto" : "pinned"})`);
+        log(`frame         ${g.frameMs.toFixed(1)} ms median, ${g.fps.toFixed(0)} fps`);
+        log(`display floor ${g.vsyncMs.toFixed(1)} ms — the fastest frame seen`);
+        log(`bloom         ${onOff(!!post.bloom)}`);
+      },
+    },
+
+    stalls: {
+      help: "stalls — every frame slower than 90 ms, and where you were",
+      run() {
+        if (!ctx.getStalls) return log("no stall log on this scene", "err");
+        const { log: rows, count, worst, threshold } = ctx.getStalls();
+        log(`${count} stalls over ${threshold} ms, worst frame ${worst.toFixed(0)} ms`);
+        if (!rows.length) return log("nothing logged — the hitches are elsewhere");
+        // Gaps between stalls are the tell. Evenly spaced means something
+        // periodic; bunched means something you flew into.
+        let prev = null;
+        for (const r of rows.slice(-24)) {
+          const gap = prev === null ? "" : ` (+${(r.t - prev).toFixed(1)}s)`;
+          log(`  ${r.t.toFixed(1)}s  ${String(r.ms).padStart(4)} ms  scale ${r.scale}  progs ${r.progs}  at ${r.where}${gap}`);
+          prev = r.t;
+        }
+      },
+    },
+
+    perf: {
+      help: "perf — draw calls, triangles, lights and frame time",
+      run() {
+        const r = ctx.renderer;
+        if (!r) return log("no renderer", "err");
+        const i = r.info;
+        let lights = 0, meshes = 0, points = 0;
+        ctx.scene.traverse((o) => {
+          if (!o.visible) return;
+          if (o.isLight) { lights++; if (o.isPointLight) points++; }
+          if (o.isMesh) meshes++;
+        });
+        log(`draw calls  ${i.render.calls}`);
+        log(`triangles   ${i.render.triangles.toLocaleString()}`);
+        log(`meshes      ${meshes} visible in the graph`);
+        log(`lights      ${lights} (${points} point)`);
+        log(`programs    ${i.programs?.length ?? "?"} compiled`);
+        log(`textures    ${i.memory.textures}, geometries ${i.memory.geometries}`);
+        // Point lights are the number that bites: three.js forward-renders, so
+        // each one is a loop iteration in every fragment shader on screen.
+        // The count is deliberately CONSTANT — see makeLightPool in places.js.
+        // If this number ever changes while you fly, that is the bug: three
+        // rebuilds every shader in the game when it does.
+        if (points > 16) log(`${points} point lights is a lot — every one costs every pixel`, "err");
+      },
+    },
+
+    music: {
+      help: "music <track|off|vol n|mute> — " + Object.keys(TRACKS).join(", "),
+      run(args) {
+        const a = (args[0] || "").toLowerCase();
+        if (!a) {
+          log(`music = ${music.current ?? "off"}, volume ${music.volume.toFixed(2)}` +
+              `${music.muted ? " (muted)" : ""}${music.ready ? "" : " — waiting for a click"}`);
+          return log(`${CREDITS.artist}, ${CREDITS.licence} — ${CREDITS.url}`, "note");
+        }
+        if (a === "off" || a === "stop") { music.stop(); return log("music off"); }
+        if (a === "mute") return log(`music ${music.toggleMute() ? "muted" : "unmuted"}`);
+        if (a === "vol" || a === "volume") {
+          return log(`volume = ${music.setVolume(num(args[1], 0.55)).toFixed(2)}`);
+        }
+        if (!TRACKS[a]) return log(`no track "${a}" — try ${Object.keys(TRACKS).join(", ")}`, "err");
+        music.play(a, { fade: 1.2 });
+        log(`music = ${a}`);
       },
     },
 
     turn: {
-      help: "turn <n> — max turn rate (default 0.017, lower is gentler)",
+      help: "turn <n> — max turn rate in rad/s (default 1.45, lower is gentler)",
       run(args) {
         const c = ctx.getControls();
         if (!c) return log("dragon not loaded yet", "err");
         if (!args[0]) return log(`turn = ${c.getTurnRate()}`);
-        log(`turn = ${c.setTurnRate(num(args[0], 0.017))}`);
+        log(`turn = ${c.setTurnRate(num(args[0], 1.45))} rad/s`);
       },
     },
 

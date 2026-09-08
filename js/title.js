@@ -1,7 +1,10 @@
 import * as THREE from "three";
 import { loadDragon, normalizeDragon } from "./assets.js";
 import * as input from "./input.js";
+import { music } from "./audio.js";
 import * as saves from "./saves.js";
+import { SCHEMES, getScheme, toggleScheme } from "./keymap.js";
+import { MODES as AIM_MODES, getMode as getAimMode, toggleMode as toggleAimMode } from "./aim.js";
 
 // ---------------------------------------------------------------------------
 // Title screen
@@ -77,6 +80,7 @@ const SEA_FRAG = /* glsl */`
 `;
 
 export function runTitle(pad = null) {
+  music.play("title");
   return new Promise((resolve) => {
     // --- DOM ----------------------------------------------------------------
     const root = document.createElement("div");
@@ -93,9 +97,11 @@ export function runTitle(pad = null) {
         </header>
 
         <ul class="slots" id="slots"></ul>
+        <ul class="slots opts" id="opts"></ul>
 
         <footer class="title-foot">
           <span class="title-hint"><kbd>&#8593;</kbd><kbd>&#8595;</kbd> choose</span>
+          <span class="title-hint"><kbd>&#8592;</kbd><kbd>&#8594;</kbd> change</span>
           <span class="title-hint"><kbd>Enter</kbd> begin</span>
           <span class="title-hint"><kbd>X</kbd> erase</span>
           <span class="title-hint pad-only"><kbd class="pad shape">&#10005;</kbd> begin
@@ -117,6 +123,7 @@ export function runTitle(pad = null) {
     document.body.classList.add("in-title");
 
     const slotList = root.querySelector("#slots");
+    const optList = root.querySelector("#opts");
     const confirmEl = root.querySelector("#title-confirm");
     const confirmBody = root.querySelector("#confirm-body");
 
@@ -308,7 +315,15 @@ export function runTitle(pad = null) {
 
     // --- Slots --------------------------------------------------------------
     let slots = saves.list();
-    let cursor = slots.findIndex(Boolean);
+    // One row past the last slot is the controls option. Keeping it in the same
+    // cursor space as the slots is what makes it reachable with the same up and
+    // down that everything else on this screen uses, on pad as well as keys.
+    const CONTROLS_ROW = saves.SLOT_COUNT;
+    const AIM_ROW = saves.SLOT_COUNT + 1;
+    const ROWS = saves.SLOT_COUNT + 2;
+    // findIndex returns -1 when every slot is empty, which on a fresh install
+    // left the list with nothing highlighted until you pressed a direction.
+    let cursor = Math.max(0, slots.findIndex(Boolean));
     if (cursor < 0) cursor = 0;
     let confirming = false;
 
@@ -354,18 +369,60 @@ export function runTitle(pad = null) {
         });
         slotList.appendChild(li);
       });
+
+      const sc = SCHEMES[getScheme()];
+      const am = AIM_MODES[getAimMode()];
+      optList.innerHTML =
+        optionRow(cursor === CONTROLS_ROW, "&#8646;", `Controls &mdash; ${sc.label}`, sc.hint) +
+        optionRow(cursor === AIM_ROW, "&#8853;", `Aiming &mdash; ${am.label}`, am.hint);
+      const [ctrlLi, aimLi] = optList.children;
+      ctrlLi.addEventListener("click", () => { cursor = CONTROLS_ROW; flipControls(); });
+      aimLi.addEventListener("click", () => { cursor = AIM_ROW; flipAim(); });
     }
 
     function move(d) {
-      cursor = (cursor + d + saves.SLOT_COUNT) % saves.SLOT_COUNT;
+      cursor = (cursor + d + ROWS) % ROWS;
       renderSlots();
       pad?.rumble.pulse(0.22, 0.05, 0.05);
+    }
+
+    /**
+     * Flip the control scheme. Persists itself — see keymap.js — so it survives
+     * the reload, which matters because this is the screen you are on when you
+     * have just discovered that Ctrl+Down threw you out of the game.
+     */
+    function flipControls() {
+      toggleScheme();
+      renderSlots();
+      pad?.rumble.pulse(0.3, 0.12, 0.08);
+    }
+
+    /** Scoped aim or no-scope. Persists itself — see keymap.js and aim.js. */
+    function flipAim() {
+      toggleAimMode();
+      renderSlots();
+      pad?.rumble.pulse(0.3, 0.12, 0.08);
+    }
+
+    /** The two settings rows are the same component; only the contents differ. */
+    function optionRow(on, glyph, title, hint) {
+      return `
+        <li class="slot opt${on ? " on" : ""}">
+          <div class="slot-index">${glyph}</div>
+          <div class="slot-main">
+            <div class="slot-title">${title}</div>
+            <div class="slot-meta"><span>${hint}</span></div>
+          </div>
+          <div class="slot-go">Change</div>
+        </li>`;
     }
 
     let done = false;
 
     function choose() {
       if (done) return;
+      if (cursor === CONTROLS_ROW) { flipControls(); return; }
+      if (cursor === AIM_ROW) { flipAim(); return; }
       done = true;
       const existing = slots[cursor];
       const save = existing || saves.create(cursor);
@@ -375,7 +432,7 @@ export function runTitle(pad = null) {
     }
 
     function askErase() {
-      if (!slots[cursor]) return;
+      if (cursor >= CONTROLS_ROW || !slots[cursor]) return;
       confirming = true;
       confirmBody.textContent =
         `Slot ${cursor + 1} — ${saves.sceneTitle(slots[cursor])}, day ${slots[cursor].day}. This cannot be undone.`;
@@ -414,6 +471,10 @@ export function runTitle(pad = null) {
       } else {
         if (input.tapped("up")) move(-1);
         if (input.tapped("down")) move(1);
+        if (input.tapped("left") || input.tapped("right")) {
+          if (cursor === CONTROLS_ROW) flipControls();
+          else if (cursor === AIM_ROW) flipAim();
+        }
         if (input.pressed("confirm")) choose();
         if (input.pressed("del")) askErase();
       }

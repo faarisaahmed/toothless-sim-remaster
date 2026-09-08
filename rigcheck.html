@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rig Check — Night Alone</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  :root { --ink:#e8e2d4; --dim:#9a9384; --ember:#ff8a3d; --edge:rgba(232,226,212,.16); }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#12151c; color:var(--ink);
+         font-family:Rajdhani,system-ui,sans-serif; overflow:hidden; }
+  canvas { display:block; }
+
+  #side { position:fixed; top:0; left:0; width:270px; height:100vh; z-index:5;
+          background:rgba(8,10,15,.94); border-right:1px solid var(--edge);
+          padding:16px 14px; overflow-y:auto; }
+  h1 { font-family:Cinzel,serif; font-size:1.05rem; margin:0 0 4px; }
+  p.sub { font-size:.74rem; color:var(--dim); margin:0 0 14px; line-height:1.45; }
+
+  .lbl { font-size:.66rem; letter-spacing:.2em; text-transform:uppercase;
+         color:var(--dim); margin:16px 0 7px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; }
+  button { font-family:inherit; font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+           color:var(--ink); background:rgba(0,0,0,.45); border:1px solid var(--edge);
+           padding:7px 9px; cursor:pointer; }
+  button:hover { border-color:var(--ember); color:var(--ember); }
+  button.on { color:var(--ember); border-color:rgba(255,138,61,.5); }
+
+  label.slide { display:block; font-size:.72rem; color:var(--dim); margin:10px 0 2px; }
+  input[type=range] { width:100%; accent-color:var(--ember); }
+
+  #stats { margin-top:18px; font-size:.72rem; line-height:1.7; color:var(--dim);
+           border-top:1px solid var(--edge); padding-top:12px; }
+  #stats b { color:var(--ink); font-weight:600; }
+
+  #tags { position:fixed; bottom:14px; left:290px; right:14px; z-index:5;
+          display:flex; justify-content:space-around; pointer-events:none;
+          font-size:.72rem; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); }
+  #tags span b { color:var(--ember); font-weight:600; }
+</style>
+</head>
+<body>
+
+<aside id="side">
+  <h1>Rig Check</h1>
+  <p class="sub">The new 152-bone rig on the left, the old 95-bone one on the right,
+     both driven by the game's own <code>dragonrig.js</code> and <code>wings.js</code>.</p>
+
+  <div class="lbl">Motion</div>
+  <div class="row">
+    <button data-mode="fly" class="on">Fly</button>
+    <button data-mode="walk">Walk</button>
+    <button data-mode="still">Bind</button>
+  </div>
+
+  <div class="lbl">Wing poses</div>
+  <div class="row">
+    <button data-pose="0">Tucked</button>
+    <button data-pose="1">Resting</button>
+    <button data-pose="7">Half open</button>
+    <button data-pose="-1" class="on">Off</button>
+  </div>
+
+  <div class="lbl">Show</div>
+  <div class="row">
+    <button id="skel">Skeleton</button>
+    <button id="solo">New only</button>
+  </div>
+
+  <label class="slide">Climb <span id="v-climb">0.0</span></label>
+  <input id="climb" type="range" min="-1" max="1" step="0.05" value="0.35">
+  <label class="slide">Speed <span id="v-speed">0.3</span></label>
+  <input id="speed" type="range" min="0" max="1" step="0.05" value="0.3">
+
+  <div id="stats"></div>
+</aside>
+
+<div id="tags"><span><b>NEW</b> dragon_rigged_hd.glb</span><span>OLD toothless_rigged.glb</span></div>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
+import { bindDragon } from "./js/dragonrig.js";
+import { setupWings } from "./js/wings.js";
+import { applyPose } from "./js/wingposes.js";
+
+// ---------------------------------------------------------------------------
+// Side-by-side rig comparison.
+//
+// The point of loading both models into one scene and pushing them through the
+// *game's* rig code rather than a bespoke poser is that it answers the only
+// question that matters: does the new skeleton drop straight in. Every bone
+// name js/dragonrig.js reaches for exists on both, so both animate; what you
+// are comparing is how the skin behaves, not whether it moves.
+// ---------------------------------------------------------------------------
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.25;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x12151c);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.05, 400);
+camera.position.set(0.5, 3.4, 11);
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.target.set(0, 1.1, 0);
+
+scene.add(new THREE.HemisphereLight(0x9fb0d0, 0x2a2620, 2.0));
+const key = new THREE.DirectionalLight(0xfff2e0, 2.5); key.position.set(5, 8, 5); scene.add(key);
+const rim = new THREE.DirectionalLight(0x9dbaf0, 1.6); rim.position.set(-6, 3, -6); scene.add(rim);
+scene.add(new THREE.GridHelper(30, 30, 0x3a4152, 0x232833));
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// --- Load -------------------------------------------------------------------
+const loader = new GLTFLoader();
+const TUNING = { flapSpeed: 1, flapAmplitude: 1, sweepAmount: 1, tuckSign: 1 };
+
+/** Drop a model in at a fixed span so the two sit at the same size. */
+function place(root, x, span) {
+  const holder = new THREE.Group();
+  holder.add(root);
+  holder.scale.setScalar(span / 15.09);       // both files measure 15.09 across
+  holder.position.set(x, 0.9, 0);
+  scene.add(holder);
+  return holder;
+}
+
+async function build(path, x) {
+  const gltf = await loader.loadAsync(path);
+  const root = cloneSkinned(gltf.scene);
+  place(root, x, 5.2);
+
+  const rig = bindDragon(root);
+  const L = rig.bones.get("Wing_ClavicleL");
+  const R = rig.bones.get("Wing_ClavicleR");
+  const wings = L && R ? setupWings(L, R, TUNING) : null;
+
+  // Bind rotations, captured before anything has posed him. applyPose() needs
+  // a real rest map -- hand it the live rotations and each frame stacks on the
+  // last one and the wings wind up like a clock spring.
+  const rest = new Map();
+  for (const [n, b] of rig.bones) rest.set(n, b.rotation.clone());
+
+  const helper = new THREE.SkeletonHelper(root);
+  helper.material.linewidth = 2;
+  helper.visible = false;
+  scene.add(helper);
+
+  return { path, root, rig, rest, wings, helper, bones: rig.bones.size };
+}
+
+const rigs = [];
+const stats = document.getElementById("stats");
+
+Promise.all([
+  build("./assets/models/dragon_rigged_hd.glb", -3.4),
+  build("./assets/models/toothless_rigged.glb", 3.4),
+]).then((r) => {
+  rigs.push(...r);
+  stats.innerHTML = r.map((m, i) =>
+    `<b>${i ? "old" : "new"}</b> ${m.bones} bones<br>` +
+    `<span style="font-size:.66rem">${m.path.split("/").pop()}</span>`
+  ).join("<br>");
+}).catch((e) => {
+  stats.textContent = "load failed: " + e.message;
+  console.error(e);
+});
+
+// --- Controls ---------------------------------------------------------------
+let mode = "fly";
+let poseIndex = -1;
+const climb = document.getElementById("climb");
+const speed = document.getElementById("speed");
+
+function group(sel, attr, set) {
+  document.querySelectorAll(sel).forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(sel).forEach((o) => o.classList.remove("on"));
+    b.classList.add("on");
+    set(b.dataset[attr]);
+  }));
+}
+group("[data-mode]", "mode", (v) => { mode = v; });
+group("[data-pose]", "pose", (v) => { poseIndex = +v; });
+
+document.getElementById("skel").addEventListener("click", (e) => {
+  e.target.classList.toggle("on");
+  rigs.forEach((m) => (m.helper.visible = e.target.classList.contains("on")));
+});
+document.getElementById("solo").addEventListener("click", (e) => {
+  e.target.classList.toggle("on");
+  const solo = e.target.classList.contains("on");
+  if (rigs[1]) rigs[1].root.parent.visible = !solo;
+  if (rigs[0]) rigs[0].root.parent.position.x = solo ? 0 : -3.4;
+});
+
+// --- Loop -------------------------------------------------------------------
+const clock = new THREE.Clock();
+
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  const c = +climb.value, s = +speed.value;
+  document.getElementById("v-climb").textContent = c.toFixed(2);
+  document.getElementById("v-speed").textContent = s.toFixed(2);
+
+  for (const m of rigs) {
+    if (mode === "walk") {
+      m.rig.snapFold(1);
+      m.rig.update(dt, { speed: 1.6, maxSpeed: 1.9 });
+    } else if (mode === "fly") {
+      m.rig.snapFold(0);
+      m.rig.update(dt, { speed: 0 });
+      if (m.wings) m.wings(dt, { climb: c, speedT: s, knife: 0 });
+    } else {
+      m.rig.snapFold(0);
+      m.rig.update(0, { speed: 0 });
+    }
+    // A wing pose, if one is picked, goes on top of whatever the rig just did.
+    if (poseIndex >= 0) applyPose(m.rig.bones, m.rest, poseIndex);
+  }
+
+  orbit.update();
+  renderer.render(scene, camera);
+}
+frame();
+</script>
+</body>
+</html>
