@@ -1,0 +1,19 @@
+Music for dragon-flying-sim
+===========================
+
+All four tracks are by Kevin MacLeod (https://incompetech.com/) and are
+licensed under Creative Commons: By Attribution 4.0 International (CC BY 4.0).
+
+    https://creativecommons.org/licenses/by/4.0/
+
+The licence is free of charge and free of royalties. Its one condition is
+attribution, so this file, the ID3 tags on each MP3, and the credit in the
+project README all need to survive any fork or redistribution.
+
+    lightless-dawn.mp3   "Lightless Dawn"    — title screen
+    folk-round.mp3       "Folk Round"        — the prologue
+    windswept.mp3        "Windswept"         — the archipelago
+    long-note-two.mp3    "Long Note Two"     — the rig, and being seen
+
+The files here are re-encoded to 96 kbps MP3 for the web. The 320 kbps
+originals are available from incompetech.com.

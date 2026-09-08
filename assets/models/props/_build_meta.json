@@ -1,0 +1,960 @@
+{
+ "berk_dock.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -1.339,
+   -0.007,
+   -6.0
+  ],
+  "nodes": [
+   "berk_dock"
+  ],
+  "note": "12 m jetty, deck top at y=1.60",
+  "size": [
+   2.676,
+   2.027,
+   12.0
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron",
+   "rope"
+  ],
+  "tris": 1072
+ },
+ "berk_drying_rack.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -1.72,
+   0.0,
+   -0.634
+  ],
+  "nodes": [
+   "berk_drying_rack"
+  ],
+  "note": "3.4 m, ten fish on two lines",
+  "size": [
+   3.441,
+   2.216,
+   1.269
+  ],
+  "slots": [
+   "wood_dark",
+   "rope",
+   "hide"
+  ],
+  "tris": 1124
+ },
+ "berk_fence_4m.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.13,
+   0.0,
+   -2.0
+  ],
+  "nodes": [
+   "berk_fence_4m"
+  ],
+  "note": "modular, butts end to end on the 4 m grid",
+  "size": [
+   0.26,
+   1.42,
+   4.0
+  ],
+  "slots": [
+   "wood",
+   "wood_dark"
+  ],
+  "tris": 196
+ },
+ "berk_house_a.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -2.77,
+   0.0,
+   -3.816
+  ],
+  "nodes": [
+   "berk_house_a"
+  ],
+  "note": "7.2 m, shingle roof",
+  "size": [
+   5.54,
+   4.761,
+   8.147
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "stone"
+  ],
+  "tris": 1160
+ },
+ "berk_house_b.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -2.52,
+   0.0,
+   -3.392
+  ],
+  "nodes": [
+   "berk_house_b"
+  ],
+  "note": "6.4 m, thatched roof in `rope`, awning porch. See the slot note",
+  "size": [
+   5.04,
+   4.761,
+   7.417
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "stone",
+   "rope",
+   "cloth"
+  ],
+  "tris": 1184
+ },
+ "berk_longhouse.glb": {
+  "anchor": "ground",
+  "budget": 8000,
+  "cls": "hero",
+  "min": [
+   -5.086,
+   0.0,
+   -9.54
+  ],
+  "nodes": [
+   "berk_longhouse"
+  ],
+  "note": "18 m hall, ridge at 6.9 m, carved gable posts, door on +Z",
+  "size": [
+   10.148,
+   7.987,
+   19.535
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "stone",
+   "iron"
+  ],
+  "tris": 1744
+ },
+ "berk_totem.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -1.476,
+   0.0,
+   -0.929
+  ],
+  "nodes": [
+   "berk_totem"
+  ],
+  "note": "5.2 m carved post on a stone footing",
+  "size": [
+   2.951,
+   4.697,
+   1.858
+  ],
+  "slots": [
+   "wood_dark",
+   "stone",
+   "rope"
+  ],
+  "tris": 560
+ },
+ "boat_row.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -0.826,
+   0.0,
+   -2.192
+  ],
+  "nodes": [
+   "boat_row"
+  ],
+  "note": "4.3 m open boat, sound and dry. Three thwarts, oars shipped. Waterline y=0.34",
+  "size": [
+   1.652,
+   0.634,
+   4.382
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "rope"
+  ],
+  "tris": 722
+ },
+ "boat_supply.glb": {
+  "anchor": "ground",
+  "budget": 8000,
+  "cls": "hero",
+  "min": [
+   -3.2,
+   0.0,
+   -8.012
+  ],
+  "nodes": [
+   "boat_supply"
+  ],
+  "note": "14 m hull, 16.2 m over the stem and stern posts. Furled sail. Waterline y=1.05",
+  "size": [
+   6.4,
+   8.4,
+   16.21
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "rope",
+   "cloth"
+  ],
+  "tris": 1336
+ },
+ "buoy.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.3,
+   -0.002,
+   -0.3
+  ],
+  "nodes": [
+   "buoy"
+  ],
+  "note": "float with a marker pole. Waterline y=0.30",
+  "size": [
+   0.6,
+   1.552,
+   0.64
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron",
+   "cloth"
+  ],
+  "tris": 144
+ },
+ "fish.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.04,
+   0.0,
+   -0.259
+  ],
+  "nodes": [
+   "fish"
+  ],
+  "note": "0.35 m, instanced in the hundreds; 70 tris",
+  "size": [
+   0.09,
+   0.112,
+   0.434
+  ],
+  "slots": [
+   "hide"
+  ],
+  "tris": 70
+ },
+ "kelp.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.746,
+   0.0,
+   -0.515
+  ],
+  "nodes": [
+   "kelp"
+  ],
+  "note": "three fronds for shallows, 2.6 m tallest. Uses `hide` -- see the slot note",
+  "size": [
+   1.358,
+   2.562,
+   1.021
+  ],
+  "slots": [
+   "hide"
+  ],
+  "tris": 153
+ },
+ "rig_barrel.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.357,
+   0.0,
+   -0.34
+  ],
+  "nodes": [
+   "rig_barrel"
+  ],
+  "note": "0.9 m tall, stands upright",
+  "size": [
+   0.714,
+   0.9,
+   0.679
+  ],
+  "slots": [
+   "wood",
+   "iron"
+  ],
+  "tris": 156
+ },
+ "rig_brazier.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.46,
+   0.0,
+   -0.46
+  ],
+  "nodes": [
+   "rig_brazier"
+  ],
+  "note": "the one the player snuffs. Coals are the only `ember` faces, 32 tris of them",
+  "size": [
+   0.92,
+   1.46,
+   0.92
+  ],
+  "slots": [
+   "iron",
+   "ember"
+  ],
+  "tris": 140
+ },
+ "rig_cage_door_open.glb": {
+  "anchor": "hinge",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -2.099,
+   0.275,
+   -0.371
+  ],
+  "nodes": [
+   "rig_cage_door_open"
+  ],
+  "note": "the same door, swung 105 deg. Place at the cage hinge: local (-1.35, 0, 2.25)",
+  "size": [
+   0.811,
+   2.71,
+   2.638
+  ],
+  "slots": [
+   "iron"
+  ],
+  "tris": 156
+ },
+ "rig_cage_large.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -2.25,
+   0.0,
+   -2.25
+  ],
+  "nodes": [
+   "rig_cage_large",
+   "door"
+  ],
+  "note": "4.5 x 4.5 x 3.5 m. `door` swings about +Y at its own origin (the hinge)",
+  "size": [
+   4.5,
+   3.525,
+   4.68
+  ],
+  "slots": [
+   "wood_dark",
+   "iron"
+  ],
+  "tris": 1152
+ },
+ "rig_cage_small.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -1.02,
+   0.0,
+   -1.02
+  ],
+  "nodes": [
+   "rig_cage_small"
+  ],
+  "note": "2 m cube, flat top at y=2.00, stacks on its own lugs",
+  "size": [
+   2.04,
+   2.02,
+   2.04
+  ],
+  "slots": [
+   "wood_dark",
+   "iron"
+  ],
+  "tris": 516
+ },
+ "rig_chain_coil.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.567,
+   0.009,
+   -0.554
+  ],
+  "nodes": [
+   "rig_chain_coil"
+  ],
+  "note": "flaked-down chain, 1.1 m across, 0.25 m tall",
+  "size": [
+   1.135,
+   0.222,
+   1.107
+  ],
+  "slots": [
+   "iron"
+  ],
+  "tris": 344
+ },
+ "rig_crane.glb": {
+  "anchor": "ground",
+  "budget": 8000,
+  "cls": "hero",
+  "min": [
+   -4.0,
+   0.0,
+   -4.0
+  ],
+  "nodes": [
+   "rig_crane",
+   "boom",
+   "lift"
+  ],
+  "note": "timber derrick. `boom` slews about +Y at the heel pin; `lift` is the topping chain, hide it if you luff the boom instead",
+  "size": [
+   8.0,
+   8.0,
+   11.901
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron"
+  ],
+  "tris": 616
+ },
+ "rig_crate.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.535,
+   0.02,
+   -0.535
+  ],
+  "nodes": [
+   "rig_crate"
+  ],
+  "note": "1.0 m, stacks flat",
+  "size": [
+   1.07,
+   0.94,
+   1.07
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron"
+  ],
+  "tris": 108
+ },
+ "rig_deck_4m.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -2.0,
+   0.0,
+   -2.0
+  ],
+  "nodes": [
+   "rig_deck_4m"
+  ],
+  "note": "4x4 m module, snaps on the 2 m grid; top face at y=0.30",
+  "size": [
+   4.0,
+   0.3,
+   4.0
+  ],
+  "slots": [
+   "wood",
+   "wood_dark"
+  ],
+  "tris": 180
+ },
+ "rig_deck_ramp.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -1.99,
+   0.0,
+   -2.0
+  ],
+  "nodes": [
+   "rig_deck_ramp"
+  ],
+  "note": "4 m run to a deck top at y=2.00; iron kick plate at the toe",
+  "size": [
+   3.98,
+   2.0,
+   4.0
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron"
+  ],
+  "tris": 216
+ },
+ "rig_ladder_3m.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.325,
+   0.0,
+   -0.035
+  ],
+  "nodes": [
+   "rig_ladder_3m"
+  ],
+  "note": "stackable end to end; stiles 3.00 m",
+  "size": [
+   0.65,
+   3.0,
+   0.07
+  ],
+  "slots": [
+   "wood",
+   "wood_dark"
+  ],
+  "tris": 204
+ },
+ "rig_lantern.glb": {
+  "anchor": "hang",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.13,
+   -0.55,
+   -0.113
+  ],
+  "nodes": [
+   "rig_lantern"
+  ],
+  "note": "origin is the hook; the body hangs 0.52 m below it",
+  "size": [
+   0.26,
+   0.505,
+   0.225
+  ],
+  "slots": [
+   "iron",
+   "ember"
+  ],
+  "tris": 270
+ },
+ "rig_mooring_post.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.26,
+   0.0,
+   -0.26
+  ],
+  "nodes": [
+   "rig_mooring_post"
+  ],
+  "note": "bollard with a rope turn on it",
+  "size": [
+   0.52,
+   1.0,
+   0.52
+  ],
+  "slots": [
+   "wood_dark",
+   "iron",
+   "rope"
+  ],
+  "tris": 348
+ },
+ "rig_net_pile.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -1.11,
+   0.008,
+   -1.11
+  ],
+  "nodes": [
+   "rig_net_pile"
+  ],
+  "note": "coiled net with cork floats",
+  "size": [
+   2.22,
+   0.655,
+   2.22
+  ],
+  "slots": [
+   "wood",
+   "rope"
+  ],
+  "tris": 480
+ },
+ "rig_piling.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.4,
+   0.0,
+   -0.4
+  ],
+  "nodes": [
+   "rig_piling"
+  ],
+  "note": "12 m pile; waterline mark and growth up to y=6.00",
+  "size": [
+   0.8,
+   12.0,
+   0.8
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron"
+  ],
+  "tris": 92
+ },
+ "rig_walkway_4m.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -0.75,
+   0.0,
+   -2.0
+  ],
+  "nodes": [
+   "rig_walkway_4m"
+  ],
+  "note": "1.5 m wide, rope handrail both sides; deck top at y=0.30",
+  "size": [
+   1.5,
+   1.3,
+   4.0
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "rope"
+  ],
+  "tris": 456
+ },
+ "rig_winch.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -0.7,
+   0.0,
+   -0.4
+  ],
+  "nodes": [
+   "rig_winch",
+   "drum"
+  ],
+  "note": "`drum` spins about +X through its own origin",
+  "size": [
+   1.48,
+   0.91,
+   0.8
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron",
+   "rope"
+  ],
+  "tris": 694
+ },
+ "stack_arch.glb": {
+  "anchor": "ground",
+  "budget": 8000,
+  "cls": "hero",
+  "min": [
+   -10.694,
+   0.0,
+   -3.307
+  ],
+  "nodes": [
+   "stack_arch"
+  ],
+  "note": "landmark. 14 m clear span between the legs, 10.3 m to the crown",
+  "size": [
+   20.799,
+   10.288,
+   6.273
+  ],
+  "slots": [
+   "stone"
+  ],
+  "tris": 680
+ },
+ "stack_driftwood.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -1.576,
+   0.0,
+   -0.523
+  ],
+  "nodes": [
+   "driftwood_a",
+   "driftwood_b",
+   "driftwood_c"
+  ],
+  "note": "three variants as separate nodes at the same origin; instance one of them",
+  "size": [
+   3.153,
+   0.768,
+   1.045
+  ],
+  "slots": [
+   "wood_dark"
+  ],
+  "tris": 300
+ },
+ "stack_fish_rack.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -1.6,
+   0.0,
+   -0.691
+  ],
+  "nodes": [
+   "stack_fish_rack"
+  ],
+  "note": "3.0 m wide, poles at y=1.05 and 1.95",
+  "size": [
+   3.201,
+   2.079,
+   1.382
+  ],
+  "slots": [
+   "wood_dark",
+   "rope"
+  ],
+  "tris": 416
+ },
+ "stack_lab_shelf.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -1.637,
+   0.0,
+   -1.612
+  ],
+  "nodes": [
+   "stack_lab_shelf"
+  ],
+  "note": "the lab surface: 3.1 m across, top face at y=0.52, lip up to y=0.66",
+  "size": [
+   3.266,
+   0.66,
+   3.189
+  ],
+  "slots": [
+   "stone"
+  ],
+  "tris": 128
+ },
+ "stack_sample_plate_clean.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.125,
+   0.0,
+   -0.09
+  ],
+  "nodes": [
+   "stack_sample_plate_clean"
+  ],
+  "note": "0.25 x 0.18 m offcut, lying flat; clean",
+  "size": [
+   0.25,
+   0.012,
+   0.179
+  ],
+  "slots": [
+   "iron"
+  ],
+  "tris": 168
+ },
+ "stack_sample_plate_dented.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.125,
+   -0.015,
+   -0.09
+  ],
+  "nodes": [
+   "stack_sample_plate_dented"
+  ],
+  "note": "0.25 x 0.18 m offcut, lying flat; dented",
+  "size": [
+   0.25,
+   0.027,
+   0.179
+  ],
+  "slots": [
+   "iron"
+  ],
+  "tris": 168
+ },
+ "stack_sample_plate_holed.glb": {
+  "anchor": "ground",
+  "budget": 400,
+  "cls": "small",
+  "min": [
+   -0.117,
+   0.0,
+   -0.084
+  ],
+  "nodes": [
+   "stack_sample_plate_holed"
+  ],
+  "note": "0.25 x 0.18 m offcut, lying flat; holed",
+  "size": [
+   0.234,
+   0.012,
+   0.168
+  ],
+  "slots": [
+   "iron"
+  ],
+  "tris": 64
+ },
+ "stack_sample_rack.glb": {
+  "anchor": "ground",
+  "budget": 1200,
+  "cls": "medium",
+  "min": [
+   -0.9,
+   0.0,
+   -0.421
+  ],
+  "nodes": [
+   "stack_sample_rack"
+  ],
+  "note": "driftwood, eight slots along the top bar",
+  "size": [
+   1.8,
+   1.127,
+   0.861
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "rope"
+  ],
+  "tris": 412
+ },
+ "stack_shelter.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -2.209,
+   0.0,
+   -2.253
+  ],
+  "nodes": [
+   "stack_shelter"
+  ],
+  "note": "lean-to, 5.2 x 4.4 m, ridge at y=2.60. Scavenged and deliberately crooked",
+  "size": [
+   4.95,
+   2.76,
+   4.505
+  ],
+  "slots": [
+   "wood_dark",
+   "stone",
+   "rope",
+   "cloth"
+  ],
+  "tris": 788
+ },
+ "wreck_hull.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "structure",
+  "min": [
+   -2.879,
+   0.0,
+   -4.488
+  ],
+  "nodes": [
+   "wreck_hull"
+  ],
+  "note": "9 m of hull, grey, torn open down the starboard side and canted 20 deg on rocks",
+  "size": [
+   5.824,
+   1.248,
+   8.983
+  ],
+  "slots": [
+   "wood_dark",
+   "stone"
+  ],
+  "tris": 728
+ }
+}
