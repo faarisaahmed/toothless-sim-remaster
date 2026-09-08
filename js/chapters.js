@@ -252,6 +252,9 @@ export function mission1(ctx) {
         c.setNight(true);
         g.setWaypoint(SITES.rig.clone().setY(RIG.y + 60), "The compound");
         c.rig?.braziers.forEach((b) => b.relight());
+        // The fast Viking theme, and it holds for the whole raid — the flying
+        // music in main.js is suppressed while a chapter has something to say.
+        music.play("raid", { fade: 4 });
       },
       update(dt, g, c) {
         const rig = c.rig;

@@ -304,6 +304,10 @@ const world = setupWorld(scene, renderer, QUALITY);
 // player clicks or presses something — see the note in audio.js — so calling it
 // here rather than on first input costs nothing and keeps the wiring in one place.
 music.play("flight");
+// Seconds the big cue keeps playing after he comes off the gas, so a short
+// burst does not start a crossfade it immediately reverses.
+const MUSIC_BIG_HOLD = 9;
+let musicBigHold = 0;
 
 // His ordinary fire. Terrain comes from the world so a blast that misses still
 // lands on something, rather than sailing off to the edge of the map.
@@ -1367,6 +1371,25 @@ function frame() {
   // Real dt: being hurt does not run slower because he is aiming, and the
   // regeneration timer is a promise about seconds rather than about frames.
   health.update(dt);
+
+  // --- Music that follows the flying ------------------------------------
+  // Flat out, or in a manoeuvre, gets the big half of Test Drive; everything
+  // else gets the build. The hold is what makes this bearable: without it a
+  // two-second burst starts a five-second crossfade, you come off the gas, and
+  // the score spends the whole flight fading between two versions of itself.
+  //
+  // And it only ever swaps between its OWN two tracks. A chapter that has
+  // something to say — the raid, or a tension beat — sets its own cue, and this
+  // running every frame would take it straight back off again.
+  const mine = music.current === null || music.current === "flight" ||
+               music.current === "flatout";
+  if (controls && !game.cine && mine) {
+    const big = controls.isBursting() || controls.getMode() === "dive" ||
+                controls.getMode() === "zoom";
+    if (big) musicBigHold = MUSIC_BIG_HOLD;
+    else musicBigHold = Math.max(0, musicBigHold - dt);
+    music.play(musicBigHold > 0 ? "flatout" : "flight", { fade: 3.5 });
+  }
 
   // --- Aiming ---------------------------------------------------------
   // Fed the REAL dt on purpose. The stamina bar is the cost of slowing time

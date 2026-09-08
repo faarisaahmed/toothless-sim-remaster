@@ -13,12 +13,27 @@ import { runPrologue } from "./prologue.js";
 // imported dynamically so its four megabytes of terrain only load on the route
 // that actually needs them.
 //
-// Default route: flight, straight away.
+// Which route we take depends on WHERE the page is being served from, and that
+// is not magic for its own sake:
 //
-// The title and the prologue are both still here and both still work — they are
-// just not in the way of getting to the archipelago. Ask for them by name:
+//   deployed (GitHub Pages)   the title screen. Somebody arriving at the game
+//                             should arrive at the game, with save slots and a
+//                             prologue, not be dropped mid-flight over open
+//                             water with no idea what they are holding.
 //
-//   (nothing)        the flight sim
+//   localhost                 straight to flight. This is the development
+//                             route and it is the whole reason the default was
+//                             ever "flight": clicking through a title screen
+//                             and a prologue to check a change to the wing rig
+//                             is a tax paid on every single reload, and the
+//                             headless tools in tools/ all drive localhost and
+//                             need window.__na, which only the flight stage
+//                             publishes.
+//
+// Either way `?stage=` overrides it, so any route is one URL away from either
+// machine:
+//
+//   ?stage=flight    the flight sim
 //   ?stage=title     title -> prologue if the save is new -> flight
 //   ?stage=prologue  the prologue on a scratch save -> flight
 //
@@ -37,8 +52,15 @@ input.attachPad(pad);
 // ever polling the pad — which matters, because getGamepads() returns a
 // snapshot and two pollers would each see half the presses.
 
-// Which route to take. Default straight to flight; the story stages are opt-in.
-const stage = new URLSearchParams(location.search).get("stage") || "flight";
+// Anything that is not a local dev server is "deployed". Written as a list of
+// the local cases rather than a check for github.io, so it keeps working behind
+// a custom domain, on a LAN address, or off the file system.
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|.*\.local)$/i;
+const isLocal = location.protocol === "file:" || LOCAL_HOST.test(location.hostname);
+
+// Which route to take. `?stage=` always wins; otherwise it is where we are.
+const stage = new URLSearchParams(location.search).get("stage")
+  || (isLocal ? "flight" : "title");
 
 /**
  * Hand off to the flight sim.
