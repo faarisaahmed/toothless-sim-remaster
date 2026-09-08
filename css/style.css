@@ -722,3 +722,130 @@ kbd.pad.shape {
    the player did not choose, and it lasts about a second. */
 #hud-burst.stall { color: #ff7a4d; animation: stall-pulse 0.32s steps(2, end) infinite; }
 @keyframes stall-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
+
+/* --- On-screen controls ----------------------------------------------------
+   Off by default; the title screen turns them on. Everything here is sized in
+   vmin rather than px so a phone and a tablet both get thumb-sized targets,
+   and the middle of the screen is deliberately left empty because that is
+   where the dragon is. */
+#touch {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  pointer-events: none;      /* only the widgets themselves take input */
+  font-family: "Rajdhani", system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;        /* or a drag scrolls the page instead of steering */
+}
+#touch.hidden > *:not(#touch-show) { display: none; }
+
+#touch .pad-zone { pointer-events: auto; position: absolute; }
+
+/* The steering stick, bottom left. The ring is only a landmark — the origin is
+   wherever the thumb lands, so it does not have to be aimed at. */
+#touch-stick {
+  left: 3.5vmin; bottom: 4vmin;
+  width: 34vmin; height: 34vmin;
+  max-width: 200px; max-height: 200px;
+  border-radius: 50%;
+  border: 2px solid rgba(232, 226, 212, 0.22);
+  background: rgba(10, 14, 22, 0.28);
+  backdrop-filter: blur(2px);
+}
+#touch-stick.active { border-color: rgba(255, 190, 120, 0.55); }
+#touch-stick i {
+  position: absolute; left: 50%; top: 50%;
+  width: 30%; height: 30%;
+  border-radius: 50%;
+  background: rgba(232, 226, 212, 0.5);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  transform: translate(-50%, -50%);
+}
+#touch-stick.active i { background: #ffcf9a; }
+
+/* The look pad, bottom right, under the buttons. Relative drag, no recentre. */
+#touch-look {
+  right: 3.5vmin; bottom: 4vmin;
+  width: 40vmin; height: 22vmin;
+  max-width: 260px; max-height: 150px;
+  border-radius: 14px;
+  border: 2px dashed rgba(232, 226, 212, 0.2);
+  background: rgba(10, 14, 22, 0.22);
+  display: grid; place-items: center;
+}
+#touch-look.active { border-style: solid; border-color: rgba(255, 190, 120, 0.5); }
+#touch-look span {
+  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(232, 226, 212, 0.4);
+}
+
+/* The action cluster: right edge, above the look pad, wrapping upward. */
+#touch-buttons {
+  position: absolute;
+  right: 3.5vmin; bottom: 28vmin;
+  width: 44vmin; max-width: 300px;
+  display: flex; flex-wrap: wrap; gap: 1vmin;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.touch-btn {
+  pointer-events: auto;
+  min-width: 13vmin; max-width: 96px;
+  padding: 1.1vmin 1.4vmin;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  border-radius: 10px;
+  border: 1px solid rgba(232, 226, 212, 0.24);
+  background: rgba(12, 17, 26, 0.62);
+  color: rgba(232, 226, 212, 0.9);
+  font-family: inherit;
+  backdrop-filter: blur(3px);
+  -webkit-tap-highlight-color: transparent;
+}
+.tb-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; line-height: 1.1; }
+/* HOLD / TAP / ON-OFF, said on the button. Several of these actions mean
+   different things depending on how long they are held and a touch player has
+   no key legend to find that out from. */
+.tb-hint { font-size: 8px; letter-spacing: 0.16em; opacity: 0.5; }
+.touch-btn.on {
+  background: rgba(255, 190, 120, 0.9);
+  border-color: #ffcf9a;
+  color: #1a1206;
+}
+/* The blast is the reflex action, so it is the biggest thing on the screen and
+   it is the one that is a different colour. */
+.touch-btn.b-fire {
+  min-width: 20vmin; max-width: 140px;
+  border-color: rgba(180, 140, 255, 0.6);
+  background: rgba(60, 40, 110, 0.7);
+}
+.touch-btn.b-fire.on { background: #b48cff; border-color: #e6d9ff; color: #140a26; }
+
+/* Chart, console, hide — small, out of the way, top right. */
+#touch-top {
+  position: absolute; top: 1.6vmin; right: 1.6vmin;
+  display: flex; gap: 0.8vmin; pointer-events: none;
+}
+#touch-top button, #touch-show {
+  pointer-events: auto;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(232, 226, 212, 0.2);
+  background: rgba(12, 17, 26, 0.6);
+  color: rgba(232, 226, 212, 0.75);
+  font: 600 10px/1 "Rajdhani", system-ui, sans-serif;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  -webkit-tap-highlight-color: transparent;
+}
+#touch-show { position: absolute; top: 1.6vmin; right: 1.6vmin; }
+
+/* Making room. The story HUD's status strip and the sleepfire meter both sit
+   in the bottom middle-right, which is where the look pad and the button
+   cluster have to go — thumbs do not move. So when the overlay is up, the
+   game's own furniture moves rather than the controls compromising. */
+body.touch-on .na-state { bottom: auto; top: 4.5vmin; right: 24px; }
+body.touch-on .na-fire,
+body.touch-on .na-prompt { bottom: auto; top: 12vmin; }
+/* The key legend is a keyboard legend. There is no keyboard. */
+body.touch-on #hud-keys,
+body.touch-on #hud-pad-tag { display: none; }

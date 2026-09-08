@@ -21,6 +21,7 @@ import { setupPadView } from "./padview.js";
 import { music, CREDITS } from "./audio.js";
 import { setupPlasma, MAX_SHOTS } from "./plasma.js";
 import { setupHealth } from "./health.js";
+import { setupTouch } from "./touch.js";
 import { showLoading, warmUp } from "./loading.js";
 import { detectTier, tierSettings, createGovernor } from "./quality.js";
 import * as keymap from "./keymap.js";
@@ -181,6 +182,12 @@ let camLean = 0;
 const RECENTER_LAMBDA = 7;
 let recentering = false;
 
+// The on-screen controls. Built here rather than in boot.js because it is the
+// flight scene's overlay and nothing else shows it. Returns null when the
+// option is off, which is the default, and then this costs one import, no DOM
+// and no listeners.
+const touch = setupTouch();
+
 // Aiming. Owns his head, the crosshair, the stamina bar and — in scoped mode —
 // the camera and the speed of the world. See js/aim.js for why the two modes
 // are shaped so differently.
@@ -229,6 +236,10 @@ document.addEventListener("click", (e) => {
   // `closest` only exists on Elements, and a click can be retargeted at the
   // document itself — by an extension, a synthetic event, or a shadow root.
   if (e.target?.closest?.("#hud, #console, #map")) return;
+  // With the on-screen controls up, a tap on empty screen is not a request to
+  // capture the mouse — there is no mouse. Asking anyway fails silently on a
+  // phone and pops a permission bar on a touchscreen laptop.
+  if (touch) return;
 
   // Already captured? Then a left click is the trigger, not a request to
   // capture again — which is how every game with a mouse behaves. The shot
@@ -263,6 +274,16 @@ window.addEventListener("mouseup", (e) => {
 window.addEventListener("blur", () => { aim.release(); blastHeld = false; });
 document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement !== document.body) { aim.release(); blastHeld = false; }
+});
+
+// The one input the on-screen controls cannot send as a key. Looking is a
+// delta rather than a state, and the mouse path below is gated on pointer
+// lock, which a touchscreen does not have — so js/touch.js drags land here
+// instead, in the same units and with the same signs.
+window.addEventListener("na-look", (e) => {
+  recentering = false;
+  pendingYaw += e.detail.dx;
+  pendingPitch += e.detail.dy;
 });
 
 window.addEventListener("mousemove", (e) => {

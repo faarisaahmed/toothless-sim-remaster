@@ -5,6 +5,7 @@ import { music } from "./audio.js";
 import * as saves from "./saves.js";
 import { SCHEMES, getScheme, toggleScheme } from "./keymap.js";
 import { MODES as AIM_MODES, getMode as getAimMode, toggleMode as toggleAimMode } from "./aim.js";
+import { isEnabled as touchOn, toggleEnabled as toggleTouch, looksLikeTouch } from "./touch.js";
 
 // ---------------------------------------------------------------------------
 // Title screen
@@ -320,7 +321,8 @@ export function runTitle(pad = null) {
     // down that everything else on this screen uses, on pad as well as keys.
     const CONTROLS_ROW = saves.SLOT_COUNT;
     const AIM_ROW = saves.SLOT_COUNT + 1;
-    const ROWS = saves.SLOT_COUNT + 2;
+    const TOUCH_ROW = saves.SLOT_COUNT + 2;
+    const ROWS = saves.SLOT_COUNT + 3;
     // findIndex returns -1 when every slot is empty, which on a fresh install
     // left the list with nothing highlighted until you pressed a direction.
     let cursor = Math.max(0, slots.findIndex(Boolean));
@@ -372,12 +374,25 @@ export function runTitle(pad = null) {
 
       const sc = SCHEMES[getScheme()];
       const am = AIM_MODES[getAimMode()];
+      // Off is the default and stays the default. The hint changes with the
+      // machine rather than the setting turning itself on: a laptop with a
+      // touchscreen is still a laptop, and deciding for the player is how you
+      // get an overlay nobody asked for over the top of a keyboard.
+      const on = touchOn();
+      const touchHint = on
+        ? "every control a keyboard has, on screen. Hide them from the top corner"
+        : looksLikeTouch()
+          ? "this looks like a touchscreen — turn them on to play without a keyboard"
+          : "for a phone or a tablet. Everything a keyboard can do";
       optList.innerHTML =
         optionRow(cursor === CONTROLS_ROW, "&#8646;", `Controls &mdash; ${sc.label}`, sc.hint) +
-        optionRow(cursor === AIM_ROW, "&#8853;", `Aiming &mdash; ${am.label}`, am.hint);
-      const [ctrlLi, aimLi] = optList.children;
+        optionRow(cursor === AIM_ROW, "&#8853;", `Aiming &mdash; ${am.label}`, am.hint) +
+        optionRow(cursor === TOUCH_ROW, "&#9744;",
+          `On-screen controls &mdash; ${on ? "On" : "Off"}`, touchHint);
+      const [ctrlLi, aimLi, touchLi] = optList.children;
       ctrlLi.addEventListener("click", () => { cursor = CONTROLS_ROW; flipControls(); });
       aimLi.addEventListener("click", () => { cursor = AIM_ROW; flipAim(); });
+      touchLi.addEventListener("click", () => { cursor = TOUCH_ROW; flipTouch(); });
     }
 
     function move(d) {
@@ -404,6 +419,17 @@ export function runTitle(pad = null) {
       pad?.rumble.pulse(0.3, 0.12, 0.08);
     }
 
+    /**
+     * On-screen controls. Persists itself — see touch.js — and is read once by
+     * main.js when the flight scene builds, so flipping it here takes effect on
+     * the way in rather than needing a reload.
+     */
+    function flipTouch() {
+      toggleTouch();
+      renderSlots();
+      pad?.rumble.pulse(0.3, 0.12, 0.08);
+    }
+
     /** The two settings rows are the same component; only the contents differ. */
     function optionRow(on, glyph, title, hint) {
       return `
@@ -423,6 +449,7 @@ export function runTitle(pad = null) {
       if (done) return;
       if (cursor === CONTROLS_ROW) { flipControls(); return; }
       if (cursor === AIM_ROW) { flipAim(); return; }
+      if (cursor === TOUCH_ROW) { flipTouch(); return; }
       done = true;
       const existing = slots[cursor];
       const save = existing || saves.create(cursor);
@@ -474,6 +501,7 @@ export function runTitle(pad = null) {
         if (input.tapped("left") || input.tapped("right")) {
           if (cursor === CONTROLS_ROW) flipControls();
           else if (cursor === AIM_ROW) flipAim();
+          else if (cursor === TOUCH_ROW) flipTouch();
         }
         if (input.pressed("confirm")) choose();
         if (input.pressed("del")) askErase();
