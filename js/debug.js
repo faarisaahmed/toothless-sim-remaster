@@ -198,6 +198,38 @@ export function setupDebugConsole(ctx) {
       },
     },
 
+    hp: {
+      help: "hp [n|hurt <n>|full] — health, and what last took some off",
+      run(args) {
+        const h = ctx.health;
+        if (!h) return log("no health system on this scene", "err");
+        if (args[0] === "full") h.refill();
+        else if (args[0] === "hurt") h.damage(num(args[1], 25), "debug");
+        else if (args[0]) h.damage(h.value - num(args[0], h.value), "debug");
+        const bars = Math.round(h.t * 20);
+        log(`health    ${"█".repeat(bars)}${"·".repeat(20 - bars)} ` +
+            `${Math.round(h.value)} / ${h.max}`);
+        log(`state     ${h.downed ? "DOWN" : h.hurt ? "hurt, mending" : "whole"}`);
+      },
+    },
+
+    flight: {
+      help: "flight — the vertical manoeuvre state machine, live",
+      run() {
+        const c = ctx.getControls?.();
+        if (!c) return log("dragon not loaded yet", "err");
+        log(`mode      ${c.getMode()}`);
+        log(`airspeed  ${Math.round(c.getAirspeed())} m/s  ` +
+            `(${Math.round(c.getAirspeed() / 0.44704)} mph)`);
+        log(`path      ${(c.getPathAngle() * 57.3).toFixed(0)}° off the horizontal`);
+        log(`vertical  ${Math.round(c.getVerticalSpeed())} m/s`);
+        // Only means anything in a zoom, and says so rather than printing 0.
+        log(`to stall  ${c.getMode() === "zoom"
+          ? (c.getStallT() * 100).toFixed(0) + "% of the way there"
+          : "— not climbing"}`);
+      },
+    },
+
     ground: {
       help: "ground [on|off] — put him down where he is, or get him back up",
       run(args) {

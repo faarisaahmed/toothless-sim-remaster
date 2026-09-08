@@ -138,6 +138,15 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# The film soundtrack, kept locally and never published.
+#
+# assets/audio/official_music/ is John Powell's HTTYD score, pulled out of
+# custom Beat Saber maps. It is used for local playtesting only: this is a
+# personal project and that music is not ours to redistribute, so it must not
+# reach the GitHub repo or the Pages deploy. Everything in assets/audio/music/
+# is the CC-BY set that ships instead — see its CREDITS.txt.
+assets/audio/official_music/
+
 # macOS
 .DS_Store
 

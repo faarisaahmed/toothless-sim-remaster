@@ -671,3 +671,54 @@ kbd.pad.shape {
 /* Locked out. The bar refills left-to-right as the three seconds run down, so
    it is a countdown to being allowed back rather than a bar that is just off. */
 #aim-bar.locked i { background: #d97a63; box-shadow: 0 0 8px rgba(217, 122, 99, 0.7); }
+
+/* --- Health ----------------------------------------------------------------
+   Bottom centre, above where the aim bar sits, and invisible while he is
+   whole. A meter parked at 100% for an entire session is a meter you stop
+   seeing, so this one only exists when it has something to say. */
+#hp {
+  position: fixed;
+  left: 50%;
+  bottom: 8.5vh;
+  transform: translateX(-50%);
+  z-index: 55;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+  text-align: center;
+}
+#hp-bar {
+  width: 190px;
+  height: 5px;
+  background: rgba(232, 226, 212, 0.16);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+#hp-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  /* Warm rather than red at full: red from the start reads as "in danger"
+     when he has only lost a scrape. The low and flash states below are what
+     turn it into an alarm. */
+  background: #e8b98a;
+  box-shadow: 0 0 8px rgba(232, 185, 138, 0.7);
+  transition: transform 0.25s ease, background 0.2s ease;
+}
+#hp-low i { background: #d9603f; box-shadow: 0 0 10px rgba(217, 96, 63, 0.85); }
+/* The frame something lands. Snaps on and eases off, so a hit registers as an
+   event rather than as the bar quietly being shorter than it was. */
+#hp-flash i { background: #fff3e6; box-shadow: 0 0 16px rgba(255, 243, 230, 0.95); }
+#hp-note {
+  margin-top: 5px;
+  font: 600 11px/1.2 "Rajdhani", system-ui, sans-serif;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(232, 226, 212, 0.72);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+#hp-downed #hp-note { color: #f0c9a0; }
+/* The stall. Deliberately the loudest thing on the HUD: it is the only state
+   the player did not choose, and it lasts about a second. */
+#hud-burst.stall { color: #ff7a4d; animation: stall-pulse 0.32s steps(2, end) infinite; }
+@keyframes stall-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }

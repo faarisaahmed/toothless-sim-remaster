@@ -20,6 +20,7 @@ import { setupDualSense } from "./dualsense.js";
 import { setupPadView } from "./padview.js";
 import { music, CREDITS } from "./audio.js";
 import { setupPlasma, MAX_SHOTS } from "./plasma.js";
+import { setupHealth } from "./health.js";
 import { showLoading, warmUp } from "./loading.js";
 import { detectTier, tierSettings, createGovernor } from "./quality.js";
 import * as keymap from "./keymap.js";
@@ -309,6 +310,7 @@ music.play("flight");
 // Declared here rather than up with the input state: this runs at module top
 // level, well before that block, and a `let` read above its own declaration is
 // a ReferenceError rather than an undefined.
+const health = setupHealth();
 const plasma = setupPlasma(scene, {
   getHeightAt: (x, z) => world.getHeightAt(x, z),
   seaLevel: world.seaLevel,
@@ -435,13 +437,23 @@ function updateHud() {
   // Was "Burst Ready / Burst Charging" against a cooldown. There is no cooldown
   // — it is a gear he is either in or not — so the readout says which, and when
   // he is not in it, it says the key that puts him there.
+  // A vertical manoeuvre outranks it. The stall in particular has to be said
+  // out loud: it is the one moment in the flight model the player did not ask
+  // for, the controls stop answering for about a second, and without a word for
+  // it the honest reading is that the game broke.
+  const mode = controls.getMode();
   const flatOut = controls.isBursting();
-  if (flatOut !== shownBurst) {
-    hudBurst.textContent = flatOut
-      ? "Flat Out"
-      : `Flat Out · ${keymap.label(keymap.keysFor("burst")[0])}`;
-    hudBurst.classList.toggle("ready", flatOut);
-    shownBurst = flatOut;
+  const line = mode === "zoom"  ? `Climbing · ${Math.round((1 - controls.getStallT()) * 100)}%`
+             : mode === "stall" ? "STALL"
+             : mode === "dive"  ? "Diving"
+             : mode === "recover" ? "Pulling up"
+             : flatOut ? "Flat Out"
+             : `Flat Out · ${keymap.label(keymap.keysFor("burst")[0])}`;
+  if (line !== shownBurst) {
+    hudBurst.textContent = line;
+    hudBurst.classList.toggle("ready", flatOut || mode === "dive");
+    hudBurst.classList.toggle("stall", mode === "stall");
+    shownBurst = line;
   }
 }
 
@@ -716,6 +728,7 @@ const debugConsole = setupDebugConsole({
   // Built after this call, so a getter rather than a value — same reason as
   // `post` and `governor` below.
   get plasma() { return plasma; },
+  get health() { return health; },
   get grounded() { return grounded; },
   // Function declarations, so hoisting makes these safe to hand over from
   // above where they are written. The console needs them because firing and
@@ -761,16 +774,30 @@ let groundRig = null;          // bindDragon, built on first landing
 // which is what makes the wings sweep open instead of appearing open.
 let openingWings = false;
 let walkYaw = 0, walkSpeed = 0, landHold = 0;
-const walkKeys = { w: false, a: false, s: false, d: false };
+const walkKeys = { w: false, a: false, s: false, d: false, run: false };
 const LAND_AGL = 22;           // how low he has to be before landing is offered
 // ...and how slow. speedT is a fraction of his 750 mph top speed, so this is
 // about 55 m/s — he has to be at or below cruise, which means easing off the
 // gas on the approach rather than arriving at four hundred miles an hour.
 const LAND_SPEED = 0.18;
+// --- On foot ---------------------------------------------------------------
+// 4 m/s was a walk and only a walk, which made the ground a punishment: the
+// cove is hundreds of metres across and crossing it took a minute of holding
+// one key. He is a big animal and big animals have gears, so there are two —
+// hold sprint and he runs. Turning gets slower as he speeds up for the same
+// reason it does in the air: you cannot pivot on the spot at a canter, and
+// being able to would make the run feel like a cursor rather than an animal.
 const WALK_SPEED = 4.0;        // metres per second at a full stride
-const WALK_TURN = 1.6;         // radians per second
+const RUN_SPEED = 12.5;        // ...and at a run, holding sprint
+const WALK_TURN = 1.6;         // radians per second at a walk
+const RUN_TURN = 0.85;         // and at a full run
+const RUN_ACCEL = 2.1;         // how fast he winds up into it
+const WALK_ACCEL = 3.2;        // and how fast he answers at a walk
 const GRAVITY = 26;            // m/s^2 during the drop onto the ground
 const FOOT_CLEAR = 0.35;       // where his feet sit relative to the height field
+// The baseline the impact slope is measured over. Fixed, not scaled by speed:
+// the question "is this a wall" is about the terrain, not about him.
+const IMPACT_BASELINE = 25;    // m
 let fallSpeed = 0;             // vertical velocity while settling
 let settling = false;          // dropping onto the ground, not walking yet
 let slopePitch = 0, slopeRoll = 0;
@@ -789,6 +816,9 @@ window.addEventListener("keydown", (e) => {
   if (keymap.isAction("turnL", e.code))   walkKeys.a = true;
   if (keymap.isAction("back", e.code))    walkKeys.s = true;
   if (keymap.isAction("turnR", e.code))   walkKeys.d = true;
+  // Sprint is the same key in the air and on the ground: up there it is the
+  // 400 mph gear, down here it is the run.
+  if (keymap.isAction("sprint", e.code))  walkKeys.run = true;
   if (keymap.isAction("up", e.code) && grounded) takeOff();
 });
 window.addEventListener("keyup", (e) => {
@@ -800,6 +830,7 @@ window.addEventListener("keyup", (e) => {
   if (keymap.isAction("turnL", e.code))   walkKeys.a = false;
   if (keymap.isAction("back", e.code))    walkKeys.s = false;
   if (keymap.isAction("turnR", e.code))   walkKeys.d = false;
+  if (keymap.isAction("sprint", e.code))  walkKeys.run = false;
 });
 
 function land() {
@@ -1020,7 +1051,7 @@ window.__na = {
   get grounded() { return grounded; },
   get speedT() { return controls?.getSpeedT() ?? -1; },
   getControls: () => controls,
-  aim,
+  aim, health, world,
   land, takeOff, fireBlast,
   /** Debug: a bone on the *player's* rig. The wild flights are clones and share
    *  every bone name, so a scene-wide search finds the wrong dragon. */
@@ -1333,6 +1364,10 @@ function frame() {
   pendingYaw -= dYaw;
   pendingPitch -= dPitch;
 
+  // Real dt: being hurt does not run slower because he is aiming, and the
+  // regeneration timer is a promise about seconds rather than about frames.
+  health.update(dt);
+
   // --- Aiming ---------------------------------------------------------
   // Fed the REAL dt on purpose. The stamina bar is the cost of slowing time
   // down, so draining it on the slowed clock would make a full bar last three
@@ -1405,6 +1440,63 @@ function frame() {
         const depth = THREE.MathUtils.clamp((floor - dragon.position.y) / 4, 0, 1);
         if (!wasGrounded) pad.rumble.pulse(0.7, 1.0, 0.28 + depth * 0.2);
         else pad.rumble.sustain(0.24, 0.30);
+
+        // --- What it cost ---------------------------------------------------
+        //
+        // Deliberately NOT measured against `rock` above. That is the highest
+        // point in a quarter second of his flight path — 84 m ahead flat out —
+        // and it exists as a pilot aid: it lifts the floor early so a rising
+        // ridge pushes him up the way air would, instead of arriving as a wall
+        // inside one frame. Billing him for damage against it turns the aid
+        // into a punishment, and it did: a level skim over open water within
+        // sight of an island took the whole bar, because the island was in the
+        // look-ahead and the look-ahead's normal was pointing at him.
+        //
+        // What it uses instead is the slope over a SHORT FIXED baseline — 25 m,
+        // about two of him, regardless of how fast he is going. That is the one
+        // measurement that separates the three cases on its own:
+        //
+        //   dive at flat ground   slope 0, normal straight up, so the closing
+        //                         speed is his descent rate. Large. Hurts.
+        //   skim a ridge          the slope over 25 m of a ridge you can fly
+        //                         over is gentle, so almost none of his speed
+        //                         is INTO it. Free, which it must be.
+        //   fly at a cliff face   the slope over 25 m of a cliff is vertical,
+        //                         so the closing speed is very nearly all of
+        //                         his airspeed. Hurts a great deal.
+        //
+        // Measuring it against the look-ahead instead could not tell the last
+        // two apart, and measuring it against the ground directly underneath
+        // could not see the cliff at all: the aid lifts him up the wall, so he
+        // is never actually near the rock he flew into.
+        const under = world.getHeightAt(dragon.position.x, dragon.position.z);
+        if (controls) {
+          const h = controls.getHeading();
+          const R = IMPACT_BASELINE;
+          const ax = Math.sin(h), az = Math.cos(h);
+          // Along his nose, and across it, so a cliff he clips at an angle
+          // still reads as a cliff.
+          const gF = (world.getHeightAt(dragon.position.x + ax * R, dragon.position.z + az * R)
+                    - under) / R;
+          const gS = (world.getHeightAt(dragon.position.x - az * R, dragon.position.z + ax * R)
+                    - under) / R;
+          const gx = ax * gF - az * gS, gz = az * gF + ax * gS;
+          const inv = 1 / Math.hypot(gx, gz, 1);
+          const sp = controls.getSpeed(), vy = controls.getVerticalSpeed();
+          const hit = health.impact(
+            ax * sp, vy, az * sp,
+            -gx * inv, inv, -gz * inv,
+            under <= world.seaLevel
+          );
+          if (hit > 0) {
+            pad.rumble.pulse(1.0, 1.0, 0.5);
+            // Arriving badly costs the speed as well as the health. Without it
+            // he bounces off a cliff still doing 700 mph, which reads as the
+            // collision not having happened.
+            controls.bleedSpeed?.(0.45);
+          }
+        }
+
         dragon.position.y = floor;
         wasGrounded = true;
       } else {
@@ -1483,12 +1575,22 @@ function frame() {
         dragon.rotation.set(0, walkYaw + Math.PI, 0);
       } else {
         const turn = (walkKeys.a ? 1 : 0) - (walkKeys.d ? 1 : 0);
-        walkYaw += turn * WALK_TURN * dt;
+        // Two gears, and the turn rate falls off as he picks up speed — mixed
+        // by how fast he is ACTUALLY going rather than by whether the key is
+        // down, so easing off the run tightens the turn back up on the way out
+        // of it instead of the moment the key is released.
+        const running = walkKeys.run;
+        const gearT = THREE.MathUtils.clamp(
+          (Math.abs(walkSpeed) - WALK_SPEED) / (RUN_SPEED - WALK_SPEED), 0, 1);
+        walkYaw += turn * THREE.MathUtils.lerp(WALK_TURN, RUN_TURN, gearT) * dt;
 
         // Walking uphill is slower than walking down it.
         const fwd = (walkKeys.w ? 1 : 0) - (walkKeys.s ? 1 : 0);
         const grade = THREE.MathUtils.clamp(-slopePitch * 1.1, -0.28, 0.22);
-        walkSpeed += (fwd * WALK_SPEED * (1 + grade) - walkSpeed) * damp(3.2, dt);
+        // Backwards is always a shuffle. Nothing that size reverses at a run.
+        const gear = fwd < 0 ? WALK_SPEED * 0.55 : (running ? RUN_SPEED : WALK_SPEED);
+        walkSpeed += (fwd * gear * (1 + grade) - walkSpeed) *
+          damp(running ? RUN_ACCEL : WALK_ACCEL, dt);
 
         // His nose vector is (sin h, cos h), same convention as controls.js.
         const nx = Math.sin(walkYaw), nz = Math.cos(walkYaw);
@@ -1525,7 +1627,10 @@ function frame() {
         const modelScale = dragon.scale.x || 1;
         groundRig?.update(sdt, {
           speed: Math.abs(walkSpeed) / modelScale,
-          maxSpeed: WALK_SPEED / modelScale,
+          // RUN_SPEED, not WALK_SPEED. The gait normalises against this, so
+          // handing it the walk figure while he is doing 12 m/s asks it for a
+          // stride three times over and he scrabbles.
+          maxSpeed: RUN_SPEED / modelScale,
         });
         game.setPrompt(
           `<b>${keymap.label(keymap.keysFor("forward")[0])}</b> ` +

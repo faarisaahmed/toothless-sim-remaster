@@ -96,6 +96,51 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   const VERT_PER_SPEED = 0.45;                // ...plus this much of his airspeed
   const CLIMB_RATE_CAP = 140;                 // m/s, so a burst zoom stays on the map
   const VERT_LAMBDA    = 3.2;                 // how fast the climb answers the key
+
+  // --- The vertical manoeuvres: zoom climb, stall, dive ---------------------
+  //
+  // The lift axis above is a helicopter's: hold up and he rises, at a rate that
+  // happens to scale with speed. It is the right control for placing him and
+  // the wrong one for the move the films are built on, where he trades
+  // everything he has for height, runs out, falls through his own nose and
+  // comes back down faster than he went up.
+  //
+  // So above CLIMB_ENTRY_SPEED, "up" stops being a lift and becomes a ZOOM: he
+  // stands on his tail, goes straight up with no ground speed at all, and pays
+  // for every metre out of his airspeed. That makes it a decision with a cost
+  // rather than a button — you can see the speed draining, and you have to
+  // choose when to level off.
+  //
+  // Below the entry speed the old lift is exactly as it was, which matters:
+  // hovering and rising is what the axis was built for and a stall on the way
+  // up from a standstill would be nonsense.
+  //
+  // The whole thing is one energy account. Height is bought with speed going
+  // up and sold for it coming down, and the numbers are set so a full-height
+  // zoom and the dive out of it roughly break even — you land back at about the
+  // speed you left with, having gone up and over. Diving from height you did
+  // not pay for is what actually makes you fast.
+  const CLIMB_ENTRY_SPEED = 105;              // m/s (~235 mph) before up goes vertical
+  const CLIMB_DRAG        = 30;               // m/s^2 of airspeed spent climbing
+  const STALL_SPEED       = 15;               // m/s where the wings stop holding him
+  const STALL_HANG        = 0.5;              // s hanging at the top before the nose drops
+  const NOSE_OVER_RATE    = 2.2;              // rad/s the nose swings through the stall
+  const DIVE_GRAVITY      = 36;               // m/s^2 gained with the nose down
+  const DIVE_MAX          = CANON_TOP_SPEED * 1.2;  // 900 mph, and only in a dive
+  // Same gate as the climb, and it has to be this high. At 40 m/s "down" turned
+  // every ordinary descent into a committed dive, which took away the one thing
+  // that axis has to keep doing — losing a little height on an approach. The
+  // landing prompt says "hold down to drop" and it has to still mean that.
+  const DIVE_ENTRY_SPEED  = CLIMB_ENTRY_SPEED;
+  // Seconds of the post-stall dive he cannot pull out of. Without it, holding
+  // the climb key through a stall put him straight into `recover`, so the nose
+  // dropped, nothing happened, and running out of airspeed cost nothing at all.
+  // This is the punishment: half a second where the controls do not answer.
+  const STALL_DIVE_COMMIT = 1.1;              // s
+  const RECOVER_RATE      = 2.6;              // rad/s pulling the nose back to level
+  // Held for this long after a recovery, so the speed a dive earned is still
+  // there when he comes out of it rather than bleeding off during the pull-up.
+  const RECOVER_HOLD      = 1.1;              // s
   // Denominator floor when working out which way his nose points. Without it a
   // climb from a standstill is atan2(9, 0) and he stands on his tail.
   const PATH_REF_SPEED = 25;
@@ -158,6 +203,13 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
 
   let strafeVel   = 0;   // m/s, sideways
   let climbVel    = 0;   // m/s, straight up. Owned by Space/Ctrl and nothing else
+  // "level" is the ordinary flight model and the only state the old code had.
+  // The other four are the zoom climb and what it costs — see the constants.
+  let mode        = "level";   // level | zoom | stall | dive | recover
+  let modeT       = 0;         // seconds in the current state
+  let stalled     = false;     // true for one frame when the wings let go
+  let recoverHold = 0;         // s of keeping the speed a dive earned
+  let diveCommit  = 0;         // s of dive he cannot pull out of, after a stall
   let pathAngle   = 0;   // radians off the horizontal — derived, for the visuals
   let airspeed    = SPEED_CRUISE;
   let currentRoll  = 0;
@@ -323,7 +375,14 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     const rate = bursting
       ? BURST_GAIN
       : (speedTarget > airspeed ? PEDAL_GAIN : (airspeed > PEDAL_MAX ? BURST_BLEED : PEDAL_BLEED));
-    airspeed += (speedTarget - airspeed) * damp(rate, dt);
+    // Not while a manoeuvre owns him, and not for the moment after one. A zoom
+    // climb that the throttle could top up is not a climb with a cost, and a
+    // 900 mph dive whose speed bleeds away during the pull-up earns nothing.
+    // `mode` is last frame's, which is a frame of lag nobody can see.
+    if (mode === "level" && recoverHold <= 0) {
+      airspeed += (speedTarget - airspeed) * damp(rate, dt);
+    }
+    recoverHold = Math.max(0, recoverHold - dt);
 
     // --- Knife edge (Z / X, or L1 / R1 held) ---
     let knifeWant = 0;
@@ -420,6 +479,59 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       );
     }
 
+    // --- Zoom, stall, dive, recover ---------------------------------------
+    // One state machine over the same two keys. It only ever takes over when
+    // he is going fast enough for the manoeuvre to mean anything; the rest of
+    // the time `mode` is "level" and every line below this block runs exactly
+    // as it did before.
+    stalled = false;
+    modeT += dt;
+    const wantUp = verticalInput > 0.55, wantDown = verticalInput < -0.55;
+    const setMode = (m) => { if (m !== mode) { mode = m; modeT = 0; } };
+
+    if (mode === "level") {
+      if (wantUp && airspeed >= CLIMB_ENTRY_SPEED) setMode("zoom");
+      else if (wantDown && airspeed >= DIVE_ENTRY_SPEED) setMode("dive");
+    } else if (mode === "zoom") {
+      // Straight up, and it costs. Letting go levels him off with whatever he
+      // has left, which is the skill in it: too long and the wings let go.
+      airspeed = Math.max(0, airspeed - CLIMB_DRAG * dt);
+      pathAngle += (Math.PI / 2 - pathAngle) * damp(NOSE_OVER_RATE, dt);
+      if (!wantUp) setMode("recover");
+      else if (airspeed <= STALL_SPEED) { setMode("stall"); stalled = true; }
+    } else if (mode === "stall") {
+      // He hangs, then the nose falls through of its own accord. Nothing the
+      // player does here matters, which is the point of running out of speed.
+      airspeed = Math.max(0, airspeed - CLIMB_DRAG * 0.35 * dt);
+      if (modeT > STALL_HANG) {
+        pathAngle += (-Math.PI / 2 - pathAngle) * damp(NOSE_OVER_RATE, dt);
+        if (pathAngle < -0.7) { setMode("dive"); diveCommit = STALL_DIVE_COMMIT; }
+      }
+    } else if (mode === "dive") {
+      // Height back into speed, past anything level flight can reach.
+      pathAngle += (-Math.PI / 2 - pathAngle) * damp(NOSE_OVER_RATE, dt);
+      airspeed = Math.min(DIVE_MAX, airspeed + DIVE_GRAVITY * dt * -Math.sin(pathAngle));
+      diveCommit = Math.max(0, diveCommit - dt);
+      // A dive he chose can be left whenever he likes. A dive he fell into has
+      // to be ridden out.
+      if ((!wantDown || wantUp) && diveCommit <= 0) setMode("recover");
+    } else if (mode === "recover") {
+      // The pull-up. The speed a dive earned is KEPT rather than bled off,
+      // which is what makes the whole trade worth doing — see RECOVER_HOLD.
+      pathAngle += (0 - pathAngle) * damp(RECOVER_RATE, dt);
+      recoverHold = RECOVER_HOLD;
+      if (Math.abs(pathAngle) < 0.10) {
+        setMode("level");
+        // Hand the path speed back to the level model as ground speed, so
+        // coming out of a dive at 900 mph does not silently discard it.
+        climbVel = 0;
+      }
+    }
+
+    // While a manoeuvre owns him, the throttle does not: the pedal cannot pull
+    // him out of a stall and gravity cannot be out-accelerated with a key.
+    const manoeuvring = mode !== "level";
+
     // Fast dragons climb faster than slow ones, so the rate rides on airspeed —
     // but it never falls to nothing, because hovering and rising is exactly the
     // thing this axis exists to make possible.
@@ -428,31 +540,58 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     );
     climbVel += (verticalInput * vertRate - climbVel) * damp(VERT_LAMBDA, dt);
 
-    activeSpeed = airspeed;
+    // --- Translation ------------------------------------------------------
+    //
+    // Two models, and which one runs depends on `mode`.
+    //
+    // LEVEL is the original and is untouched: ground speed along his heading,
+    // altitude on a separate lift axis. It is a helicopter's model and it is
+    // the right one for a creature that can stop in mid-air — with no forward
+    // speed a flight-path ANGLE carries you nowhere, so a hovering dragon
+    // could not go up at all.
+    //
+    // MANOEUVRING is an aeroplane's: one speed along one flight path, which is
+    // the only way "straight up" can mean straight up. `airspeed` stops being
+    // ground speed and becomes speed along the path, so at the top of a zoom
+    // his ground speed really is zero and he really does hang there.
+    let climbRate;
+    if (!manoeuvring) {
+      activeSpeed = airspeed;
 
-    // Wings vertical means almost no lift, so he sinks. Holding a knife edge
-    // through a gap costs you altitude unless you pull up into it.
-    const climbRate = climbVel
-      - Math.abs(knifeAmount) * KNIFE_SINK
-      + Math.sin(elapsed * BOB_FREQ * Math.PI * 2) * BOB_SPEED;
+      // Wings vertical means almost no lift, so he sinks. Holding a knife edge
+      // through a gap costs you altitude unless you pull up into it.
+      climbRate = climbVel
+        - Math.abs(knifeAmount) * KNIFE_SINK
+        + Math.sin(elapsed * BOB_FREQ * Math.PI * 2) * BOB_SPEED;
 
-    // Which way his nose points is now DERIVED from where he is actually going
-    // rather than being the thing you steer. The reference speed in the
-    // denominator is what keeps a climb from a standstill reading as a dragon
-    // tilting back to gain height instead of one standing on his tail.
-    const pathTarget = Math.atan2(
-      climbRate, Math.max(Math.abs(activeSpeed), PATH_REF_SPEED)
-    );
-    pathAngle += (pathTarget - pathAngle) * damp(PITCH_LAMBDA, dt);
+      // Which way his nose points is DERIVED from where he is actually going
+      // rather than being the thing you steer. The reference speed in the
+      // denominator is what keeps a climb from a standstill reading as a dragon
+      // tilting back to gain height instead of one standing on his tail.
+      const pathTarget = Math.atan2(
+        climbRate, Math.max(Math.abs(activeSpeed), PATH_REF_SPEED)
+      );
+      pathAngle += (pathTarget - pathAngle) * damp(PITCH_LAMBDA, dt);
 
-    // --- Translation: always along his own nose ---
-    dragon.position.x += Math.sin(heading) * activeSpeed * dt;
-    dragon.position.z += Math.cos(heading) * activeSpeed * dt;
+      dragon.position.x += Math.sin(heading) * activeSpeed * dt;
+      dragon.position.z += Math.cos(heading) * activeSpeed * dt;
+      dragon.position.y += climbRate * dt;
+    } else {
+      // pathAngle was set by the state machine above; nothing derives it here.
+      activeSpeed = airspeed * Math.cos(pathAngle);
+      climbRate   = airspeed * Math.sin(pathAngle);
+      climbVel    = climbRate;   // so the wing rig and the HUD still read right
+
+      dragon.position.x += Math.sin(heading) * activeSpeed * dt;
+      dragon.position.z += Math.cos(heading) * activeSpeed * dt;
+      dragon.position.y += climbRate * dt;
+      // Ground speed is what the rest of the file means by activeSpeed, but a
+      // vertical dragon at 300 m/s is not doing 0 mph. Report the path speed.
+      activeSpeed = airspeed;
+    }
 
     dragon.position.x -= Math.cos(heading) * strafeVel * dt;
     dragon.position.z += Math.sin(heading) * strafeVel * dt;
-
-    dragon.position.y += climbRate * dt;
 
     // --- Roll ---
     // Signs are set for the half-turned model: +roll drops the left wing, which
@@ -477,8 +616,14 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // speed. That is why a slow pass looks like he is hanging off his wings and
     // a fast one looks like a thrown spear.
     const slowT = 1 - THREE.MathUtils.clamp((activeSpeed - SPEED_MIN) / (SPEED_CRUISE * 2), 0, 1);
+    // PITCH_MAX caps the nose at 41 degrees in level flight, which is a limit
+    // on how far his ATTITUDE may run ahead of his flight path. In a zoom or a
+    // dive the flight path IS vertical, so the cap has to open up or he goes
+    // straight up while pointing forty degrees off it.
+    const pitchLimit = manoeuvring ? Math.PI / 2 + 0.08 : PITCH_MAX;
     const targetPitch = THREE.MathUtils.clamp(
-      pathAngle + slowT * AOA_SLOW + knifeBlend * 0.14, -PITCH_MAX, PITCH_MAX
+      pathAngle + (manoeuvring ? 0 : slowT * AOA_SLOW) + knifeBlend * 0.14,
+      -pitchLimit, pitchLimit
     );
     currentPitch += (targetPitch - currentPitch) * damp(PITCH_LAMBDA, dt);
     dragon.rotation.x = currentPitch;
@@ -603,10 +748,45 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     getSpeedT:   speedRatio,
     /** Metres per second along his nose. The plasma needs it — see plasma.js. */
     getAirspeed: () => airspeed,
+    /**
+     * Which vertical manoeuvre owns him: level, zoom, stall, dive, recover.
+     * The HUD names it and the sound bed keys off it — a stall is the one
+     * moment in the flight model the player did not ask for and has to be told
+     * about, because the controls stop answering for about half a second.
+     */
+    getMode: () => mode,
+    /** True for the single frame the wings let go at the top of a zoom. */
+    didStall: () => stalled,
+    /**
+     * 0..1 of his total energy budget, height and speed together, against what
+     * a flat-out dive from the ceiling would be worth. This is the number the
+     * zoom and the dive actually move, so it is the honest thing to draw.
+     */
+    getEnergy: (agl = 0) => THREE.MathUtils.clamp(
+      (airspeed / DIVE_MAX) * 0.6 + Math.min(1, agl / 900) * 0.4, 0, 1),
+    /** How close he is to running out of airspeed on the way up. */
+    getStallT: () => mode === "zoom"
+      ? 1 - THREE.MathUtils.clamp((airspeed - STALL_SPEED) /
+            (CLIMB_ENTRY_SPEED - STALL_SPEED), 0, 1)
+      : 0,
     /** How far up his range the sustained throttle has him, burst excluded. */
     getPedalT:   () => THREE.MathUtils.clamp(
       (activeSpeed - SPEED_MIN) / (PEDAL_MAX - SPEED_MIN), 0, 1),
     getClimb:    () => THREE.MathUtils.clamp(climbVel / CLIMB_RATE_CAP * 3, -1, 1),
+    /** Raw m/s straight up, signed. The impact model needs the real number. */
+    getVerticalSpeed: () => climbVel,
+    /**
+     * Take a fraction of his speed away, and drop whatever manoeuvre he was in.
+     *
+     * For arriving badly. It also cancels the state machine on purpose: a dive
+     * that ends in a cliff face should not carry on being a dive, and `recover`
+     * would otherwise protect the speed the crash was supposed to take.
+     */
+    bleedSpeed(fraction) {
+      airspeed *= Math.max(0, 1 - fraction);
+      climbVel *= 0.2;
+      mode = "level"; modeT = 0; recoverHold = 0; diveCommit = 0;
+    },
     /** Radians off the horizontal — the camera uses this to lead him. */
     getPathAngle: () => pathAngle,
     getYawRate:  () => yawRate,
@@ -642,11 +822,23 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     },
     getClimbInvert: () => padClimbInvert,
     setClimbInvert(v) { padClimbInvert = !!v; return padClimbInvert; },
+    /**
+     * Hands off the controls — the debug console calls this when it opens, so
+     * typing does not fly him into a cliff.
+     *
+     * It also has to drop the manoeuvre. Zeroing `pathAngle` on its own left
+     * `mode` saying "zoom" with a flight path along the horizontal, and since
+     * a manoeuvre integrates position from the path, he then flew level while
+     * the state machine went on draining his airspeed for the climb. That is
+     * also why `flight` in the console reported 0° in the middle of a zoom:
+     * asking the question is what flattened it.
+     */
     clearKeys() {
       for (const k in keys) keys[k] = false;
       strafeVel = 0;
       pathAngle = 0;
       yawRate = 0;
+      mode = "level"; modeT = 0; recoverHold = 0; diveCommit = 0;
     },
   };
 }

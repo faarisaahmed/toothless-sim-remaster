@@ -9,6 +9,7 @@
 
 import * as THREE from "three";
 import { setupDragonControls, CANON_TOP_SPEED } from "../js/controls.js";
+import { keysFor, label } from "../js/keymap.js";
 
 // Minimal DOM so the module's window listeners bind to something.
 const listeners = {};
@@ -61,16 +62,19 @@ for (const [label, k] of gears) {
   const { c } = run(60, 6, k);
   console.log(`  ${label.padEnd(22)} ${c.getSpeed().toFixed(1).padStart(6)} m/s  ${mph(c.getSpeed()).padStart(4)} mph`);
 }
-{ // burst: fire it and sample at its peak
+{ // Burst, HELD. It used to be a tap that fired a charge; it is a gear now,
+  // and this check went on tapping it for one frame long after that changed —
+  // which reported the canon top speed as 177 mph and nobody noticed.
   const dragon = new THREE.Object3D();
   const c = setupDragonControls(dragon, () => 0, null);
   key("KeyW", true);
   for (let i = 0; i < 120; i++) c.update(1 / 60);
-  key("KeyB", true); c.update(1 / 60); key("KeyB", false);
+  key("KeyB", true);
   let peak = 0;
-  for (let i = 0; i < 120; i++) { c.update(1 / 60); peak = Math.max(peak, c.getSpeed()); }
-  key("KeyW", false);
-  console.log(`  ${"B (burst)".padEnd(22)} ${peak.toFixed(1).padStart(6)} m/s  ${mph(peak).padStart(4)} mph   <- canon top speed`);
+  for (let i = 0; i < 240; i++) { c.update(1 / 60); peak = Math.max(peak, c.getSpeed()); }
+  key("KeyB", false); key("KeyW", false);
+  const ok = Math.abs(peak - CANON_TOP_SPEED) < 1 ? "" : "   <- OFF CANON";
+  console.log(`  ${"W + B held (flat out)".padEnd(22)} ${peak.toFixed(1).padStart(6)} m/s  ${mph(peak).padStart(4)} mph   <- canon top speed${ok}`);
 }
 
 // 3. The two things the standard scheme has to guarantee: forward does not
@@ -89,8 +93,12 @@ console.log("\n--- the axes stay separate ---");
   console.log(`  W + Space      -> ${dist.toFixed(0).padStart(4)} m forward, ${climbed.toFixed(2).padStart(6)} m of altitude change`);
 }
 {
-  const { climbed, dist } = run(60, 4, ["ControlLeft"]);
-  console.log(`  Ctrl for 4 s   -> ${dist.toFixed(0).padStart(4)} m forward, ${climbed.toFixed(2).padStart(6)} m of altitude change`);
+  // Whatever "down" is bound to in the current scheme, rather than Ctrl —
+  // which this used to press, and which has not been bound to anything since
+  // macOS Mission Control was found to be eating Ctrl+Down.
+  const code = keysFor("down")[0];
+  const { climbed, dist } = run(60, 4, [code]);
+  console.log(`  ${(label(code) + " for 4 s").padEnd(14)} -> ${dist.toFixed(0).padStart(4)} m forward, ${climbed.toFixed(2).padStart(6)} m of altitude change`);
 }
 
 // 4. Turn radius falls out of the lateral-accel limit.
@@ -99,4 +107,66 @@ for (const [label, k] of [["hover", ["KeyA"]], ["cruise", ["KeyW", "KeyA"]], ["s
   const { c } = run(60, 6, k);
   const r = Math.abs(c.getYawRate()) > 1e-6 ? c.getSpeed() / Math.abs(c.getYawRate()) : 0;
   console.log(`  ${label.padEnd(22)} ${mph(c.getSpeed()).padStart(4)} mph  yaw ${c.getYawRate().toFixed(3)} rad/s  radius ${r.toFixed(0)} m`);
+}
+
+// 5. The zoom climb, the stall and the dive.
+//
+// One energy account: height is bought with speed on the way up and sold for it
+// on the way down. What this prints is the exchange rate, which is the whole
+// feel of the manoeuvre — a zoom that bought no height, or a dive that earned
+// no speed, would both be numbers here rather than something you had to fly to
+// find out.
+console.log("\n--- zoom, stall, dive ---");
+{
+  const dragon = new THREE.Object3D();
+  const c = setupDragonControls(dragon, () => 0, null);
+  const up = keysFor("up")[0], down = keysFor("down")[0];
+  const step = (n) => { for (let i = 0; i < n; i++) c.update(1 / 60); };
+
+  // Up to speed first: the zoom does not exist below CLIMB_ENTRY_SPEED, which
+  // is what stops it from firing on a hovering dragon holding the lift key.
+  key("KeyW", true); key("ShiftLeft", true);
+  step(300);
+  const entrySpeed = c.getSpeed(), entryY = dragon.position.y;
+  console.log(`  entered at            ${mph(entrySpeed).padStart(4)} mph, mode ${c.getMode()}`);
+
+  // Straight up until the wings let go.
+  key(up, true);
+  let stalledAt = null, peakY = entryY, sawZoom = false, noseAtDive = null;
+  for (let i = 0; i < 60 * 12; i++) {
+    c.update(1 / 60);
+    if (c.getMode() === "zoom") sawZoom = true;
+    if (c.didStall()) stalledAt = { y: dragon.position.y, t: i / 60 };
+    // Sampled at the moment the nose finishes falling, not at the end of the
+    // loop — holding the climb key just re-zooms once he has speed again, so
+    // reading it afterwards reports the next climb rather than the stall.
+    if (noseAtDive === null && stalledAt && c.getMode() === "dive") {
+      noseAtDive = c.getPathAngle();
+    }
+    peakY = Math.max(peakY, dragon.position.y);
+    if (stalledAt && i / 60 > stalledAt.t + 6) break;
+  }
+  key(up, false);
+  console.log(`  zoom engaged          ${sawZoom ? "yes" : "NO — up stayed a lift"}`);
+  console.log(`  stalled after         ${stalledAt ? stalledAt.t.toFixed(1) + " s, " +
+    Math.round(stalledAt.y - entryY) + " m of height bought" : "NEVER"}`);
+  console.log(`  nose fell through to  ${noseAtDive === null ? "NEVER DIVED"
+    : (noseAtDive * 57.3).toFixed(0) + "°, and held there for " +
+      "1.1 s he cannot pull out of"}`);
+
+  // Now the dive out of it: pull up and see what the height was worth.
+  const beforeDive = c.getSpeed();
+  key(down, true);
+  let peakSpeed = 0;
+  for (let i = 0; i < 60 * 6; i++) { c.update(1 / 60); peakSpeed = Math.max(peakSpeed, c.getSpeed()); }
+  key(down, false);
+  console.log(`  dive reached          ${mph(peakSpeed).padStart(4)} mph (from ${mph(beforeDive)} mph)`);
+
+  // And that it is KEPT through the pull-up rather than bled off.
+  key(up, true); step(90); key(up, false);
+  step(60);
+  console.log(`  after the pull-up     ${mph(c.getSpeed()).padStart(4)} mph, mode ${c.getMode()}`);
+  console.log(`  net over the whole    ${Math.round(dragon.position.y - entryY)} m of altitude, ` +
+    `${mph(c.getSpeed() - entrySpeed)} mph of speed`);
+  key("KeyW", false); key("ShiftLeft", false);
 }
