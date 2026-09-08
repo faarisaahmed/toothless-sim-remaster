@@ -6,6 +6,7 @@ import * as saves from "./saves.js";
 import { SCHEMES, getScheme, toggleScheme } from "./keymap.js";
 import { MODES as AIM_MODES, getMode as getAimMode, toggleMode as toggleAimMode } from "./aim.js";
 import { isEnabled as touchOn, toggleEnabled as toggleTouch, looksLikeTouch } from "./touch.js";
+import { addNightSky } from "./nightsky.js";
 
 // ---------------------------------------------------------------------------
 // Title screen
@@ -23,7 +24,11 @@ import { isEnabled as touchOn, toggleEnabled as toggleTouch, looksLikeTouch } fr
 // Low and well off to the left, so it lights the frame without sitting behind
 // the title. The moon is the only source in the scene; where it goes decides
 // where the sea's glitter path goes too.
-const MOON_DIR = new THREE.Vector3(-0.70, 0.10, -1).normalize();
+// Left and UP. It was at y 0.10, which put the disc down at the waterline and
+// squarely behind the save-slot list — the one bright object in the frame,
+// hidden by the furniture. Raising it also lifts the sea's glint lane and the
+// dragon's orbit, both of which are derived from this.
+const MOON_DIR = new THREE.Vector3(-0.72, 0.42, -1).normalize();
 
 // --- Sea --------------------------------------------------------------------
 // A plane and a shader. Cheap, and a real water sim would be louder than the
@@ -239,6 +244,12 @@ export function runTitle(pad = null) {
     sea.position.y = -30;
     scene.add(sea);
 
+    // Stars, the island bands, the aurora and the horizon haze. Everything in
+    // the frame that is not the moon, the sea, the clouds or him.
+    // NOT `sky` — that is the gradient sphere above, and shadowing it is a
+    // SyntaxError that takes the whole module graph down without a word.
+    const night = addNightSky(scene, MOON_DIR);
+
     // Lights. One cold key from the moon, one very dim fill so the silhouette
     // doesn't go completely to paste.
     const key = new THREE.DirectionalLight(0xbfd0f5, 2.6);
@@ -398,7 +409,19 @@ export function runTitle(pad = null) {
     function move(d) {
       cursor = (cursor + d + ROWS) % ROWS;
       renderSlots();
+      // The stage scrolls now, so moving the cursor has to bring the row with
+      // it. Without this the keyboard and the pad can select a row that is off
+      // the bottom of the screen — which is worse than not being able to
+      // scroll at all, because the highlight is somewhere you cannot see.
+      revealCursor();
       pad?.rumble.pulse(0.22, 0.05, 0.05);
+    }
+
+    /** Scroll whichever row the cursor is on into view. */
+    function revealCursor() {
+      const all = [...slotList.children, ...optList.children];
+      const el = all[cursor];
+      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
 
     /**
@@ -507,8 +530,9 @@ export function runTitle(pad = null) {
         if (input.pressed("del")) askErase();
       }
 
-      // Sea and clouds
+      // Sea, sky and clouds
       seaMat.uniforms.uTime.value = t;
+      night.update(t, renderer.getPixelRatio());
       for (const c of clouds) {
         c.position.x += c.userData.drift * dt;
         if (c.position.x > 1600) c.position.x = -1600;

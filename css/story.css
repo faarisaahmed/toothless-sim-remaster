@@ -46,33 +46,69 @@ body.pre-flight #padmon { display: none !important; }
   display: block;
 }
 
-/* Vignette + a faint warm lift at the bottom, so the slot list has something
-   to sit on that isn't a panel. */
+/* Vignette, and a lift at the bottom so the slot list has something to sit on
+   that isn't a panel.
+   Eased off from 0.72/0.86: at those values it was crushing the corners to
+   black, which was tolerable when there was nothing in them and is not now
+   that the islands, the stars and the aurora live out there. The bottom lift
+   stays strong because that is the part actually holding text. */
 .title-vignette {
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(120% 90% at 50% 38%, transparent 38%, rgba(0,0,0,0.72) 100%),
-    linear-gradient(to top, rgba(4,6,10,0.86) 0%, transparent 46%);
+    radial-gradient(125% 95% at 46% 34%, transparent 46%, rgba(0,0,0,0.46) 100%),
+    linear-gradient(to top, rgba(4,6,10,0.82) 0%, rgba(4,6,10,0.30) 30%, transparent 54%);
 }
 
+/* The stage SCROLLS.
+   It used to be a fixed grid centred in the viewport, which was fine while
+   there were four save slots and two option rows and stopped being fine the
+   moment a third option was added: the content came to 663px in a 453px
+   window, and 210px of it — the game's own name at the top and the last
+   options at the bottom — was simply unreachable, because <body> is
+   overflow:hidden and nothing here overrode it.
+   So: a scroll container over the canvas, still centred when it fits
+   (`align-content: safe center` centres only while there is room and falls
+   back to the start instead of overflowing both ways), and with room at the
+   bottom for a thumb on a phone. */
 .title-stage {
   position: absolute;
   inset: 0;
   display: grid;
-  grid-template-rows: 1fr auto auto;
-  align-content: center;
+  grid-template-rows: auto auto auto;
+  align-content: safe center;
   justify-items: center;
-  padding: 5vh 4vw 4vh;
+  padding: 5vh 4vw max(4vh, env(safe-area-inset-bottom, 0px));
   gap: 3.2vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* Firefox and WebKit respectively — a bright scrollbar over a night scene
+     is the first thing your eye goes to, which is the wrong thing to notice. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(232, 226, 212, 0.22) transparent;
+}
+.title-stage::-webkit-scrollbar { width: 8px; }
+.title-stage::-webkit-scrollbar-thumb {
+  background: rgba(232, 226, 212, 0.2);
+  border-radius: 4px;
+}
+.title-stage::-webkit-scrollbar-track { background: transparent; }
+
+/* Short windows: the name is the thing that can afford to give up room. */
+@media (max-height: 620px) {
+  .title-stage { gap: 2vh; padding-top: 3vh; }
+  .title-name { font-size: clamp(2.2rem, 7vw, 4rem); }
+  .title-over { margin-bottom: 0.6em; }
 }
 
 /* --- The mark ------------------------------------------------------------ */
 
 .title-mark {
   text-align: center;
-  align-self: end;
+  align-self: center;
   animation: title-rise 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
