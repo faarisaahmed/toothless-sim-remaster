@@ -4,6 +4,7 @@ import * as input from "./input.js";
 import * as saves from "./saves.js";
 import { runTitle } from "./title.js";
 import { runPrologue } from "./prologue.js";
+import { settings } from "./settings.js";
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -36,6 +37,12 @@ import { runPrologue } from "./prologue.js";
 //   ?stage=flight    the flight sim
 //   ?stage=title     title -> prologue if the save is new -> flight
 //   ?stage=prologue  the prologue on a scratch save -> flight
+//
+// And "Prologue: Skip" on the title screen takes B1 out of the title route,
+// for anybody who is starting new saves all day and does not need to walk
+// around the room again. It deliberately does NOT override `?stage=prologue`:
+// a URL that asks for the prologue by name is asking on purpose, which is what
+// makes that route usable for working on the prologue itself.
 //
 // The pad is set up once, here, and handed down. Two stages both calling
 // setupGamepad would poll the same device twice and fight over rumble.
@@ -91,9 +98,19 @@ async function main() {
   const { slot, save, isNew } = await runTitle(pad);
 
   if (isNew || save.scene === "prologue") {
-    const result = await runPrologue(pad, save);
-    save.scene = "morning";
-    save.prologueSeen = result.seen;
+    if (settings.skipPrologue()) {
+      // Straight past it, but the save still has to come out of this the way
+      // it would have: `scene` is what sends a half-finished save back into
+      // B1 next time, so leaving it as "prologue" would replay a scene the
+      // player has just said they do not want. `prologueSeen` records that
+      // they did not see it, because that is the true thing to record.
+      save.scene = "morning";
+      save.prologueSeen = false;
+    } else {
+      const result = await runPrologue(pad, save);
+      save.scene = "morning";
+      save.prologueSeen = result.seen;
+    }
     saves.write(slot, save);
   }
 

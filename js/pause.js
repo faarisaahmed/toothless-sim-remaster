@@ -1,4 +1,4 @@
-import { OPTIONS, optionRowHtml } from "./settings.js";
+import { optionsFor, optionRowHtml } from "./settings.js";
 import * as keymap from "./keymap.js";
 
 // ---------------------------------------------------------------------------
@@ -39,9 +39,12 @@ const KEYS = ["Minus", "Equal"];   // - and =
  */
 export function setupPause({ onOpen, onClose } = {}) {
   let open = false;
-  // -1 is Resume, OPTIONS.length is Quit. The settings sit between them, so
+  // -1 is Resume, OPTS.length is Quit. The settings sit between them, so
   // the cursor is one range over one list and there is no special-casing.
-  const RESUME = -1, QUIT = OPTIONS.length;
+  // Everything except the rows that only mean something before a game
+  // starts. There is exactly one of those and it is the prologue.
+  const OPTS = optionsFor("game");
+  const RESUME = -1, QUIT = OPTS.length;
   let cursor = 0;
 
   const root = document.createElement("div");
@@ -66,13 +69,13 @@ export function setupPause({ onOpen, onClose } = {}) {
   const buttons = [...root.querySelectorAll(".pause-btn")];
 
   function draw() {
-    list.innerHTML = OPTIONS
+    list.innerHTML = OPTS
       .map((o, i) => optionRowHtml(o, i === cursor))
       .join("");
     // Rebound every draw because the markup is replaced every draw. Cheap, and
     // it keeps the rows and their handlers from ever disagreeing about order.
     [...list.children].forEach((li, i) => {
-      li.addEventListener("click", () => { cursor = i; OPTIONS[i].cycle(1); draw(); });
+      li.addEventListener("click", () => { cursor = i; OPTS[i].cycle(1); draw(); });
     });
     for (const b of buttons) {
       const on = (b.dataset.act === "resume" && cursor === RESUME) ||
@@ -147,12 +150,12 @@ export function setupPause({ onOpen, onClose } = {}) {
     if (KEYS.includes(e.code) || e.code === "Escape") { api.close(); return; }
     if (e.code === "ArrowUp" || keymap.isAction("forward", e.code)) { move(-1); return; }
     if (e.code === "ArrowDown" || keymap.isAction("back", e.code)) { move(1); return; }
-    if (e.code === "ArrowLeft") { if (cursor >= 0 && cursor < QUIT) { OPTIONS[cursor].cycle(-1); draw(); } return; }
-    if (e.code === "ArrowRight") { if (cursor >= 0 && cursor < QUIT) { OPTIONS[cursor].cycle(1); draw(); } return; }
+    if (e.code === "ArrowLeft") { if (cursor >= 0 && cursor < QUIT) { OPTS[cursor].cycle(-1); draw(); } return; }
+    if (e.code === "ArrowRight") { if (cursor >= 0 && cursor < QUIT) { OPTS[cursor].cycle(1); draw(); } return; }
     if (e.code === "Enter" || e.code === "Space") {
       if (cursor === RESUME) api.close();
       else if (cursor === QUIT) location.href = `${location.pathname}?stage=title`;
-      else { OPTIONS[cursor].cycle(1); draw(); }
+      else { OPTS[cursor].cycle(1); draw(); }
     }
   }, { capture: true });
 

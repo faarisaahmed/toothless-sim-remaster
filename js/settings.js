@@ -39,6 +39,7 @@ const DEFAULTS = {
   padInvertY: false,    // right stick, up/down
   lookSpeed: 1,         // mouse sensitivity multiplier
   padSpeed: 1,          // right stick multiplier
+  skipPrologue: false,  // start a new game in the air, not in the room
 };
 
 let state = { ...DEFAULTS };
@@ -65,6 +66,8 @@ export const settings = {
   padY: () => (state.padInvertY ? -1 : 1),
   lookSpeed: () => state.lookSpeed,
   padSpeed: () => state.padSpeed,
+  /** Read by boot.js when it is deciding whether to play B1. */
+  skipPrologue: () => !!state.skipPrologue,
   get raw() { return { ...state }; },
   set(key, value) { state[key] = value; save(); },
 };
@@ -160,6 +163,18 @@ export const OPTIONS = [
     cycle: () => setTouch(!touchOn()),
   },
   {
+    // Title screen only: it decides what happens on the way IN to a game, so
+    // in the pause menu it would be a row that cannot do anything to the
+    // session you are already in.
+    id: "prologue", glyph: "&#9750;", label: "Prologue",
+    where: "title",
+    hint: () => (state.skipPrologue
+      ? "Skipped. New games start in the air. `?stage=prologue` still plays it"
+      : "The room, before the first flight. Skip it if you are testing"),
+    value: () => (state.skipPrologue ? "Skip" : "Play"),
+    cycle: () => settings.set("skipPrologue", !state.skipPrologue),
+  },
+  {
     id: "music", glyph: "&#9834;", label: "Music",
     hint: () => "The score, if it is on this machine; the licensed set if not",
     ...stepper(VOLUMES, () => {
@@ -171,6 +186,18 @@ export const OPTIONS = [
       VOLUME_NAMES),
   },
 ];
+
+/**
+ * The rows that belong on one screen.
+ *
+ * Still one registry — this is a filter over it, not a second list. A row with
+ * no `where` shows up everywhere, which is all of them but one: "Prologue"
+ * only means anything before a game starts, and a menu row that does nothing
+ * where it is drawn is worse than a menu row that is missing.
+ */
+export function optionsFor(where) {
+  return OPTIONS.filter((o) => !o.where || o.where === where);
+}
 
 /**
  * One row's markup, in exactly the shape the title screen's CSS expects —

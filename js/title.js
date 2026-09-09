@@ -3,7 +3,7 @@ import { loadDragon, normalizeDragon } from "./assets.js";
 import * as input from "./input.js";
 import { music } from "./audio.js";
 import * as saves from "./saves.js";
-import { OPTIONS, optionRowHtml } from "./settings.js";
+import { optionsFor, optionRowHtml } from "./settings.js";
 import { addNightSky } from "./nightsky.js";
 
 // ---------------------------------------------------------------------------
@@ -333,7 +333,10 @@ export function runTitle(pad = null) {
     // is where the save slots stop and the settings begin; everything below
     // indexes one continuous list.
     const FIRST_OPT = saves.SLOT_COUNT;
-    const ROWS = saves.SLOT_COUNT + OPTIONS.length;
+    // The title-side rows. One row -- the prologue -- only exists here,
+    // because it decides what happens on the way into a game.
+    const OPTS = optionsFor("title");
+    const ROWS = saves.SLOT_COUNT + OPTS.length;
     // findIndex returns -1 when every slot is empty, which on a fresh install
     // left the list with nothing highlighted until you pressed a direction.
     let cursor = Math.max(0, slots.findIndex(Boolean));
@@ -383,7 +386,7 @@ export function runTitle(pad = null) {
         slotList.appendChild(li);
       });
 
-      optList.innerHTML = OPTIONS
+      optList.innerHTML = OPTS
         .map((o, i) => optionRowHtml(o, cursor === FIRST_OPT + i))
         .join("");
       [...optList.children].forEach((li, i) => {
@@ -418,7 +421,7 @@ export function runTitle(pad = null) {
      * anything and why the same change made from the in-game menu sticks too.
      */
     function cycleOpt(dir) {
-      OPTIONS[cursor - FIRST_OPT]?.cycle(dir);
+      OPTS[cursor - FIRST_OPT]?.cycle(dir);
       renderSlots();
       pad?.rumble.pulse(0.3, 0.12, 0.08);
     }
