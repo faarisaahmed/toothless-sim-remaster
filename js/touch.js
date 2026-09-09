@@ -388,6 +388,23 @@ export function setupTouch({ layout = "flight" } = {}) {
   const showBtn = root.querySelector("#touch-show");
   showBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); api.setVisible(true); });
 
+  // Safari's pinch.
+  //
+  // `user-scalable=no` in the viewport meta stops pinch-zoom on Android and is
+  // DELIBERATELY IGNORED by Safari on iOS — Apple dropped it for accessibility
+  // reasons that are right for documents and wrong for a canvas you steer with
+  // your thumbs. So the last word on iOS is these three non-standard events,
+  // which are the only handle Safari gives you on a pinch. Without them a
+  // two-finger slip zooms the game and leaves it off-centre with no gesture to
+  // undo it, which is the same complaint the viewport tag was fixing.
+  //
+  // Only while the touch overlay is up, so a laptop with a trackpad keeps its
+  // pinch.
+  const noGesture = (e) => e.preventDefault();
+  for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+    document.addEventListener(type, noGesture, { passive: false });
+  }
+
   // Losing the window with three fingers down would otherwise leave him
   // carving into the sea at full throttle with nothing holding the keys.
   window.addEventListener("blur", releaseAll);
