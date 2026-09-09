@@ -282,8 +282,9 @@ const RAW_ISLANDS = [
     elong: 0.85, rot: 0, lobe: 0.14, lobeK: 1.8, dome: 0.2,
     relief: 0.9, terrace: 0.9, shelfW: 0.22, beach: 0.05, bare: 0.7 },
 
-  { name: "Healer Island", x: -3650, z: 2900, r: 700, h: 250, cliff: 0.4,
-    elong: 0.7, rot: 0.35, lobe: 0.35, lobeK: 1.1, dome: 0.2,
+  // h was 250, peaking at +15 m. See the note on Peaceable Country.
+  { name: "Healer Island", x: -3650, z: 2900, r: 700, h: 375, cliff: 0.4,
+    elong: 0.7, rot: 0.35, lobe: 0.35, lobeK: 1.1, dome: 0.28,
     relief: 0.5, terrace: 0.1, shelfW: 0.66, beach: 0.9, bare: 0.05 },
 
   // --- South --------------------------------------------------------------
@@ -319,9 +320,25 @@ const RAW_ISLANDS = [
     elong: 0.5, rot: 0.9, lobe: 0.4, lobeK: 1.6, dome: 0.08,
     relief: 0.25, shelfW: 0.9, beach: 1.0, bare: 0.55 },
 
-  { name: "Peaceable Country", x: 1450, z: 1750, r: 470, h: 235, cliff: 0.4,
-    elong: 0.7, rot: -0.25, lobe: 0.3, lobeK: 1.5, dome: 0.25,
-    relief: 0.55, terrace: 0.2, shelfW: 0.58, beach: 0.8, bare: 0.05 },
+  // Peaceable Country. The deep wood, and the one island mission 1 goes INTO
+  // rather than over: the hunters worked here before they moved out to the
+  // caldera, and what they left in the clearing is the first sign of them.
+  //
+  // It used to be r 470, h 235 and it peaked at FOUR METRES -- 1% of it above
+  // water. So did the chart's other two thickest woods, Sheep Island (-9 m,
+  // no land at all) and Healer Island (+15 m). `h` is measured off the sea
+  // floor at -190, and on an island this small the coastal cliff band and the
+  // interior falloff eat most of what is left, so the three entries in the
+  // table with `bare: 0.05` -- the three that were meant to be forest -- were
+  // the three that did not exist. That is the real reason there was no forest
+  // anywhere in the game.
+  //
+  // Nudged 300 m north-west as well, which puts it within 280 m of the line
+  // from Berk to Dragon Hunter Island and leaves 1.1 km of clear water
+  // between its shore and Hollow Stack's.
+  { name: "Peaceable Country", x: 1250, z: 1500, r: 620, h: 410, cliff: 0.34,
+    elong: 0.72, rot: -0.25, lobe: 0.34, lobeK: 1.5, dome: 0.34,
+    relief: 0.72, terrace: 0.2, shelfW: 0.5, beach: 0.7, bare: 0.05 },
 
   { name: "Dark Deep", x: -1700, z: 300, r: 500, h: 400, cliff: 0.11,
     elong: 0.55, rot: 1.35, lobe: 0.2, lobeK: 1.6, dome: 0.3,
@@ -331,8 +348,10 @@ const RAW_ISLANDS = [
     elong: 0.68, rot: 0.25, lobe: 0.26, lobeK: 1.6, dome: 0.45,
     relief: 1.0, terrace: 0.4, shelfW: 0.34, beach: 0.3, bare: 0.4 },
 
-  { name: "Sheep Island", x: -1150, z: 2350, r: 330, h: 215, cliff: 0.38,
-    elong: 0.76, rot: 0.15, lobe: 0.3, lobeK: 2.0, dome: 0.25,
+  // h was 215, which on a 330 m island came out at -9 m: it had no land on it
+  // at all. See the note on Peaceable Country.
+  { name: "Sheep Island", x: -1150, z: 2350, r: 360, h: 330, cliff: 0.38,
+    elong: 0.76, rot: 0.15, lobe: 0.3, lobeK: 2.0, dome: 0.28,
     relief: 0.5, terrace: 0.2, shelfW: 0.6, beach: 0.85, bare: 0.05 },
 
   { name: "Odin's Respite", x: 2650, z: 2300, r: 300, h: 330, cliff: 0.14,
