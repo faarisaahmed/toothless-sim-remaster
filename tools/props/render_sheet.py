@@ -28,6 +28,8 @@ VIEWS = {                      # camera direction, in Blender space
 def render(path, out_png, view="iso"):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=path)
+    # The glTF importer already multiplies COLOR_0 into base colour, so the
+    # baked occlusion shows up here without any help.
     objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     lo = Vector((1e9,) * 3)
     hi = Vector((-1e9,) * 3)
