@@ -918,13 +918,30 @@ export function islandAt(x, z) {
  * green all read this one function so a bare crag is bare in all three.
  */
 export function fertility(x, z, h, slope) {
-  if (h < SEA_LEVEL + 4 || h > 340) return 0;
+  if (h < SEA_LEVEL + 4 || h > 350) return 0;
   const isl = islandAt(x, z);
   const bare = isl ? isl.bare : 0.5;
-  const patch = fbm(x * 0.0013 + 3.1, z * 0.0013 - 8.8, 3) * 0.5 + 0.5;
-  let f = (1 - bare * 0.9) * patch;
-  f *= 1 - smoothstep(slope, 0.30, 0.68);      // nothing roots on a cliff
+  // Patchiness rides ON TOP of a floor instead of replacing it.
+  //
+  // Centred on 0.5, this term alone halved every island's fertility — and
+  // because three systems read this one number, that landed three times over:
+  // the trees thinned to one every sixty metres, `wVeg` in terrainmat never
+  // got strong enough to show the grass texture, and the forest-floor layer,
+  // which only starts blending in above 0.45, never engaged at all. Berk is
+  // declared `bare: 0.15`, "forested to the tree line", and came out as brown
+  // scrub with the occasional lone conifer on it.
+  const patch = 0.62 + 0.38 *
+    (fbm(x * 0.0013 + 3.1, z * 0.0013 - 8.8, 3) * 0.5 + 0.5);
+  // Bare now curves rather than scaling flat, so the two ends of the island
+  // table separate: `bare: 0.15` is thick wood and `bare: 0.85` is still
+  // scoured lava, where the old linear `1 - bare * 0.9` left the forested
+  // islands at 0.87 of a number that was already halved.
+  let f = Math.pow(1 - bare, 1.15) * patch;
+  // Conifers root on ground you would need hands to climb. The old cutoff put
+  // the tree line at about 42 degrees, which on a relief-1.0 island is most of
+  // it, so the wood was pushed off the hills and onto the valley floors.
+  f *= 1 - smoothstep(slope, 0.46, 0.88);
   f *= smoothstep(h, 4, 22);                   // above the beach
-  f *= 1 - smoothstep(h, 190, 320);            // below the tree line
-  return clamp(f * 1.5, 0, 1);
+  f *= 1 - smoothstep(h, 215, 335);            // below the tree line
+  return clamp(f * 1.25, 0, 1);
 }

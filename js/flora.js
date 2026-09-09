@@ -31,8 +31,13 @@ const TILES = 16;
 const TILE = TERRAIN_SIZE / TILES;
 const NEAR_LOD = 420;          // metres. Beyond this a tree is a billboard.
 const FAR_LOD = 2600;          // beyond this the ground colour carries it
-const AREA_PER_TREE = 210;     // m^2 of fully fertile ground per tree
-const TILE_TREE_CAP = 1500;
+// m^2 of fully fertile ground per tree. A `coniferGeometry(9)` has a crown
+// about 5.4 m across, so 210 -- a 14.5 m grid -- could not close a canopy even
+// if every candidate survived: it is parkland spacing, and parkland is what it
+// looked like. 95 is a 9.7 m grid, ~105 stems a hectare, which reads as wood
+// from the air and still lets light down between the trunks underneath.
+const AREA_PER_TREE = 95;
+const TILE_TREE_CAP = 9000;
 
 const GRASS_COUNT = 11000;
 const GRASS_RADIUS = 55;
@@ -388,11 +393,22 @@ export function createFlora(scene, opts = {}) {
           // ragged margin instead of a contour line around it.
           if (jx * 0.9 + 0.1 > f * 1.15) continue;
           spots.push({ x, z, h, f, slope, j: jz });
-          if (spots.length >= TILE_TREE_CAP) break;
         }
-        if (spots.length >= TILE_TREE_CAP) break;
       }
       if (!spots.length) continue;
+
+      // Over the cap, thin the whole tile evenly instead of stopping partway
+      // through it. The scan runs in +z order, so breaking out at the cap left
+      // the northern slice of every dense tile completely bald -- a straight
+      // 625 m edge where the wood stopped, which is not a thing forests do.
+      if (spots.length > TILE_TREE_CAP) {
+        const stride = spots.length / TILE_TREE_CAP;
+        const kept = [];
+        for (let i = 0; kept.length < TILE_TREE_CAP; i += stride)
+          kept.push(spots[Math.floor(i)]);
+        spots.length = 0;
+        spots.push(...kept);
+      }
 
       const n = spots.length;
       treeTotal += n;
