@@ -134,7 +134,7 @@ axis, no rotation or scale baked into the node:
 | `berk_fence_4m.glb` | 1542 | 9000 | `small` | 0.30 x 1.45 x 4.01 | `wood`, `wood_dark`, `iron` | `berk_fence_4m` | modular, butts end to end on the 4 m grid |
 | `berk_house_a.glb` | 23398 | 40000 | `structure` | 6.13 x 4.78 x 8.43 | `wood`, `wood_dark`, `stone`, `iron` | `berk_house_a` | 7.2 m, cleft-shingle roof |
 | `berk_house_b.glb` | 30956 | 40000 | `structure` | 5.79 x 4.78 x 7.69 | `wood`, `wood_dark`, `stone`, `iron`, `rope`, `cloth` | `berk_house_b` | 6.4 m, thatched roof in `rope`, awning porch. See the slot note |
-| `berk_longhouse.glb` | 100959 | 110000 | `hero` | 10.52 x 8.01 x 19.65 | `wood`, `wood_dark`, `stone`, `iron` | `berk_longhouse` | 18 m hall, ridge at 6.9 m, shingle roof laid in courses, drystone footing, stave walls, carved gable posts, door on +Z |
+| `berk_longhouse.glb` | 80662 | 110000 | `hero` | 10.52 x 8.01 x 19.65 | `wood`, `wood_dark`, `stone`, `iron` | `berk_longhouse` | 18 m hall, ridge at 6.9 m, shingle roof laid in courses, drystone footing, stave walls, carved gable posts, door on +Z |
 | `berk_totem.glb` | 6840 | 16000 | `medium` | 3.06 x 4.65 x 1.95 | `wood_dark`, `stone`, `rope` | `berk_totem` | 5.2 m carved post on a stone footing |
 | `boat_row.glb` | 4560 | 16000 | `medium` | 1.79 x 0.63 x 4.39 | `wood`, `wood_dark`, `iron`, `rope` | `boat_row` | 4.3 m open boat, lapstrake, sound and dry. Three thwarts, oars shipped. Waterline y=0.34 |
 | `boat_supply.glb` | 44224 | 110000 | `hero` | 6.40 x 8.41 x 16.22 | `wood`, `wood_dark`, `iron`, `rope`, `cloth` | `boat_supply` | 14 m hull, 16.2 m over the stem and stern posts. Lapstrake planking, furled sail. Waterline y=1.05 |
@@ -169,4 +169,4 @@ axis, no rotation or scale baked into the node:
 | `stack_shelter.glb` | 17208 | 40000 | `structure` | 4.97 x 2.78 x 4.51 | `wood_dark`, `stone`, `rope`, `cloth` | `stack_shelter` | lean-to, 5.2 x 4.4 m, ridge at y=2.60. Scavenged and deliberately crooked |
 | `wreck_hull.glb` | 4440 | 40000 | `structure` | 5.07 x 1.95 x 8.93 | `wood_dark`, `stone` | `wreck_hull` | 9 m of hull, grey, torn open down the starboard side and canted 20 deg where it came down across a reef |
 
-Total triangles: **397922** across 39 models.
+Total triangles: **377625** across 39 models.

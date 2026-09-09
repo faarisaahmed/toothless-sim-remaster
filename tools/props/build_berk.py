@@ -67,7 +67,7 @@ def _norse_post(p, base, height, slot="wood_dark", scale=1.0, seed=0):
 
 
 def _hall(p, half_len, half_w, eave, ridge_h, roof, bow=0.62, sway=0.30,
-          stave=0.27, seed=0, foot_h=0.34):
+          stave=0.27, seed=0, foot_h=0.34, shingle=0.30, exposure=0.17):
     """
     The shared Berk building shell.
 
@@ -177,8 +177,9 @@ def _hall(p, half_len, half_w, eave, ridge_h, roof, bow=0.62, sway=0.30,
             thatch_courses(p, patch, "rope", exposure=0.22, depth=0.16,
                            seed=seed + sx * 7)
         else:
-            shingle_courses(p, patch, "wood_dark", width=0.30, exposure=0.17,
-                            thickness=0.030, seed=seed + sx * 7)
+            shingle_courses(p, patch, "wood_dark", width=shingle,
+                            exposure=exposure, thickness=0.030,
+                            seed=seed + sx * 7)
 
     # --- ridge capping and the weight poles that hold it down.
     ridge_run = smooth_path([(0.0, rg(z) + 0.19, z) for z in
@@ -256,7 +257,13 @@ def _plank_door(p, cx, zf, width, height, slot="wood", seed=0, facing=1):
 def berk_longhouse():
     p = Part("berk_longhouse")
     HL, HW, EAVE, RIDGE = 9.0, 4.0, 2.45, 6.55
-    w = _hall(p, HL, HW, EAVE, RIDGE, "shingle", seed=1, foot_h=0.36)
+    # Bigger shingles than the houses get, and not for the triangle count --
+    # although at 0.30 x 0.17 the hall's 216 m2 of roof was 4,200 shingles and
+    # a 6.3 MB .glb, bigger than the dragon. Cleft shingles run 250-400 mm and
+    # a hall is roofed with the bigger ones, because it is roofed by whoever
+    # can reach 7 m up and nobody does that more often than they have to.
+    w = _hall(p, HL, HW, EAVE, RIDGE, "shingle", seed=1, foot_h=0.36,
+              shingle=0.38, exposure=0.22)
 
     for sx in (-1, 1):                                   # buttress posts
         for z in (-6.4, -3.2, 3.2, 6.4):
