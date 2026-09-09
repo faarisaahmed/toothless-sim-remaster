@@ -52,13 +52,19 @@ const STORE_KEY = "nightalone.touch.v1";
  * somebody a link that opens the game already set up for a phone.
  */
 export function isEnabled() {
+  const want = new URLSearchParams(location.search).get("touch");
   try {
-    const want = new URLSearchParams(location.search).get("touch");
     if (want === "on" || want === "off") localStorage.setItem(STORE_KEY, want);
-    return localStorage.getItem(STORE_KEY) === "on";
+    const stored = localStorage.getItem(STORE_KEY);
+    // An explicit choice always wins. With no choice on record, a device with
+    // no fine pointer gets them ON — because "off by default" on a phone means
+    // a player who loads the game, finds nothing to touch, and has no keyboard
+    // to reach the menu that would have turned them on. Off by default is
+    // still off by default on anything with a mouse.
+    if (stored === "on" || stored === "off") return stored === "on";
+    return looksLikeTouch();
   } catch {
-    // Private mode, or storage disabled. Honour the URL alone.
-    return new URLSearchParams(location.search).get("touch") === "on";
+    return want === "on" || looksLikeTouch();
   }
 }
 
@@ -87,22 +93,36 @@ export function looksLikeTouch() {
 // press and release. `latch` is for the ones you want on for a while and
 // cannot realistically hold alongside everything else — sprint being the case
 // that matters, since on a keyboard it is a pinky resting on Shift.
-const BUTTONS = [
-  { action: "fire",      label: "Blast",   kind: "tap",   cls: "b-fire",  hint: "TAP" },
-  { action: "aim",       label: "Aim",     kind: "hold",  cls: "b-aim",   hint: "HOLD" },
-  { action: "burst",     label: "Flat Out", kind: "hold", cls: "b-burst", hint: "HOLD" },
-  { action: "sprint",    label: "Sprint",  kind: "latch", cls: "b-sprint", hint: "ON/OFF" },
-  { action: "up",        label: "Climb",   kind: "hold",  cls: "b-up",    hint: "HOLD" },
-  { action: "down",      label: "Dive",    kind: "hold",  cls: "b-down",  hint: "HOLD" },
-  { action: "landUse",   label: "Land / Use", kind: "hold", cls: "b-land", hint: "HOLD" },
-  { action: "sleepfire", label: "Sleepfire", kind: "hold", cls: "b-sleep", hint: "HOLD" },
-  { action: "knifeL",    label: "Knife L", kind: "hold",  cls: "b-knl",   hint: "HOLD" },
-  { action: "knifeR",    label: "Knife R", kind: "hold",  cls: "b-knr",   hint: "HOLD" },
-  { action: "strafeL",   label: "Strafe L", kind: "hold", cls: "b-stl",   hint: "HOLD" },
-  { action: "strafeR",   label: "Strafe R", kind: "hold", cls: "b-str",   hint: "HOLD" },
-  { action: "alignCamera", label: "Recentre", kind: "tap", cls: "b-cam", hint: "TAP" },
-  { action: "alignDragon", label: "Face Cam", kind: "tap", cls: "b-face", hint: "TAP" },
-];
+// A button is bound either by keymap ACTION — resolved live, so it follows the
+// current scheme — or by raw CODE, for the things that are not in the scheme at
+// all. The prologue is entirely the second kind: js/input.js drives that scene
+// off its own hardcoded ROOM bindings rather than through keymap.js.
+const LAYOUTS = {
+  flight: [
+    { action: "fire",      label: "Blast",   kind: "tap",   cls: "b-fire",  hint: "TAP" },
+    { action: "aim",       label: "Aim",     kind: "hold",  cls: "b-aim",   hint: "HOLD" },
+    { action: "burst",     label: "Flat Out", kind: "hold", cls: "b-burst", hint: "HOLD" },
+    { action: "sprint",    label: "Sprint",  kind: "latch", cls: "b-sprint", hint: "ON/OFF" },
+    { action: "up",        label: "Climb",   kind: "hold",  cls: "b-up",    hint: "HOLD" },
+    { action: "down",      label: "Dive",    kind: "hold",  cls: "b-down",  hint: "HOLD" },
+    { action: "landUse",   label: "Land / Use", kind: "hold", cls: "b-land", hint: "HOLD" },
+    { action: "sleepfire", label: "Sleepfire", kind: "hold", cls: "b-sleep", hint: "HOLD" },
+    { action: "knifeL",    label: "Knife L", kind: "hold",  cls: "b-knl",   hint: "HOLD" },
+    { action: "knifeR",    label: "Knife R", kind: "hold",  cls: "b-knr",   hint: "HOLD" },
+    { action: "strafeL",   label: "Strafe L", kind: "hold", cls: "b-stl",   hint: "HOLD" },
+    { action: "strafeR",   label: "Strafe R", kind: "hold", cls: "b-str",   hint: "HOLD" },
+    { action: "alignCamera", label: "Recentre", kind: "tap", cls: "b-cam", hint: "TAP" },
+    { action: "alignDragon", label: "Face Cam", kind: "tap", cls: "b-face", hint: "TAP" },
+  ],
+  // The prologue: look around a room, study things, get up. Four buttons, and
+  // the stick walks. Without this the whole opening was unplayable on a phone —
+  // there was nothing on screen to move with and no keyboard to reach a menu.
+  room: [
+    { code: "Enter",  label: "Use",   kind: "tap",  cls: "b-fire", hint: "TAP" },
+    { code: "KeyR",   label: "Study", kind: "hold", cls: "b-aim",  hint: "HOLD" },
+    { code: "Escape", label: "Skip",  kind: "tap",  cls: "b-land", hint: "TAP" },
+  ],
+};
 
 // How far the steering stick has to move before it counts. The keys it sends
 // are digital, so this is the edge between "not steering" and "steering", and
@@ -113,15 +133,22 @@ const STICK_DEAD = 0.22;
 // a full swipe across a phone is about a 90-degree turn of the camera.
 const LOOK_SCALE = 0.0038;
 
-export function setupTouch() {
+/**
+ * @param {object} [opts]
+ * @param {"flight"|"room"} [opts.layout] which button set. The stick and the
+ *   look pad are the same in both, because looking and moving are the same
+ *   gestures wherever you are.
+ */
+export function setupTouch({ layout = "flight" } = {}) {
   if (!isEnabled()) return null;
+  const BUTTONS = LAYOUTS[layout] || LAYOUTS.flight;
 
   const held = new Set();          // codes currently down, so we can release them
   const root = document.createElement("div");
   root.id = "touch";
   root.innerHTML = `
-    <div id="touch-stick" class="pad-zone"><i></i><b></b></div>
-    <div id="touch-look" class="pad-zone"><span>look</span></div>
+    <div id="touch-stick" class="pad-zone"><div class="stick-ring"><i></i></div></div>
+    <div id="touch-look" class="pad-zone"></div>
     <div id="touch-buttons"></div>
     <div id="touch-top">
       <button type="button" data-key="Minus">Menu</button>
@@ -137,14 +164,15 @@ export function setupTouch() {
   document.body.classList.add("touch-on");
 
   const stickZone = root.querySelector("#touch-stick");
-  const stickNub  = stickZone.querySelector("i");
+  const stickRing = stickZone.querySelector(".stick-ring");
+  const stickNub  = stickRing.querySelector("i");
   const lookZone  = root.querySelector("#touch-look");
   const btnWrap   = root.querySelector("#touch-buttons");
 
   // --- Sending the keys --------------------------------------------------
   // Resolved at press time, not at build time, so switching scheme on the
   // title screen changes what these send without rebuilding anything.
-  const codeFor = (action) => keymap.keysFor(action)[0] || null;
+  const codeFor = (b) => (b.code ? b.code : keymap.keysFor(b.action)[0] || null);
 
   function press(code) {
     if (!code || held.has(code)) return;
@@ -179,9 +207,17 @@ export function setupTouch() {
   // because controls.js ramps the turn off how LONG a key has been down. Keys
   // it is, and the carve behaves the same for a thumb as for a finger.
   let steerX = 0, steerY = 0;
+  // In flight these are keymap actions, so the stick follows the scheme. In the
+  // prologue js/input.js's ROOM context listens for W A S D and the arrows
+  // directly and has never heard of keymap, so the codes are given straight.
+  const STEER = layout === "room"
+    ? { forward: "KeyW", back: "KeyS", turnL: "KeyA", turnR: "KeyD" }
+    : null;
+  const steerCode = (name) => (STEER ? STEER[name] : codeFor({ action: name }));
+
   function steer(x, y) {
     steerX = x; steerY = y;
-    const set = (action, on) => on ? press(codeFor(action)) : release(codeFor(action));
+    const set = (name, on) => (on ? press(steerCode(name)) : release(steerCode(name)));
     set("forward", y < -STICK_DEAD);
     set("back",    y >  STICK_DEAD);
     set("turnL",   x < -STICK_DEAD);
@@ -189,17 +225,23 @@ export function setupTouch() {
     const r = Math.min(1, Math.hypot(x, y));
     const a = Math.atan2(y, x);
     stickNub.style.transform =
-      `translate(calc(-50% + ${Math.cos(a) * r * 42}px), calc(-50% + ${Math.sin(a) * r * 42}px))`;
+      `translate(calc(-50% + ${Math.cos(a) * r * 38}px), calc(-50% + ${Math.sin(a) * r * 38}px))`;
     stickZone.classList.toggle("active", r > STICK_DEAD);
   }
 
   let stickId = null, stickOrigin = null;
   stickZone.addEventListener("pointerdown", (e) => {
     stickId = e.pointerId;
-    // The origin is where the thumb LANDED, not the middle of the widget. A
-    // fixed centre means every grab starts with a jerk to wherever the thumb
-    // happens to be, which on a stick you cannot see is most of the time.
+    // The origin is where the thumb LANDED, and so is the RING. The zone is the
+    // whole left half of the screen and invisible; the ring is drawn under the
+    // finger the moment it goes down and taken away when it lifts. A fixed ring
+    // in a corner is a target you have to look at and aim for, and on a phone
+    // you are looking at the dragon.
     stickOrigin = { x: e.clientX, y: e.clientY };
+    const box = stickZone.getBoundingClientRect();
+    stickRing.style.left = `${e.clientX - box.left}px`;
+    stickRing.style.top = `${e.clientY - box.top}px`;
+    stickRing.classList.add("live");
     stickZone.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
@@ -214,6 +256,7 @@ export function setupTouch() {
   const dropStick = (e) => {
     if (e.pointerId !== stickId) return;
     stickId = null;
+    stickRing.classList.remove("live");
     steer(0, 0);
   };
   stickZone.addEventListener("pointerup", dropStick);
@@ -230,7 +273,6 @@ export function setupTouch() {
     lookId = e.pointerId;
     lookLast = { x: e.clientX, y: e.clientY };
     lookZone.setPointerCapture(e.pointerId);
-    lookZone.classList.add("active");
     e.preventDefault();
   });
   lookZone.addEventListener("pointermove", (e) => {
@@ -249,7 +291,6 @@ export function setupTouch() {
   const dropLook = (e) => {
     if (e.pointerId !== lookId) return;
     lookId = null;
-    lookZone.classList.remove("active");
   };
   lookZone.addEventListener("pointerup", dropLook);
   lookZone.addEventListener("pointercancel", dropLook);
@@ -268,10 +309,10 @@ export function setupTouch() {
       el.addEventListener("pointerdown", (e) => {
         el.setPointerCapture(e.pointerId);
         el.classList.add("on");
-        press(codeFor(b.action));
+        press(codeFor(b));
         e.preventDefault();
       });
-      const up = () => { el.classList.remove("on"); release(codeFor(b.action)); };
+      const up = () => { el.classList.remove("on"); release(codeFor(b)); };
       el.addEventListener("pointerup", up);
       el.addEventListener("pointercancel", up);
     } else if (b.kind === "latch") {
@@ -279,14 +320,14 @@ export function setupTouch() {
         e.preventDefault();
         const on = !el.classList.contains("on");
         el.classList.toggle("on", on);
-        if (on) press(codeFor(b.action)); else release(codeFor(b.action));
+        if (on) press(codeFor(b)); else release(codeFor(b));
       });
     } else {
       el.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         el.classList.add("on");
         setTimeout(() => el.classList.remove("on"), 110);
-        tap(codeFor(b.action));
+        tap(codeFor(b));
       });
     }
   }

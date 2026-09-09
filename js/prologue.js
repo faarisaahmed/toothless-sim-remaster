@@ -3,6 +3,7 @@ import { loadDragon, normalizeDragon } from "./assets.js";
 import { makeOrb } from "./placeholder.js";
 import * as tex from "./textures.js";
 import * as input from "./input.js";
+import { setupTouch } from "./touch.js";
 import { bindDragon, noseSign } from "./dragonrig.js";
 import { music } from "./audio.js";
 import { setupPost } from "./postfx.js";
@@ -526,6 +527,9 @@ export function runPrologue(pad = null, save = null) {
                              // on him, so dead astern is also the worst-lit angle.
     const LOOK_SENS = 0.0026;
     const PITCH_MIN = -0.35, PITCH_MAX = 0.95;
+    // js/touch.js emits deltas in the flight sim's look units, which are much
+    // smaller than this scene's per-pixel LOOK_SENS. This converts.
+    const TOUCH_LOOK = 190;
     let lookIdle = 0;
 
     function onMouseMove(e) {
@@ -545,6 +549,23 @@ export function runPrologue(pad = null, save = null) {
     }
     window.addEventListener("mousemove", onMouseMove);
     root.addEventListener("click", onClick);
+
+    // --- On a phone ------------------------------------------------------
+    // The prologue was unplayable without a keyboard: nothing on screen to
+    // move with, no pointer lock to look with, and no way to reach the menu
+    // that would have turned the controls on. The `room` layout is the stick,
+    // the look drag and three buttons — use, study, skip.
+    const touch = setupTouch({ layout: "room" });
+    // Looking is the one input the touch layer cannot send as a key, so it
+    // arrives as an event instead. Same units and same signs as the mouse path
+    // above, which is why it can share the clamp.
+    function onTouchLook(e) {
+      orbit += e.detail.dx * TOUCH_LOOK;
+      orbitPitch = THREE.MathUtils.clamp(
+        orbitPitch + e.detail.dy * TOUCH_LOOK, PITCH_MIN, PITCH_MAX);
+      lookIdle = 0;
+    }
+    window.addEventListener("na-look", onTouchLook);
 
     function damp(l, dt) { return 1 - Math.exp(-l * dt); }
 
@@ -583,6 +604,8 @@ export function runPrologue(pad = null, save = null) {
         cancelAnimationFrame(raf);
         window.removeEventListener("resize", onResize);
         window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("na-look", onTouchLook);
+        touch?.destroy();
         if (document.pointerLockElement === document.body) document.exitPointerLock();
         scene.traverse((o) => {
           if (o.geometry) o.geometry.dispose();

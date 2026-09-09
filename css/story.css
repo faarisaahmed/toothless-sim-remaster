@@ -85,6 +85,10 @@ body.pre-flight #padmon { display: none !important; }
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  /* Opting back in. <html> and <body> are touch-action: none so the game never
+     loses a drag to the browser; this is one of the two places that genuinely
+     wants a vertical scroll, so it asks for it and nothing else. */
+  touch-action: pan-y;
   /* Firefox and WebKit respectively — a bright scrollbar over a night scene
      is the first thing your eye goes to, which is the wrong thing to notice. */
   scrollbar-width: thin;
@@ -615,6 +619,7 @@ body.pad-live .pro-hint .k { display: none; }
   padding: 3vh 3vw;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   scrollbar-width: thin;
   scrollbar-color: rgba(232, 226, 212, 0.22) transparent;
 }

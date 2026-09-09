@@ -1,4 +1,24 @@
-body { margin: 0; overflow: hidden; background: #0b1016; }
+/* NOTHING SCROLLS.
+   `overflow: hidden` on <body> alone is not enough on a phone: iOS will still
+   rubber-band the whole page when a drag runs out of anything to move, so a
+   look-drag or a thumb on the joystick bounces the game up and down behind the
+   controls. It needs all four of these — the html element as well as the body,
+   overscroll-behavior to kill the bounce, and touch-action to stop the browser
+   claiming a drag as a pan or a pinch-zoom before the game ever sees it.
+   The two things that DO scroll — the title screen's option list and the
+   in-game menu — opt back in with touch-action: pan-y on themselves. */
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  background: #0b1016;
+  /* Stops the double-tap-to-zoom delay, and stops a long press on a control
+     bringing up the text-selection callout. */
+  -webkit-text-size-adjust: 100%;
+  -webkit-touch-callout: none;
+}
 canvas { display: block; }
 
 #hud {
@@ -742,49 +762,51 @@ kbd.pad.shape {
 
 #touch .pad-zone { pointer-events: auto; position: absolute; }
 
-/* The steering stick, bottom left. The ring is only a landmark — the origin is
-   wherever the thumb lands, so it does not have to be aimed at. */
-#touch-stick {
-  left: 3.5vmin; bottom: 4vmin;
-  width: 34vmin; height: 34vmin;
-  max-width: 200px; max-height: 200px;
+/* The two halves of the screen.
+   Both are INVISIBLE and both are enormous: left half steers, right half looks.
+   A fixed ring in a corner is a target you have to look at and aim for, and on
+   a phone you are looking at the dragon — so there is nothing to aim at, you
+   just put a thumb down wherever it falls. The buttons sit on top of the right
+   half as their own elements, so a thumb on a button never reaches the look
+   drag underneath it. */
+#touch-stick { left: 0; top: 0; width: 46%; height: 100%; }
+#touch-look  { right: 0; top: 0; width: 54%; height: 100%; }
+
+/* The ring is drawn under the finger when it goes down and taken away when it
+   lifts, which is the only feedback the stick needs: it says "I have you". */
+.stick-ring {
+  position: absolute;
+  width: 30vmin; height: 30vmin;
+  max-width: 180px; max-height: 180px;
+  margin-left: -15vmin; margin-top: -15vmin;
   border-radius: 50%;
-  border: 2px solid rgba(232, 226, 212, 0.22);
-  background: rgba(10, 14, 22, 0.28);
-  backdrop-filter: blur(2px);
+  border: 2px solid rgba(232, 226, 212, 0.3);
+  background: rgba(10, 14, 22, 0.22);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  pointer-events: none;
 }
-#touch-stick.active { border-color: rgba(255, 190, 120, 0.55); }
-#touch-stick i {
+.stick-ring.live { opacity: 1; transform: scale(1); }
+#touch-stick.active .stick-ring { border-color: rgba(255, 190, 120, 0.6); }
+.stick-ring i {
   position: absolute; left: 50%; top: 50%;
-  width: 30%; height: 30%;
+  width: 34%; height: 34%;
   border-radius: 50%;
-  background: rgba(232, 226, 212, 0.5);
+  background: rgba(232, 226, 212, 0.45);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
   transform: translate(-50%, -50%);
 }
-#touch-stick.active i { background: #ffcf9a; }
-
-/* The look pad, bottom right, under the buttons. Relative drag, no recentre. */
-#touch-look {
-  right: 3.5vmin; bottom: 4vmin;
-  width: 40vmin; height: 22vmin;
-  max-width: 260px; max-height: 150px;
-  border-radius: 14px;
-  border: 2px dashed rgba(232, 226, 212, 0.2);
-  background: rgba(10, 14, 22, 0.22);
-  display: grid; place-items: center;
-}
-#touch-look.active { border-style: solid; border-color: rgba(255, 190, 120, 0.5); }
-#touch-look span {
-  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
-  color: rgba(232, 226, 212, 0.4);
+#touch-stick.active .stick-ring i { background: #ffcf9a; }
+@media (max-width: 560px) {
+  .stick-ring { margin-left: -18vmin; margin-top: -18vmin; width: 36vmin; height: 36vmin; }
 }
 
 /* The action cluster: right edge, above the look pad, wrapping upward. */
 #touch-buttons {
   position: absolute;
-  right: 3.5vmin; bottom: 28vmin;
-  width: 44vmin; max-width: 300px;
+  right: 2.5vmin; bottom: 3vmin;
+  width: 46vmin; max-width: 320px;
   display: flex; flex-wrap: wrap; gap: 1vmin;
   justify-content: flex-end;
   pointer-events: none;
@@ -795,11 +817,13 @@ kbd.pad.shape {
   padding: 1.1vmin 1.4vmin;
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   border-radius: 10px;
-  border: 1px solid rgba(232, 226, 212, 0.24);
-  background: rgba(12, 17, 26, 0.62);
-  color: rgba(232, 226, 212, 0.9);
+  border: 1px solid rgba(232, 226, 212, 0.2);
+  /* See-through. They sit over the game and the game is the thing you are
+     looking at; a solid slab of controls in the corner is a smaller screen. */
+  background: rgba(12, 17, 26, 0.34);
+  color: rgba(232, 226, 212, 0.78);
   font-family: inherit;
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(2px);
   -webkit-tap-highlight-color: transparent;
 }
 .tb-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; line-height: 1.1; }
@@ -807,8 +831,10 @@ kbd.pad.shape {
    different things depending on how long they are held and a touch player has
    no key legend to find that out from. */
 .tb-hint { font-size: 8px; letter-spacing: 0.16em; opacity: 0.5; }
+/* Pressed goes opaque and warm. It is the only moment these need to be loud,
+   and it is the confirmation that the touch landed. */
 .touch-btn.on {
-  background: rgba(255, 190, 120, 0.9);
+  background: rgba(255, 190, 120, 0.92);
   border-color: #ffcf9a;
   color: #1a1206;
 }
@@ -816,8 +842,8 @@ kbd.pad.shape {
    it is the one that is a different colour. */
 .touch-btn.b-fire {
   min-width: 20vmin; max-width: 140px;
-  border-color: rgba(180, 140, 255, 0.6);
-  background: rgba(60, 40, 110, 0.7);
+  border-color: rgba(180, 140, 255, 0.5);
+  background: rgba(60, 40, 110, 0.4);
 }
 .touch-btn.b-fire.on { background: #b48cff; border-color: #e6d9ff; color: #140a26; }
 
