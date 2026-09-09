@@ -363,8 +363,17 @@ export function mission1(ctx) {
           g.refreshState();
         }
         if (this._in && d > 300) this._in = false;
+        // Say WHY a pass did not count. The same distinction game.js already
+        // draws for landing: "here is the thing to do" and "here is why you
+        // cannot do it yet" are different messages, and a beat that silently
+        // refuses to tick is exactly the kind of thing that reads as broken.
+        let why = this.sub;
+        if (d < 190) {
+          if (p.y >= 15) why = "Lower. You are flying over them, not through them.";
+          else if (c.getSpeedT() <= 0.22) why = "Faster. You cannot pick them up at a glide.";
+        }
         g.setObjective(this.objective,
-          `${this.sub} &nbsp;·&nbsp; ${this._passes || 0} of 2`);
+          `${why} &nbsp;·&nbsp; ${this._passes || 0} of 2`);
       },
       done() { return (this._passes || 0) >= 2 && player.food === "fed"; },
       exit(g, c) { c.setInteract(null); },
