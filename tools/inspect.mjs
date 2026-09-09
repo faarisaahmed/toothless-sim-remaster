@@ -15,6 +15,19 @@
 //   node tools/inspect.mjs --cmd "tp 2200 300 3000" --shot /tmp/f.png
 //   node tools/inspect.mjs --url http://localhost:8000/?stage=prologue --watch 20
 //
+// `--device phone|phone-landscape|tablet|<w>x<h>[@dpr]` emulates a touchscreen:
+// real device metrics, `navigator.maxTouchPoints`, and touch event dispatch
+// instead of mouse. Without it every mobile bug has to be reproduced by hand
+// on a phone, described over a chat window, and fixed blind -- which is how
+// you end up shipping a game with no viewport meta tag for a month.
+//
+//   node tools/inspect.mjs --device phone --shot /tmp/p.png
+//   node tools/inspect.mjs --device phone-landscape --drag 120,300,60,0
+//
+// `--drag x,y,dx,dy` presses at (x, y) in CSS pixels, moves by (dx, dy) over
+// several steps, and releases -- as touch when a device is emulated, so it
+// goes down the same path a thumb does.
+//
 // Exits non-zero if anything was logged as an error or an exception.
 
 import { spawn } from "node:child_process";
@@ -41,6 +54,26 @@ const READY = arg("ready", "!!(window.__na && window.__na.post)");
 // hatch for anything this tool does not model — poking a menu, reading a
 // binding, checking that a DOM node says what it should.
 const EVAL = arg("eval", "");
+const DEVICE = arg("device", "");
+const DRAG = arg("drag", "");
+
+// Device metrics. Sizes are CSS pixels, which is what the page sees, and the
+// dpr is what a real one of these reports.
+const DEVICES = {
+  phone:             { width: 390, height: 844, dpr: 3, mobile: true },
+  "phone-landscape": { width: 844, height: 390, dpr: 3, mobile: true },
+  "phone-small":     { width: 360, height: 640, dpr: 3, mobile: true },
+  tablet:            { width: 834, height: 1112, dpr: 2, mobile: true },
+};
+
+function deviceSpec(name) {
+  if (!name) return null;
+  if (DEVICES[name]) return DEVICES[name];
+  const m = /^(\d+)x(\d+)(?:@([\d.]+))?$/.exec(name);
+  if (!m) throw new Error(`unknown --device ${name}; try ${Object.keys(DEVICES).join(", ")} or 390x844@3`);
+  return { width: +m[1], height: +m[2], dpr: +(m[3] || 3), mobile: true };
+}
+const device = deviceSpec(DEVICE);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const profile = mkdtempSync(join(tmpdir(), "na-inspect-"));
@@ -120,6 +153,26 @@ try {
 
   await send("Runtime.enable");
 
+  // Emulate the device BEFORE the game loads: the renderer sizes itself once
+  // on the way up and reads devicePixelRatio while it does it, so overriding
+  // the metrics afterwards would test a canvas built for a desktop.
+  if (device) {
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: device.width, height: device.height,
+      deviceScaleFactor: device.dpr, mobile: !!device.mobile,
+      screenWidth: device.width, screenHeight: device.height,
+    });
+    await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    await send("Emulation.setEmitTouchEventsForMouse", { enabled: true, configuration: "mobile" });
+    await send("Emulation.setUserAgentOverride", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+        + " (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      platform: "iPhone",
+    });
+    await send("Page.enable");
+    await send("Page.reload", { ignoreCache: false });
+  }
+
   // Poll for the game rather than guessing a sleep. A cold headless GPU can
   // take anywhere from fifteen seconds to a minute to get through the load, and
   // a fixed wait is how you end up reporting on a page that never started.
@@ -132,6 +185,32 @@ try {
 
   await sleep(SETTLE);
   if (CMD) { for (const c of CMD.split(";")) await runCommand(c.trim()); await sleep(SETTLE); }
+
+  if (DRAG) {
+    const [x, y, dx, dy] = DRAG.split(",").map(Number);
+    console.log(`\n--- drag --- (${x},${y}) by (${dx},${dy})${device ? " as touch" : " as mouse"}`);
+    const STEPS = 8;
+    if (device) {
+      const pt = (px, py) => [{ x: px, y: py, id: 1 }];
+      await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pt(x, y) });
+      for (let i = 1; i <= STEPS; i++) {
+        await send("Input.dispatchTouchEvent", {
+          type: "touchMove", touchPoints: pt(x + (dx * i) / STEPS, y + (dy * i) / STEPS),
+        });
+        await sleep(40);
+      }
+    } else {
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+      for (let i = 1; i <= STEPS; i++) {
+        await send("Input.dispatchMouseEvent", {
+          type: "mouseMoved", x: x + (dx * i) / STEPS, y: y + (dy * i) / STEPS, button: "left",
+        });
+        await sleep(40);
+      }
+    }
+    // Held, not released: the caller wants to see what the game does WHILE a
+    // thumb is on the stick, and a stick that has been let go reads as zero.
+  }
 
   if (EVAL) {
     console.log("\n--- eval ---");
@@ -156,7 +235,7 @@ try {
   })()`);
 
   if (SHOT) {
-    await send("Page.enable");
+    await send("Page.enable");   // idempotent; --device may already have
     const shot = await send("Page.captureScreenshot", { format: "png" });
     if (shot?.data) {
       writeFileSync(SHOT, Buffer.from(shot.data, "base64"));

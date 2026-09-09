@@ -55,12 +55,52 @@ const loading = showLoading({
 
 const scene = new THREE.Scene();
 
+// ---------------------------------------------------------------------------
+// Framing across aspect ratios.
+//
+// `camera.fov` in three.js is the VERTICAL angle, so a fixed value frames the
+// subject the same on any WIDE screen and falls apart on a tall one: a phone
+// held in portrait is 390 x 844, an aspect of 0.46, and 70 degrees vertical
+// there is 36 degrees horizontal — narrower than a telephoto lens, with a
+// fourteen-metre wingspan in the middle of it. He filled the frame corner to
+// corner and there was nowhere for him to be.
+//
+// So below the reference the vertical angle opens up to hold the horizontal one
+// roughly where it was. Clamped, because the correction is unbounded as the
+// frame gets narrower and a 140 degree lens is its own kind of broken: past the
+// clamp it is still the wrong shape to fly in, which is what the "turn the
+// phone" notice is for.
+//
+// The reference is 1.2 rather than 16:9 on purpose. It only has to catch frames
+// that are TALL, and 1.2 is squarer than any monitor anybody has — 5:4 is
+// 1.25 — so every desktop window, every resized desktop window and every phone
+// in landscape gets exactly the fov it got before this existed. Correcting from
+// 16:9 downward instead would have quietly widened the lens on a 4:3 window
+// from 70 degrees to 86, which is not a mobile fix, it is a different game.
+// ---------------------------------------------------------------------------
+const REF_ASPECT = 1.2;
+const FOV_MAX = 96;
+
+function fovForAspect(fov, aspect) {
+  if (!(aspect > 0) || aspect >= REF_ASPECT) return fov;
+  const halfH = Math.atan(Math.tan(THREE.MathUtils.degToRad(fov) / 2) * REF_ASPECT);
+  const wide = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(halfH) / aspect));
+  return Math.min(FOV_MAX, wide);
+}
+
 const camera = new THREE.PerspectiveCamera(
   70,     // widens toward 88 with speed
   window.innerWidth / window.innerHeight,
   1,      // near: the chase cam sits 14 units out, so 1 is plenty
   50000   // far: has to contain the sky dome
 );
+// The aspect correction has to be applied at construction as well as on every
+// resize, or the first frame on a phone in portrait is drawn through the
+// 36-degree lens described above. Not by calling fitToViewport() -- that reads
+// `post`, which is a const a thousand lines below this, so calling it here
+// would land in its temporal dead zone.
+camera.fov = fovForAspect(camera.fov, camera.aspect);
+camera.updateProjectionMatrix();
 
 // What this machine is, decided once. Everything downstream that cannot change
 // at runtime — shadow map size, cloud count, whether bloom is even in the post
@@ -92,12 +132,20 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.72;
 document.body.appendChild(renderer.domElement);
 
-window.addEventListener("resize", () => {
+function fitToViewport() {
   camera.aspect = window.innerWidth / window.innerHeight;
+  camera.fov = fovForAspect(tuning.fovBase, camera.aspect);
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   post?.setSize(window.innerWidth, window.innerHeight);
-});
+}
+window.addEventListener("resize", fitToViewport);
+// A phone rotating fires `orientationchange` before the new innerWidth is
+// readable, and on iOS the address bar sliding away fires neither — so listen
+// to the visual viewport too, which is the only thing that reliably knows how
+// much room the page actually has.
+window.addEventListener("orientationchange", () => setTimeout(fitToViewport, 120));
+window.visualViewport?.addEventListener("resize", fitToViewport);
 
 // ---------------------------------------------------------------------------
 // Camera rig
@@ -2017,8 +2065,9 @@ function frame() {
     //    never depends on which way he's pointing.
     const dist = grounded ? 15 : tuning.distBase + DIST_SPEED * speedT;
 
-    camera.fov += (tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT - camera.fov)
-                * damp(FOV_LAMBDA, dt);
+    const wantFov = fovForAspect(
+      tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT, camera.aspect);
+    camera.fov += (wantFov - camera.fov) * damp(FOV_LAMBDA, dt);
     camera.updateProjectionMatrix();
 
     // 3. Orbit point from the player's own yaw/pitch, then walk the boom out

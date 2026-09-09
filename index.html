@@ -3,6 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <title>Night Alone</title>
+  <!-- Without this a phone lays the page out in a 980px virtual viewport and
+       scales it down to fit: on a 390pt portrait screen that is a 0.4x zoom, so
+       every control is at 40% of its designed size, the canvas is rendered at
+       980px and resampled, and the page can be pinched and panned - which is
+       what "he does not stay centred" was. It also made the steering stick
+       useless: 52 CSS px to full deflection became 21 device px, so a resting
+       thumb was already hard over.
+
+       user-scalable=no is normally an accessibility mistake and here it is not
+       negotiable: the whole page is one canvas with its own drag gestures and
+       nothing on it is text you would want to zoom, so a pinch is only ever an
+       accident that leaves the game off-centre with no way back. The in-game
+       text has its own size settings instead.
+
+       viewport-fit=cover plus the env(safe-area-inset-*) padding in style.css
+       is what keeps the controls out from under a notch and a home bar. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1,
+        maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">

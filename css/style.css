@@ -868,10 +868,129 @@ kbd.pad.shape {
 /* Making room. The story HUD's status strip and the sleepfire meter both sit
    in the bottom middle-right, which is where the look pad and the button
    cluster have to go — thumbs do not move. So when the overlay is up, the
-   game's own furniture moves rather than the controls compromising. */
-body.touch-on .na-state { bottom: auto; top: 4.5vmin; right: 24px; }
+   game's own furniture moves rather than the controls compromising.
+
+   The status strip goes UNDER the Menu/Chart/Console row, not level with it:
+   at 4.5vmin on a phone in landscape both landed in the same 30 px and "DAY /
+   FED / RESTED" was printed through the buttons. */
+body.touch-on .na-state {
+  bottom: auto;
+  top: calc(2.2rem + env(safe-area-inset-top, 0px));
+  right: calc(1.6vmin + env(safe-area-inset-right, 0px));
+}
 body.touch-on .na-fire,
 body.touch-on .na-prompt { bottom: auto; top: 12vmin; }
 /* The key legend is a keyboard legend. There is no keyboard. */
 body.touch-on #hud-keys,
 body.touch-on #hud-pad-tag { display: none; }
+
+/* --- Phones -----------------------------------------------------------------
+   A phone in landscape is about 844 x 390 CSS px, and the desktop furniture was
+   designed for ten times the area. Two things have to give.
+
+   The instrument panel is 392 px wide and vertically centred on the left, which
+   on a phone is a third of the screen sitting exactly where the left thumb
+   goes. It scales down and moves to the top-left corner, out of the steering
+   half, and it keeps its own layout rather than being re-flowed — a transform
+   costs nothing and cannot disagree with the desktop rules.
+
+   The action cluster gets tighter buttons so fourteen of them pack into a block
+   in the bottom-right corner instead of a column up the whole right side. The
+   look pad is underneath them and it needs somewhere left to drag. */
+@media (max-height: 500px), (max-width: 620px) {
+  body.touch-on #hud {
+    top: calc(0.6rem + env(safe-area-inset-top, 0px));
+    left: calc(0.6rem + env(safe-area-inset-left, 0px));
+    transform: scale(0.56);
+    transform-origin: left top;
+    opacity: 0.9;
+  }
+  body.touch-on .na-obj { font-size: 0.78em; }
+
+  #touch-buttons {
+    width: min(62vw, 300px); max-width: 300px;
+    gap: 0.7vmin;
+    right: calc(1.4vmin + env(safe-area-inset-right, 0px));
+    bottom: calc(1.4vmin + env(safe-area-inset-bottom, 0px));
+  }
+  .touch-btn {
+    min-width: 46px; max-width: 68px;
+    padding: 5px 6px;
+    border-radius: 8px;
+  }
+  .touch-btn.b-fire { min-width: 66px; max-width: 90px; }
+  .tb-label { font-size: 10px; }
+  .tb-hint { font-size: 7px; letter-spacing: 0.1em; }
+  #touch-top {
+    top: calc(1.4vmin + env(safe-area-inset-top, 0px));
+    right: calc(1.4vmin + env(safe-area-inset-right, 0px));
+  }
+  #touch-top button, #touch-show { padding: 4px 7px; font-size: 9px; }
+}
+
+/* Notches and home bars. `viewport-fit=cover` in index.html is what lets the
+   canvas run under them, which is right for the canvas and wrong for anything
+   you have to touch. */
+#touch-show {
+  top: calc(1.6vmin + env(safe-area-inset-top, 0px));
+  right: calc(1.6vmin + env(safe-area-inset-right, 0px));
+}
+
+/* --- Turn the phone --------------------------------------------------------
+   A chase camera in portrait is not a layout problem, it is a geometry one: at
+   390 x 844 the frame is 0.46 wide for its height, so a 70 degree vertical
+   field of view is a 36 degree horizontal one and a 14 m wingspan fills it
+   corner to corner. main.js widens the field of view to compensate and it is
+   still the wrong shape for flying. Every driving and flying game on a phone
+   asks you to turn it round, and so does this one. */
+#rotate-me {
+  position: fixed; inset: 0; z-index: 200;
+  display: none;
+  place-content: center;
+  padding: 12vmin;
+  text-align: center;
+  background: rgba(6, 9, 16, 0.94);
+  color: #e8e2d4;
+  font-family: "Rajdhani", system-ui, sans-serif;
+}
+#rotate-me b {
+  display: block;
+  font-family: "Cinzel", Georgia, serif;
+  font-size: clamp(20px, 7vw, 34px);
+  letter-spacing: 0.06em;
+  margin-bottom: 0.6em;
+  color: #f4c77a;
+}
+#rotate-me span { font-size: clamp(12px, 3.6vw, 16px); opacity: 0.7; line-height: 1.6; }
+/* A phone, drawn rather than typed. The obvious Unicode candidates for this
+   (U+21BB, U+2311) are either missing or render as a box on the fonts a phone
+   actually has, and a broken glyph above the words "turn the phone" is worse
+   than no glyph at all. */
+#rotate-me i {
+  display: block;
+  width: clamp(34px, 11vw, 52px);
+  height: clamp(58px, 19vw, 88px);
+  margin: 0 auto 1.1em;
+  border: 3px solid rgba(232, 226, 212, 0.85);
+  border-radius: 7px;
+  position: relative;
+  animation: rotate-hint 2.6s ease-in-out infinite;
+}
+#rotate-me i::after {           /* the speaker slot, so it reads as a phone */
+  content: "";
+  position: absolute;
+  left: 50%; top: 5px;
+  width: 34%; height: 3px;
+  border-radius: 2px;
+  background: rgba(232, 226, 212, 0.6);
+  transform: translateX(-50%);
+}
+@keyframes rotate-hint {
+  0%, 40% { transform: rotate(0deg); }
+  62%, 100% { transform: rotate(-90deg); }
+}
+/* Only when there is a touch overlay to be wrong about — a narrow desktop
+   window is a narrow desktop window and gets left alone. */
+@media (orientation: portrait) and (max-width: 620px) {
+  body.touch-on #rotate-me { display: grid; }
+}

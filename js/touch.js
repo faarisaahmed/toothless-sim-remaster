@@ -151,6 +151,7 @@ export function setupTouch({ layout = "flight" } = {}) {
     <div id="touch-look" class="pad-zone"></div>
     <div id="touch-buttons"></div>
     <div id="touch-top">
+      <button type="button" data-full="1">Full</button>
       <button type="button" data-key="Minus">Menu</button>
       <button type="button" data-key="Tab">Chart</button>
       <button type="button" data-key="Backquote">Console</button>
@@ -158,6 +159,23 @@ export function setupTouch({ layout = "flight" } = {}) {
     </div>
     <button type="button" id="touch-show" hidden>Controls</button>`;
   document.body.appendChild(root);
+
+  // "Turn the phone". Shown by CSS on a narrow portrait screen and by nothing
+  // else — see the note next to #rotate-me in style.css for why portrait is a
+  // geometry problem rather than a layout one. It is built here rather than in
+  // index.html because it is only ever right when there is a touch overlay to
+  // be wrong about.
+  if (!document.getElementById("rotate-me")) {
+    const rot = document.createElement("div");
+    rot.id = "rotate-me";
+    rot.innerHTML = `<div>
+      <i>&#9713;</i>
+      <b>Turn the phone</b>
+      <span>He is fourteen metres across the wings and this way up
+      there is nowhere to put him.</span>
+    </div>`;
+    document.body.appendChild(rot);
+  }
   // Lets the rest of the game's CSS get out of the way — the story HUD's
   // status strip lives in the bottom-right corner, which is exactly where the
   // look pad has to be. See `body.touch-on` in css/style.css.
@@ -191,6 +209,29 @@ export function setupTouch({ layout = "flight" } = {}) {
     // Same frame and a handler that reads state on the next tick sees nothing.
     setTimeout(() => window.dispatchEvent(
       new KeyboardEvent("keyup", { code, bubbles: true })), 40);
+  }
+
+  /**
+   * Fullscreen, and landscape if the browser will allow it.
+   *
+   * Worth its own button because it does three things a phone player wants and
+   * cannot get any other way: it takes away the browser chrome, which on a
+   * 390 x 844 screen is a fifth of the game; it lets the orientation lock work
+   * at all, since locking is only permitted from fullscreen; and it stops the
+   * address bar sliding in and out and resizing the canvas mid-flight.
+   *
+   * The lock is best-effort. Chrome on Android honours it; Safari on iOS has
+   * no Screen Orientation lock at all, which is exactly why the rotate notice
+   * exists rather than relying on this.
+   */
+  async function goFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        await (document.documentElement.requestFullscreen?.({ navigationUI: "hide" })
+          ?? document.documentElement.webkitRequestFullscreen?.());
+      }
+    } catch { /* refused, or already there */ }
+    try { await screen.orientation?.lock?.("landscape"); } catch { /* iOS, or a desktop */ }
   }
 
   /** Everything up. For losing the window, or being switched off. */
@@ -338,6 +379,9 @@ export function setupTouch({ layout = "flight" } = {}) {
     el.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       if (el.dataset.hide) { api.setVisible(false); return; }
+      // Fullscreen has to be requested from inside the gesture that asked for
+      // it, so it goes here rather than through the synthetic-key path.
+      if (el.dataset.full) { goFullscreen(); return; }
       tap(el.dataset.key);
     });
   }
