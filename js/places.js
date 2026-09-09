@@ -511,6 +511,190 @@ export async function buildRig(scene, at, {
   };
 }
 
+// --- The snare camp ---------------------------------------------------------
+
+/**
+ * What the hunters left in the clearing on Peaceable Country.
+ *
+ * This is the first sign of them and the only scene in mission 1 that is
+ * nothing but evidence — there is no mechanic on it and nobody in it. So every
+ * object has to say something, and it all has to say the same thing:
+ *
+ *   the burnt stumps say they took the wood down to make room;
+ *   the snare and the chain staked through it say what the room was for;
+ *   the small cage with its door hanging open says it worked;
+ *   the cold brazier says they are not coming back;
+ *   and the drag scar running downhill says which way whatever was in the cage
+ *   went, which is the only reason the player then crosses the open sea.
+ *
+ * The drag is the load-bearing one. Without it the clearing is a dead end and
+ * "fly out past the edge of the chart" is a waypoint the game hands you; with
+ * it, the crossing is something you worked out.
+ */
+export async function buildSnareCamp(scene, at, { groundAt = null,
+                                                 toward = null } = {}) {
+  const group = new THREE.Group();
+  const ground = (x, z) => (groundAt ? groundAt(x, z) : 0);
+  const base = ground(at.x, at.z);
+  // The group carries the clearing's height and everything in it is placed
+  // relative to that, so a prop on the slope at the edge still meets the
+  // ground. Setting this to 0 while measuring the children off `base` put the
+  // whole camp a hundred metres under the clearing, at sea level.
+  group.position.set(at.x, base, at.z);
+  scene.add(group);
+
+  const statics = [];
+  /** Place a clone on the ground, in clearing-local coordinates. */
+  const put = (src, dx, dz, ry = 0, tilt = 0) => {
+    const o = src.clone(true);
+    o.position.set(dx, ground(at.x + dx, at.z + dz) - base, dz);
+    o.rotation.set(tilt ? tilt * 0.6 : 0, ry, tilt);
+    statics.push(o);
+    return o;
+  };
+
+  // Which way the drag runs. Downhill, because that is the way a cage full of
+  // dragon actually slides — read off the height field rather than chosen —
+  // but weighted towards `toward`, which is where the hunters went. Downhill
+  // alone put it on the north side of the clearing, pointing back at Berk,
+  // and a trail that leads the wrong way is worse than no trail: the next
+  // beat is "follow it", and it has to be followable.
+  const want = toward
+    ? new THREE.Vector2(toward.x - at.x, toward.z - at.z).normalize()
+    : null;
+  let fall = new THREE.Vector2(0, 1), fallScore = -1e9;
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 18) {
+    const cx = Math.cos(a), cz = Math.sin(a);
+    const drop = base - ground(at.x + cx * 140, at.z + cz * 140);
+    if (drop <= 0) continue;
+    const align = want ? Math.max(0, cx * want.x + cz * want.y) : 1;
+    const score = drop * (0.3 + 0.7 * align);
+    if (score > fallScore) { fallScore = score; fall.set(cx, cz); }
+  }
+  const bearing = Math.atan2(fall.x, fall.y);
+
+  // Everything below is laid out for the ONE angle it will be seen from,
+  // which is two hundred metres up and moving.
+  //
+  // The first version of this was a tight fifteen-metre huddle of props, and
+  // from the air it was invisible: a crate is a metre across, which is four
+  // pixels at that range, and it is brown on brown. What reads at that
+  // distance is not objects, it is PATTERN — a straight line forty metres
+  // long, a right angle, two parallel rows of anything. Nothing in a forest
+  // is straight. So the camp is a rectangular pen with a fence round it, its
+  // stores in a row against one side, and a drag road leaving it downhill
+  // between two lines of shoved-aside logs.
+
+  const [cage, doorOpen, chain, crate, barrel, brazier, net, winch, drift, fence]
+    = await Promise.all(["rig_cage_large", "rig_cage_door_open",
+      "rig_chain_coil", "rig_crate", "rig_barrel", "rig_brazier",
+      "rig_net_pile", "rig_winch", "stack_driftwood", "berk_fence_4m"]
+      .map(prop));
+
+  const PEN_X = 26, PEN_Z = 18;                    // half-extents of the pen
+
+  // The fence. Modular at 4 m, butted end to end, and the run is broken open
+  // on the downhill side — which is both where they took the cage out and the
+  // gap the drag road leaves through.
+  const gapAt = new THREE.Vector2(fall.x, fall.y);
+  for (const side of [-1, 1]) {
+    for (let x = -PEN_X + 2; x <= PEN_X - 2; x += 4) {
+      const zz = side * PEN_Z;
+      if (gapAt.y * side > 0.5 && Math.abs(x) < 6) continue;
+      put(fence, x, zz, Math.PI / 2);
+    }
+    for (let z = -PEN_Z + 2; z <= PEN_Z - 2; z += 4) {
+      const xx = side * PEN_X;
+      if (gapAt.x * side > 0.5 && Math.abs(z) < 6) continue;
+      put(fence, xx, z, 0);
+    }
+  }
+
+  // The cage it held, with the door off it, and the snare at the gate. The
+  // snare is where the interact point goes, so it sits at the pen's centre.
+  put(cage, -6, 4, 0.34);
+  put(doorOpen, 4, -3, 2.1, 0.42);
+  put(net, 0, 0, 0.4);
+  put(chain, 5.0, 2.6, 1.1);
+  for (let i = 0; i < 6; i++) {                    // stakes round the snare
+    const a = (Math.PI * 2 * i) / 6 + 0.3;
+    const sx = Math.cos(a) * 4.4, sz = Math.sin(a) * 4.4;
+    const st = cyl(0.10, 0.15, 1.8, slots().wood_dark, 6);
+    st.position.set(sx, ground(at.x + sx, at.z + sz) - base + 0.65, sz);
+    st.rotation.z = 0.22 * Math.cos(a);
+    st.rotation.x = -0.22 * Math.sin(a);
+    statics.push(st);
+  }
+
+  // Stores, in a row against the uphill fence. People stack things in rows;
+  // that row is worth more to this scene than any single object in it.
+  for (let i = 0; i < 6; i++) {
+    const x = -18 + i * 7.2;
+    put(i % 3 === 2 ? barrel : crate, x, -PEN_Z + 3.4, 0.12 + i * 0.4,
+        i === 4 ? 0.42 : 0);                       // one of them tipped over
+  }
+  put(crate, -20.5, -PEN_Z + 6.6, 0.8);
+  put(barrel, 14.5, -PEN_Z + 7.0, 0);
+  put(winch, PEN_X - 6, 8, -1.4);                  // what they hauled with
+  put(chain, PEN_X - 10, 11, 0.2);
+
+  // Cold. The one object here that would be lit if anybody were still in it.
+  const br = put(brazier, -PEN_X + 6, -10, 0.0);
+  const coals = br.getObjectByName("coals");
+  if (coals) {
+    coals.material = coals.material.clone();
+    coals.material.emissiveIntensity = 0.02;
+  }
+
+  // Burnt stumps, where the wood came down to make the room. Cut low and
+  // ragged rather than sawn flat: felled with fire and a hand axe.
+  const charred = new THREE.MeshStandardMaterial({
+    color: 0x241d18, roughness: 0.95, metalness: 0,
+  });
+  for (let i = 0; i < 46; i++) {
+    const a = i * 2.399963;                        // golden angle, so no rows
+    const rr = 20 + Math.sqrt(i / 46) * 74;
+    const sx = Math.cos(a) * rr, sz = Math.sin(a) * rr;
+    const h = ground(at.x + sx, at.z + sz);
+    if (h <= 2) continue;                          // not into the water
+    const tall = 0.6 + ((i * 37) % 11) / 11 * 1.6;
+    const st = cyl(0.22 + (i % 3) * 0.05, 0.38, tall, charred, 6);
+    st.position.set(sx, h - base + tall * 0.45, sz);
+    st.rotation.z = ((i % 5) - 2) * 0.04;
+    statics.push(st);
+  }
+
+  // The drag road. Two parallel lines of shoved-aside trunks, six metres
+  // apart, running two hundred metres downhill and out of the clearing. This
+  // is the single most legible thing in the scene from the air and the only
+  // one that says which way to go next.
+  const across = new THREE.Vector2(fall.y, -fall.x);
+  for (let i = 0; i <= 13; i++) {
+    const t = i / 13;
+    const run = PEN_Z * 0.6 + t * 190;
+    const dx = fall.x * run, dz = fall.y * run;
+    if (ground(at.x + dx, at.z + dz) <= 3) break;
+    for (const sgn of [-1, 1]) {
+      const o = put(drift, dx + across.x * sgn * 3.4, dz + across.y * sgn * 3.4,
+                    bearing + Math.PI / 2 + sgn * 0.12);
+      o.scale.setScalar(1.6 + (i % 3) * 0.35);
+    }
+    if (i === 6) put(chain, dx + across.x * 1.2, dz + across.y * 1.2, bearing);
+  }
+
+  for (const m of mergeStatic(statics)) group.add(m);
+
+  return {
+    group,
+    /** Where the snare is, in world space. The interact point and the toast. */
+    centre: new THREE.Vector3(at.x, base, at.z),
+    /** Bearing the drag runs off on, so the story can point the crossing. */
+    bearing,
+    setVisible(v) { group.visible = v; },
+    dispose() { scene.remove(group); },
+  };
+}
+
 // --- Hollow Stack -----------------------------------------------------------
 
 /** The hub. A sea stack with a hollow in it that a dragon moved into. */

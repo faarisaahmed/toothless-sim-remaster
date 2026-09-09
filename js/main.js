@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { setupDragonControls, angleDelta } from "./controls.js";
 import { setupWorld, ISLANDS } from "./world.js";
+import { CLEARING } from "./terrain.js";
 import { setupDebugConsole } from "./debug.js";
 import { setupWings } from "./wings.js";
 import { wingRoots } from "./dragonrig.js";
@@ -11,7 +12,7 @@ import { bindDragon } from "./dragonrig.js";
 import { makePlayer, createState } from "./player.js";
 import { mission1, SITES, RIG } from "./chapters.js";
 import { setMapSites } from "./map.js";
-import { buildRig, buildHollowStack } from "./places.js";
+import { buildRig, buildHollowStack, buildSnareCamp } from "./places.js";
 import { setupPost } from "./postfx.js";
 import { setupFlights } from "./flights.js";
 import { setupGamepad, BTN } from "./gamepad.js";
@@ -793,7 +794,7 @@ const debugConsole = setupDebugConsole({
 // never reach into this file's internals.
 // ---------------------------------------------------------------------------
 const player = makePlayer(handoff?.save?.run || createState());
-let rig = null, stack = null;
+let rig = null, stack = null, camp = null;
 let interactAt = null, interactLabel = "", interactRange = 0, interactTaken = false;
 let interactHold = 0;
 let holdR = false, holdSleep = false;
@@ -1068,6 +1069,7 @@ const storyCtx = {
   get plasma() { return plasma; },
   get rig() { return rig; },
   get stack() { return stack; },
+  get camp() { return camp; },
   setInteract(pos, label = "", range = 150) {
     interactAt = pos; interactLabel = label; interactRange = range;
     interactTaken = false; interactHold = 0;
@@ -1219,7 +1221,13 @@ const placesBuilt = (async () => {
     RIG.y = floor.deckY;   // every waypoint over the compound reads this
   }
 
-  [rig, stack] = await Promise.all([
+  // The clearing comes out of terrain.js, which found it by sweeping the
+  // height field on Peaceable Country — the same reason findCraterFloor()
+  // above sweeps the caldera. Nothing about either place is a guess, so
+  // nothing about either place floats.
+  if (CLEARING) SITES.camp.set(CLEARING.x, 0, CLEARING.z);
+
+  [rig, stack, camp] = await Promise.all([
     buildRig(scene, SITES.rig, {
       seaLevel: world.seaLevel,
       deckY: floor ? floor.deckY : null,
@@ -1228,6 +1236,12 @@ const placesBuilt = (async () => {
     buildHollowStack(scene, SITES.stack, {
       ground: Math.max(world.getHeightAt(SITES.stack.x, SITES.stack.z), world.seaLevel + 4),
     }),
+    CLEARING
+      ? buildSnareCamp(scene, SITES.camp, {
+          groundAt: (x, z) => world.getHeightAt(x, z),
+          toward: SITES.rig,       // the drag runs the way the hunters went
+        })
+      : null,
   ]);
   // NOT added to the reflection skip list, though they look like they should
   // be: both carry a pool of seven point lights, and hiding a light for the
@@ -1238,6 +1252,7 @@ const placesBuilt = (async () => {
   // The chart learns a place once he has been to it. Nothing is marked in
   // advance — the whole premise is that the edges are blank.
   const mapSites = [
+    { x: SITES.camp.x,  z: SITES.camp.z,  label: "The clearing", found: false },
     { x: SITES.rig.x,   z: SITES.rig.z,   label: "Dragon Hunter Island", found: false },
     { x: SITES.stack.x, z: SITES.stack.z, label: "Hollow Stack", found: false },
     { x: SITES.fish.x,  z: SITES.fish.z,  label: "Shoal",   found: false },

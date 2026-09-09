@@ -932,6 +932,71 @@ export function islandAt(x, z) {
   return best;
 }
 
+// ---------------------------------------------------------------------------
+// The clearing
+//
+// Mission 1 goes into the wood on Peaceable Country to look for the place the
+// hunters worked before they moved out to the caldera, and a clearing is the
+// one thing that cannot be dressed on top of a forest: if the trees are still
+// standing in it, it is not a clearing.
+//
+// So it lives here, in the file that owns the height field, for the same reason
+// the island table does. `fertility()` reads it, and fertility is what the tree
+// scatter, the terrain vertex colour, the ground-texture blend and the grass
+// all read -- so the wood opens up, the ground goes bare and the grass stops,
+// all from one number, and none of the four can disagree with the others about
+// where the clearing is. Computed once at import from pure functions of (x, z),
+// so it is the same clearing in the renderer, in the chart and in the story.
+// ---------------------------------------------------------------------------
+
+/** Radius of the opening, and of the ragged dying margin outside it. */
+export const CLEARING_R = 96;
+const CLEARING_EDGE = 168;
+
+/**
+ * The flattest dry patch in the middle band of an island: far enough in that
+ * the wood closes behind you, not so far that it is the summit. `main.js`
+ * stands the camp on this and `chapters.js` sends you looking for it.
+ */
+function findClearing(name) {
+  const isle = ISLANDS.find((i) => i.name === name);
+  if (!isle) return null;
+  const nrm = { x: 0, y: 1, z: 0 };
+  let best = null;
+  for (let a = 0; a < Math.PI * 2; a += 0.1) {
+    for (let rr = 0.22; rr < 0.62; rr += 0.03) {
+      const x = isle.x + Math.cos(a) * rr * isle.r;
+      const z = isle.z + Math.sin(a) * rr * isle.r;
+      const h = terrainHeight(x, z);
+      if (h < SEA_LEVEL + 12 || h > 150) continue;
+      // The wood has to close behind you, so the whole opening and its dying
+      // margin have to be on land. Without this the search runs downhill and
+      // finds a spot on the shore, where half the clearing is sea and it
+      // reads as a beach rather than as something that was done to a forest.
+      let enclosed = true;
+      for (let k = 0; k < 8 && enclosed; k++) {
+        const b = (Math.PI * 2 * k) / 8;
+        enclosed = terrainHeight(x + Math.cos(b) * 185, z + Math.sin(b) * 185)
+          > SEA_LEVEL + 10;
+      }
+      if (!enclosed) continue;
+      let rough = 0;
+      for (const [dx, dz] of [[34, 0], [-34, 0], [0, 34], [0, -34],
+                              [24, 24], [-24, -24], [24, -24], [-24, 24]]) {
+        rough += Math.abs(terrainHeight(x + dx, z + dz) - h);
+      }
+      terrainNormal(x, z, 8, nrm);
+      // Flat first, then low: a camp wants somewhere to stand and a downhill
+      // run to the water to drag a cage along, not a view.
+      const score = rough + (1 - nrm.y) * 260 + h * 0.12;
+      if (!best || score < best.score) best = { x, z, h, score, isle };
+    }
+  }
+  return best;
+}
+
+export const CLEARING = findClearing("Peaceable Country");
+
 /**
  * How readily this spot grows things, 0..1. Trees, grass and the terrain's
  * green all read this one function so a bare crag is bare in all three.
@@ -962,5 +1027,13 @@ export function fertility(x, z, h, slope) {
   f *= 1 - smoothstep(slope, 0.46, 0.88);
   f *= smoothstep(h, 4, 22);                   // above the beach
   f *= 1 - smoothstep(h, 215, 335);            // below the tree line
+  if (CLEARING) {
+    // Burnt out in the middle, dying at the edge, wood again beyond it. The
+    // margin is wide on purpose: a clearing that ends on a circle reads as a
+    // hole punched in a texture, and this one has to read as something that
+    // was done to the wood.
+    const d = Math.hypot(x - CLEARING.x, z - CLEARING.z);
+    f *= 0.04 + 0.96 * smoothstep(d, CLEARING_R, CLEARING_EDGE);
+  }
   return clamp(f * 1.25, 0, 1);
 }

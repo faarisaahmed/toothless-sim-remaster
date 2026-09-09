@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { Sky } from "three/addons/objects/Sky.js";
 import {
   terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL,
-  WIND_BEARING, fertility, islandAt, fbm, noise2,
+  WIND_BEARING, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R,
 } from "./terrain.js";
 import { loadGround, makeTerrainMaterial } from "./terrainmat.js";
 import { bakeSeaField } from "./sea_field.js";
@@ -206,6 +206,13 @@ export function setupWorld(scene, renderer, quality = {}) {
   const rockLight = new THREE.Color(0x736a5c);
   const rockDark  = new THREE.Color(0x3b372f);
   const snowCol   = new THREE.Color(0xdfe8ec);
+  // Burnt ground. Bare mineral soil and a season of ash, and it has to be a
+  // colour of its own rather than just an absence of trees: a gap in the wood
+  // that is the same grey as every crag on every island is not findable from
+  // the air, and finding it is what the beat is for. Pale against dark green
+  // reads at two hundred metres; dark against dark does not.
+  const ashCol    = new THREE.Color(0x7d7462);
+  const charCol   = new THREE.Color(0x2b2620);
   const c = new THREE.Color();
   const rockTone = new THREE.Color();
   const grass = new THREE.Color();
@@ -270,6 +277,19 @@ export function setupWorld(scene, renderer, quality = {}) {
       // Steep ground is rock whatever grew near it.
       c.lerp(rockTone, smoothstep(slope, 0.26, 0.62) * (1 - snow * 0.6));
       c.lerp(snowCol, snow);
+
+      if (CLEARING) {
+        const cd = Math.hypot(x - CLEARING.x, z - CLEARING.z);
+        const burn = 1 - smoothstep(cd, CLEARING_R * 0.7, CLEARING_R * 1.7);
+        if (burn > 0.004) {
+          // Ash over most of it, char in the hollows and on the stump line,
+          // so it is not one flat wash of grey.
+          const soot = fbm(x * 0.021, z * 0.021, 2) * 0.5 + 0.5;
+          c.lerp(ashCol, burn * 0.82 * (1 - soot * 0.35));
+          c.lerp(charCol, burn * soot * 0.42);
+          veg *= 1 - burn * 0.9;      // and the grass texture stops with it
+        }
+      }
     }
 
     surf[i * 3] = veg;

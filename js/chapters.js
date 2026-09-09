@@ -42,6 +42,9 @@ export const STACK_Y = 102;
 export const RIG = { y: 50 };
 
 export const SITES = {
+  /** The clearing in the wood on Peaceable Country. Overwritten by main.js
+   *  from terrain.js's CLEARING, which sweeps the height field for it. */
+  camp:  V(931, 0, 1545),
   rig:   V(2450, 0, 2150),
   stack: V(1650, 0, 2600),
   fish:  V(2080, 0, 2320),
@@ -58,21 +61,110 @@ export function mission1(ctx) {
       id: "leave",
       objective: "Leave Berk.",
       sub: "",
-      // He spawns south of Berk on a northerly heading — i.e. pointed at it.
-      // Without somewhere to aim, "leave" reads as "fly home", which is the
-      // opposite of the scene.
-      enter(g) { g.setWaypoint(V(2200, 220, 2800), "Out"); g.toast("Berk.", 1600); },
-      done() { return game.flatDist(V(0, 0, -1100)) > 2800; },
+      // He spawns south of Berk on a northerly heading — i.e. pointed at it —
+      // so "leave" needs somewhere to aim or it reads as "fly home", which is
+      // the opposite of the scene. It aims at Peaceable Country, the last
+      // island on Hiccup's chart in that direction. The old target was a bare
+      // bearing into empty water 2.8 km out, and an objective that is only a
+      // direction reads as the game not having decided yet.
+      enter(g) {
+        g.setWaypoint(SITES.camp.clone().setY(260), "Peaceable Country");
+        g.toast("Berk.", 1600);
+      },
+      done() { return game.flatDist(V(0, 0, -1100)) > 2100; },
       hold: 0.2,
+    },
+
+    // -----------------------------------------------------------------------
+    // The wood.
+    //
+    // This beat exists because the mission used to go straight from "leave
+    // Berk" to "fly past the edge of the chart" to "something is burning out
+    // there" — three waypoints in open water, and the player is told each one
+    // rather than finding it. Nothing was ever searched for.
+    //
+    // So: the last island on the chart is a deep wood, there is a gap cut in
+    // it, and the gap is not marked. Finding it means flying the wood low
+    // enough and slow enough to see the ground, which is a thing you do with
+    // the flight model rather than a ring you enter.
+    {
+      id: "woods",
+      objective: "Something has been in the wood.",
+      sub: "Fly it low. You are looking for a gap in the trees.",
+      enter(g, c) {
+        // The island, not the clearing. A waypoint on the clearing would hand
+        // over the one thing this beat is about.
+        g.setWaypoint(V(1250, 210, 1500), "The wood");
+      },
+      update(dt, g, c) {
+        const p = c.getPosition();
+        const agl = p.y - world.getHeightAt(p.x, p.z);
+        const d = game.flatDist(SITES.camp);
+        // Seen, not reached: 180 m out but under 130 m above the canopy. From
+        // cruise altitude the clearing is a slightly paler patch among eighty
+        // thousand trees and you will fly over it four times.
+        if (d < 180 && agl < 130) this._spot = (this._spot || 0) + dt;
+        else this._spot = Math.max(0, (this._spot || 0) - dt * 0.5);
+      },
+      done() { return (this._spot || 0) > 0.8; },
+      exit(g, c) {
+        c.findSite?.("The clearing");
+        g.toast("A gap in the trees.", 2000);
+      },
+    },
+
+    // -----------------------------------------------------------------------
+    {
+      id: "camp",
+      objective: "Read it.",
+      get sub() { return `Hold ${keyTag("landUse")} at the snare.`; },
+      enter(g, c) {
+        g.setWaypoint(SITES.camp.clone().setY(0), "The clearing");
+        c.setInteract(SITES.camp.clone(), "Read the snare", 170);
+        music.play("tension", { fade: 4 });
+      },
+      update(dt, g, c) { if (c.tookInteract()) this._read = true; },
+      done() { return this._read; },
+      async exit(g, c) {
+        c.setInteract(null);
+        player.addSample("alloy", "Hunter's plate");
+        player.flag("sawTheCamp");
+        // The one thing in the clearing that says where to go next: a furrow
+        // running downhill, and nothing at the bottom of it. buildSnareCamp
+        // read the bearing off the height field, so the shot follows the drag
+        // the model actually laid rather than a direction typed in here.
+        const b = c.camp?.bearing ?? 0;
+        const k = SITES.camp;
+        const gy = world.getHeightAt(k.x, k.z);
+        const fx = Math.sin(b), fz = Math.cos(b);
+        await g.playCutscene({
+          from: V(k.x - fx * 40, gy + 26, k.z - fz * 40),
+          to:   V(k.x + fx * 150, gy + 14, k.z + fz * 150),
+          look: V(k.x + fx * 260, gy - 20, k.z + fz * 260),
+          seconds: 6,
+          line: "Dragged. Downhill, to the water.",
+        });
+        g.refreshState();
+      },
+      beat: 1200,
     },
 
     // -----------------------------------------------------------------------
     {
       id: "beyond",
-      objective: "Fly past the edge of the chart.",
+      objective: "Follow it past the edge of the chart.",
       sub: "",
-      enter(g) { g.setWaypoint(V(1900, 120, 1650), "Open water"); },
-      done() { return game.flatDist(V(1900, 0, 1650)) < 1100; },
+      // Aimed along the drag, and out. The old version of this beat sent him
+      // to a fixed point in open water for no stated reason; this is the same
+      // flight with a reason attached to it.
+      enter(g, c) {
+        const b = c.camp?.bearing ?? 0.9;
+        const t = SITES.camp.clone().add(
+          V(Math.sin(b) * 1500, 0, Math.cos(b) * 1500)).setY(140);
+        this._t = t;
+        g.setWaypoint(t, "Open water");
+      },
+      done() { return game.flatDist(this._t) < 700; },
     },
 
     // -----------------------------------------------------------------------
@@ -154,31 +246,45 @@ export function mission1(ctx) {
     },
 
     // -----------------------------------------------------------------------
+    // The lab, as one sitting.
+    //
+    // This was five separate holds at the same shelf, and the five results are
+    // the point — the fourth is the tempting wrong answer, it looks like
+    // progress, and the fifth is the same dent, which is what makes the
+    // discovery have to come from sleeping rather than from trying harder.
+    //
+    // But five presses of the same key at the same spot is not five beats, it
+    // is one beat and four repeats, and the code here used to carry a comment
+    // worrying that it would "read as a bug". It did. So it is one press now,
+    // and what it buys is the whole sequence, one result after another: same
+    // five failures on the wall, same plateau, no grind. The wall keeps the
+    // failures — that IS the journal (§2.3).
     {
       id: "lab",
       objective: "Find out what the metal is.",
-      get sub() { return `Hold ${keyTag("landUse")} at the shelf.${labProgress(player)}`; },
+      get sub() { return `Hold ${keyTag("landUse")} at the shelf.`; },
       enter(g, c) {
-        player.addSample("alloy", "Hunter's plate");
+        // The plate came off the snare in the clearing, so he already has it.
         c.setInteract(SITES.stack.clone().add(V(6, 0, -4)), "Test the plate", 190);
       },
       update(dt, g, c) {
+        if (this._running || this._over) return;
         if (!c.tookInteract()) return;
-        // Every attempt is a real one and every one is recorded. The wall keeps
-        // the failures — that IS the journal (§2.3).
-        const tries = player.state.samples[0]?.results.length || 0;
-        const line = LAB_LINES[Math.min(tries, LAB_LINES.length - 1)];
-        player.record("alloy", { fire: line.fire, condition: line.cond, result: line.result });
-        g.toast(line.show, 2600);
-        // Re-say the objective, which is what puts the new attempt count on
-        // screen. Without it the panel reads exactly the same after the fifth
-        // try as after the first, so five different results land as one result
-        // repeated and the beat reads as a bug — you are meant to feel him
-        // getting nowhere, not to wonder whether the button is working.
-        g.setObjective(this.objective, this.sub);
-        g.refreshState();
+        this._running = true;
+        (async () => {
+          for (let i = 0; i < LAB_LINES.length; i++) {
+            const l = LAB_LINES[i];
+            player.record("alloy", { fire: l.fire, condition: l.cond, result: l.result });
+            g.toast(l.show, 1400);
+            g.setObjective(this.objective,
+              `${i + 1} of ${LAB_LINES.length} &nbsp;·&nbsp; ${l.fire}, ${l.cond}`);
+            g.refreshState();
+            await new Promise((r) => setTimeout(r, 1400));
+          }
+          this._over = true;
+        })();
       },
-      done() { return (player.state.samples[0]?.results.length || 0) >= LAB_LINES.length; },
+      done() { return this._over; },
       exit(g, c) { c.setInteract(null); player.flag("labDone"); },
     },
 
@@ -193,7 +299,7 @@ export function mission1(ctx) {
       async exit(g, c) {
         c.setInteract(null);
         await g.fade(true);
-        player.sleep({ beside: null });
+        player.sleep({ beside: null });      // and this is what makes him hungry
         player.learnKey("nightfury");
         player.record("alloy", { fire: "sleepfire", condition: "asleep", result: "through" });
         await g.fade(false);
@@ -226,19 +332,41 @@ export function mission1(ctx) {
     },
 
     // -----------------------------------------------------------------------
+    // Eating, as flying.
+    //
+    // This used to be a third hold-the-key-at-a-waypoint beat, which for a
+    // dragon fishing is the wrong verb twice over: he does not stop and press
+    // something, he comes down the shoal at speed with his mouth open. So it
+    // is a pass now — low, fast, over the fish — and it takes two of them,
+    // because one of anything does not read as a technique.
     {
       id: "hunt",
       objective: "Eat.",
-      get sub() { return `Hold ${keyTag("landUse")} at the shoal.`; },
+      sub: "Take them out of the water. Low and fast over the shoal.",
       enter(g, c) {
         g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
-        c.setInteract(SITES.fish.clone(), "Fish", 150);
       },
       update(dt, g, c) {
-        if (game.flatDist(SITES.fish) < 400) c.findSite?.("Shoal");
-        if (c.tookInteract()) { player.eat(2); g.refreshState(); this._ate = true; }
+        const p = c.getPosition();
+        const d = game.flatDist(SITES.fish);
+        if (d < 400) c.findSite?.("Shoal");
+        // Over the fish, under fifteen metres, with his foot in it. The
+        // hysteresis is what makes it a PASS: you have to leave the shoal and
+        // come back round for the second one, rather than hovering in the
+        // trigger and collecting both in the same second.
+        const inRun = d < 190 && p.y < 15 && c.getSpeedT() > 0.22;
+        if (inRun && !this._in) {
+          this._in = true;
+          this._passes = (this._passes || 0) + 1;
+          player.eat(1);
+          g.toast(this._passes >= 2 ? "Fed." : "One.", 1200);
+          g.refreshState();
+        }
+        if (this._in && d > 300) this._in = false;
+        g.setObjective(this.objective,
+          `${this.sub} &nbsp;·&nbsp; ${this._passes || 0} of 2`);
       },
-      done() { return this._ate && player.food === "fed"; },
+      done() { return (this._passes || 0) >= 2 && player.food === "fed"; },
       exit(g, c) { c.setInteract(null); },
     },
 

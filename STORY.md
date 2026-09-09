@@ -1367,7 +1367,7 @@ already there.
 
 ## 7. The Buildable Cut — the actual story, scene by scene
 
-Thirteen scenes. This is the shippable game, written out at the level of detail you'd
+Fourteen scenes. This is the shippable game, written out at the level of detail you'd
 build from. Where a number appears, it's a starting value to tune, not a law.
 
 **New entries needed in `ISLANDS` (`js/world.js`):**
@@ -1425,6 +1425,55 @@ it costs nothing because it's already written.
 
 ---
 
+### B2b — The Wood *(playable, ~4 min, day, Peaceable Country)*
+
+**Added after playtest.** The build went First Solo → Beyond the Chart → The Rig, which is
+three waypoints in open water in a row. Every one of them was *handed* to the player: the
+objective named the place, an arrow pointed at it, and arriving was the whole beat. Nothing
+in the first ten minutes was ever looked for. The note from the session was, in full,
+*"i dont get it? just interacting with it again and again?"* — and it was right.
+
+So: the last island on Hiccup's chart in that direction is **Peaceable Country**, and it is
+deep wood. `bare: 0.05`, the thickest in the table.
+
+**What is in it.** One clearing, about 100 m across, cut out of the trees. `terrain.js`
+finds it by sweeping the height field for the flattest enclosed patch in the island's
+middle band, the same way `main.js` finds the caldera floor — so it is never in the same
+place as the trees and never floating. `fertility()` reads it, which means the wood opens
+up, the ground goes to ash and char, and the grass stops, all off one number. Nothing can
+disagree about where the clearing is.
+
+**What is in the clearing** is a hunters' forward camp, abandoned:
+
+| Object | What it says |
+|---|---|
+| **Burnt stumps, ~46 of them** | They took the wood down to make the room. |
+| **A fenced pen, 52 × 36 m** | Straight lines and a right angle. Nothing in a forest is straight, and from 200 m up that rectangle is the only thing you can read. |
+| **A snare, staked, at the centre** | What the room was for. This is the interact point. |
+| **A cage with the door off it** | It worked. |
+| **Stores in a row against one fence** | People stack things in rows. The row is worth more than any single crate in it. |
+| **A cold brazier** | The one object here that would be lit if anybody still were. |
+| **A drag road** | Two parallel lines of shoved-aside trunks, 6 m apart, running 200 m downhill and out through a broken fence panel. |
+
+**The drag road is the load-bearing one.** Its bearing is read off the height field —
+downhill, weighted toward where the hunters actually went — so it is followable. Without
+it the clearing is a dead end and *"fly past the edge of the chart"* is a waypoint the game
+hands you. With it, the crossing is something the player worked out, and B3 stops being an
+instruction.
+
+**The verb is searching, and it is flown.** The waypoint is on the *island*, not on the
+clearing. The beat completes when the player has been within 180 m of the clearing while
+under 130 m above the canopy, for most of a second — you have to fly the wood low enough
+to see the ground, which is a thing you do with the flight model. From cruise altitude the
+clearing is a slightly paler patch among seventy thousand trees and you will pass over it
+several times before you see it. That is the beat.
+
+Then one hold at the snare, one six-second shot down the drag road, and out.
+
+**Cut from the bible:** nothing. This scene did not exist.
+
+---
+
 ### B3 — Beyond the Chart *(playable, ~4 min, day → dusk)*
 
 Open water. The scene is the emptiness.
@@ -1435,6 +1484,9 @@ Open water. The scene is the emptiness.
 - **One prop:** a drifting spar with fittings in the wrong colour — a dull blue-grey. It is
   scenery, not a pickup, and most players will fly straight past it. That's fine; it pays
   off in B6 when they see the colour again on the shelf.
+  **Superseded as the first trace** by the snare camp in B2b, which is on land, has a
+  plate in it the player leaves with, and cannot be flown past without being seen. The spar
+  stays as a second sighting of the colour; it is no longer carrying the beat on its own.
 - Weather degrades with distance: existing fog density and a colder sky tint.
 
 **Exit:** crossing radius 5200 heading northeast, or five minutes elapsed, whichever first.
@@ -1533,6 +1585,15 @@ own notes, and it earns the failure.
 least three times, the only remaining verb becomes *sleep*. Don't force it — remove the
 alternatives and let them arrive at it.
 
+**As built, this is one hold.** The 36-cell grid was cut to five scripted attempts before
+this was ever playable, and five attempts turned out to be one beat and four repeats: same
+key, same spot, five times, and the code carried a comment worrying that it would "read as
+a bug". It did — see the note in B2b. So it is a single hold now, and what the hold buys is
+the whole sequence played out one result after another: nothing, wet nothing, warm, the
+dent that looks like progress, the same dent. Same five failures on the wall, same plateau,
+same reason the answer has to come from sleeping rather than from trying harder, no grind.
+The full grid is still the right target if the lab ever becomes its own scene.
+
 ---
 
 ### B7 — The Dream *(playable, ~90s)*
@@ -1585,6 +1646,11 @@ quest telling them to want it.
 - **The verb:** dive, level out in a narrow window near the surface, snap. The existing
   flight model does all the work; the whole implementation is a trigger volume and a
   timing check.
+  **Now built that way.** It shipped as a third hold-the-key-at-a-waypoint beat, which for
+  a dragon fishing is the wrong verb twice over — he does not stop and press something. It
+  is a pass: over the shoal, under 15 m, with his foot in it, and it takes two of them,
+  with enough hysteresis that you have to come back round for the second rather than
+  collecting both in the same second.
 - Each fish moves you one step up, capped at Fed.
 - Sleeping restores rest but not food.
 
