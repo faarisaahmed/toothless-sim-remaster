@@ -38,6 +38,7 @@
 // ---------------------------------------------------------------------------
 
 import * as keymap from "./keymap.js";
+import { settings } from "./settings.js";
 
 const STORE_KEY = "nightalone.touch.v1";
 
@@ -123,6 +124,7 @@ export function setupTouch() {
     <div id="touch-look" class="pad-zone"><span>look</span></div>
     <div id="touch-buttons"></div>
     <div id="touch-top">
+      <button type="button" data-key="Minus">Menu</button>
       <button type="button" data-key="Tab">Chart</button>
       <button type="button" data-key="Backquote">Console</button>
       <button type="button" data-hide="1">Hide</button>
@@ -236,9 +238,12 @@ export function setupTouch() {
     const dx = e.clientX - lookLast.x, dy = e.clientY - lookLast.y;
     lookLast = { x: e.clientX, y: e.clientY };
     // Same sign convention as the mouse handler in main.js, so the two feel
-    // identical and the aim system does not need to know which one moved.
+    // identical and the aim system does not need to know which one moved —
+    // including the invert settings, which a touch player wants for the same
+    // reasons a mouse player does.
+    const k = LOOK_SCALE * settings.lookSpeed();
     window.dispatchEvent(new CustomEvent("na-look", {
-      detail: { dx: -dx * LOOK_SCALE, dy: -dy * LOOK_SCALE },
+      detail: { dx: -dx * k * settings.lookX(), dy: -dy * k * settings.lookY() },
     }));
   });
   const dropLook = (e) => {

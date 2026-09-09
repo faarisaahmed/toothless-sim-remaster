@@ -227,6 +227,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   let stalled     = false;     // true for one frame when the wings let go
   let recoverHold = 0;         // s of keeping the speed a dive earned
   let diveCommit  = 0;         // s of dive he cannot pull out of, after a stall
+  let vertAccel   = 0;         // m/s^2, smoothed. Feeds the wing load below
+  let lastClimb   = 0;
   let vertHeld    = 0;         // s the up/down axis has been held one way
   let vertHeldDir = 0;         // and which way, so a reversal resets the clock
 
@@ -630,6 +632,16 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     dragon.position.x -= Math.cos(heading) * strafeVel * dt;
     dragon.position.z += Math.sin(heading) * strafeVel * dt;
 
+    // From `climbVel`, NOT `climbRate`. climbRate has the wingbeat bob added
+    // to it — a sine at beat frequency — and differentiating that gives a huge
+    // spurious acceleration, which is how "straight and level" first measured
+    // at sixteen g. climbVel is what he is actually being asked to do.
+    // Smoothed on top, because a frame-to-frame difference of a damped value
+    // is mostly numerical noise and the wings would buzz rather than bow.
+    const rawAccel = dt > 1e-5 ? (climbVel - lastClimb) / dt : 0;
+    lastClimb = climbVel;
+    vertAccel += (rawAccel - vertAccel) * damp(6, dt);
+
     // --- Roll ---
     // Signs are set for the half-turned model: +roll drops the left wing, which
     // is what you want banking into a left (+yawRate) turn. Knife edge takes
@@ -840,6 +852,17 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       // How hard he is carving, -1 .. +1. js/flightrig.js steers the tail fins
       // and leans his head with it; wings.js ignores it.
       turn:   THREE.MathUtils.clamp(yawRate / Math.max(yawMaxNow, 1e-4), -1, 1),
+      // --- LOAD, in g -----------------------------------------------------
+      // How hard the wings are being asked to work, which is the thing that
+      // makes a wing CURVE. It is real acceleration rather than a stand-in
+      // for one: a turn of radius r at speed v pulls v·yawRate laterally, and
+      // pulling out of a dive adds whatever the vertical is doing on top.
+      //
+      // A membrane wing bows under load and stays bowed while the load lasts,
+      // and that is most of what separates a dragon from a hang glider. Before
+      // this the only curve in the rig rode the beat's own sine, so the wings
+      // were exactly as curved in a 4 g carve as in a straight glide.
+      load:   Math.hypot(yawRate * airspeed, vertAccel) / 9.81,
       // 0..1 of the HANG — the pose at the top of a zoom, wings held wide and
       // curling, nose up, tail fanned, no beat in it. It comes on with the last
       // of his airspeed rather than snapping on at the stall, because that is

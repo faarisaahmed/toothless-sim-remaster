@@ -575,3 +575,118 @@ body.pad-live .pro-hint .k { display: none; }
    take its time; going down should feel like a decision. */
 #prologue .pro-fade { transition-duration: 2.6s; }
 #prologue .pro-fade.on { transition-duration: 1.9s; }
+
+/* ===========================================================================
+   THE IN-GAME MENU
+   Reuses .slot / .slot.opt from the title screen, so the two settings screens
+   cannot drift apart visually. Only the sheet around them is new.
+   =========================================================================== */
+
+#pause {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: center;
+  /* Dark enough to read over and thin enough that you can still see the game
+     sitting still behind it — a pause that hides the world entirely feels
+     like having left it.
+     NO backdrop-filter here. `.slot` already has one, and a blur nested inside
+     a blur put the option rows and their text through it twice: the headings
+     stayed sharp and everything in the list came out illegible. One layer of
+     blur, on the rows that were already doing it. */
+  background: rgba(4, 6, 10, 0.66);
+  font-family: Rajdhani, system-ui, sans-serif;
+  color: var(--ink, #e8e2d4);
+}
+#pause[hidden] { display: none; }
+
+.pause-sheet {
+  /* Its own panel, so the list reads as a sheet of settings rather than as
+     text floating over the sea. */
+  background: linear-gradient(rgba(8, 11, 18, 0.9), rgba(8, 11, 18, 0.82));
+  border: 1px solid rgba(232, 226, 212, 0.14);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.7);
+  width: min(760px, 92vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4vh;
+  padding: 3vh 3vw;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(232, 226, 212, 0.22) transparent;
+}
+.pause-head { text-align: center; }
+.pause-eyebrow {
+  font-size: 0.62rem;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--ink-dim, #9a9384);
+}
+.pause-title {
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  margin: 0.3em 0 0;
+  letter-spacing: 0.05em;
+}
+
+.pause-foot { display: flex; gap: 1.2vw; margin-top: 0.8vh; }
+.pause-btn {
+  flex: 1;
+  padding: 1.1vh 1vw;
+  background: rgba(232, 226, 212, 0.06);
+  border: 1px solid rgba(232, 226, 212, 0.22);
+  color: var(--ink, #e8e2d4);
+  font: 700 0.92rem/1 Rajdhani, system-ui, sans-serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pause-btn:hover, .pause-btn.on {
+  background: rgba(255, 190, 120, 0.14);
+  border-color: var(--ember, #ff8a3d);
+  color: #ffcf9a;
+}
+/* Quit reads warmer than the rest, because it is the one that throws work
+   away. Not red — it is a menu, not a warning. */
+.pause-quit:hover, .pause-quit.on {
+  background: rgba(217, 96, 63, 0.16);
+  border-color: #d9603f;
+  color: #f0b49f;
+}
+
+.pause-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1.4em;
+  justify-content: center;
+  margin-top: 0.6vh;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim, #9a9384);
+}
+.pause-legend b {
+  display: inline-block;
+  min-width: 1.5em;
+  margin: 0 0.15em;
+  padding: 0.15em 0.35em;
+  border: 1px solid rgba(232, 226, 212, 0.24);
+  border-radius: 3px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--ink, #e8e2d4);
+}
+
+/* The rows sit on an opaque sheet here, so `.slot`'s own blur has nothing
+   useful to blur — and it was going through the row's own text, which came out
+   illegible while the headings above it stayed sharp. Solid backgrounds
+   instead: cheaper, and it renders the same everywhere. */
+#pause .slot {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(20, 25, 36, 0.92);
+}
+#pause .slot.on { background: rgba(46, 38, 26, 0.96); }

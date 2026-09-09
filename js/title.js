@@ -3,9 +3,7 @@ import { loadDragon, normalizeDragon } from "./assets.js";
 import * as input from "./input.js";
 import { music } from "./audio.js";
 import * as saves from "./saves.js";
-import { SCHEMES, getScheme, toggleScheme } from "./keymap.js";
-import { MODES as AIM_MODES, getMode as getAimMode, toggleMode as toggleAimMode } from "./aim.js";
-import { isEnabled as touchOn, toggleEnabled as toggleTouch, looksLikeTouch } from "./touch.js";
+import { OPTIONS, optionRowHtml } from "./settings.js";
 import { addNightSky } from "./nightsky.js";
 
 // ---------------------------------------------------------------------------
@@ -330,10 +328,12 @@ export function runTitle(pad = null) {
     // One row past the last slot is the controls option. Keeping it in the same
     // cursor space as the slots is what makes it reachable with the same up and
     // down that everything else on this screen uses, on pad as well as keys.
-    const CONTROLS_ROW = saves.SLOT_COUNT;
-    const AIM_ROW = saves.SLOT_COUNT + 1;
-    const TOUCH_ROW = saves.SLOT_COUNT + 2;
-    const ROWS = saves.SLOT_COUNT + 3;
+    // The settings rows come from js/settings.js now, so this screen and the
+    // in-game menu on - cannot disagree about what the options are. FIRST_OPT
+    // is where the save slots stop and the settings begin; everything below
+    // indexes one continuous list.
+    const FIRST_OPT = saves.SLOT_COUNT;
+    const ROWS = saves.SLOT_COUNT + OPTIONS.length;
     // findIndex returns -1 when every slot is empty, which on a fresh install
     // left the list with nothing highlighted until you pressed a direction.
     let cursor = Math.max(0, slots.findIndex(Boolean));
@@ -383,27 +383,12 @@ export function runTitle(pad = null) {
         slotList.appendChild(li);
       });
 
-      const sc = SCHEMES[getScheme()];
-      const am = AIM_MODES[getAimMode()];
-      // Off is the default and stays the default. The hint changes with the
-      // machine rather than the setting turning itself on: a laptop with a
-      // touchscreen is still a laptop, and deciding for the player is how you
-      // get an overlay nobody asked for over the top of a keyboard.
-      const on = touchOn();
-      const touchHint = on
-        ? "every control a keyboard has, on screen. Hide them from the top corner"
-        : looksLikeTouch()
-          ? "this looks like a touchscreen — turn them on to play without a keyboard"
-          : "for a phone or a tablet. Everything a keyboard can do";
-      optList.innerHTML =
-        optionRow(cursor === CONTROLS_ROW, "&#8646;", `Controls &mdash; ${sc.label}`, sc.hint) +
-        optionRow(cursor === AIM_ROW, "&#8853;", `Aiming &mdash; ${am.label}`, am.hint) +
-        optionRow(cursor === TOUCH_ROW, "&#9744;",
-          `On-screen controls &mdash; ${on ? "On" : "Off"}`, touchHint);
-      const [ctrlLi, aimLi, touchLi] = optList.children;
-      ctrlLi.addEventListener("click", () => { cursor = CONTROLS_ROW; flipControls(); });
-      aimLi.addEventListener("click", () => { cursor = AIM_ROW; flipAim(); });
-      touchLi.addEventListener("click", () => { cursor = TOUCH_ROW; flipTouch(); });
+      optList.innerHTML = OPTIONS
+        .map((o, i) => optionRowHtml(o, cursor === FIRST_OPT + i))
+        .join("");
+      [...optList.children].forEach((li, i) => {
+        li.addEventListener("click", () => { cursor = FIRST_OPT + i; cycleOpt(1); });
+      });
     }
 
     function move(d) {
@@ -425,54 +410,25 @@ export function runTitle(pad = null) {
     }
 
     /**
-     * Flip the control scheme. Persists itself — see keymap.js — so it survives
-     * the reload, which matters because this is the screen you are on when you
-     * have just discovered that Ctrl+Down threw you out of the game.
+     * Change whichever setting the cursor is on.
+     *
+     * Every one of them persists itself in its own module — the scheme in
+     * keymap.js, the aim mode in aim.js, the on-screen controls in touch.js,
+     * the rest in settings.js — which is why this screen does not have to save
+     * anything and why the same change made from the in-game menu sticks too.
      */
-    function flipControls() {
-      toggleScheme();
+    function cycleOpt(dir) {
+      OPTIONS[cursor - FIRST_OPT]?.cycle(dir);
       renderSlots();
       pad?.rumble.pulse(0.3, 0.12, 0.08);
     }
 
-    /** Scoped aim or no-scope. Persists itself — see keymap.js and aim.js. */
-    function flipAim() {
-      toggleAimMode();
-      renderSlots();
-      pad?.rumble.pulse(0.3, 0.12, 0.08);
-    }
-
-    /**
-     * On-screen controls. Persists itself — see touch.js — and is read once by
-     * main.js when the flight scene builds, so flipping it here takes effect on
-     * the way in rather than needing a reload.
-     */
-    function flipTouch() {
-      toggleTouch();
-      renderSlots();
-      pad?.rumble.pulse(0.3, 0.12, 0.08);
-    }
-
-    /** The two settings rows are the same component; only the contents differ. */
-    function optionRow(on, glyph, title, hint) {
-      return `
-        <li class="slot opt${on ? " on" : ""}">
-          <div class="slot-index">${glyph}</div>
-          <div class="slot-main">
-            <div class="slot-title">${title}</div>
-            <div class="slot-meta"><span>${hint}</span></div>
-          </div>
-          <div class="slot-go">Change</div>
-        </li>`;
-    }
 
     let done = false;
 
     function choose() {
       if (done) return;
-      if (cursor === CONTROLS_ROW) { flipControls(); return; }
-      if (cursor === AIM_ROW) { flipAim(); return; }
-      if (cursor === TOUCH_ROW) { flipTouch(); return; }
+      if (cursor >= FIRST_OPT) { cycleOpt(1); return; }
       done = true;
       const existing = slots[cursor];
       const save = existing || saves.create(cursor);
@@ -482,7 +438,7 @@ export function runTitle(pad = null) {
     }
 
     function askErase() {
-      if (cursor >= CONTROLS_ROW || !slots[cursor]) return;
+      if (cursor >= FIRST_OPT || !slots[cursor]) return;
       confirming = true;
       confirmBody.textContent =
         `Slot ${cursor + 1} — ${saves.sceneTitle(slots[cursor])}, day ${slots[cursor].day}. This cannot be undone.`;
@@ -522,9 +478,7 @@ export function runTitle(pad = null) {
         if (input.tapped("up")) move(-1);
         if (input.tapped("down")) move(1);
         if (input.tapped("left") || input.tapped("right")) {
-          if (cursor === CONTROLS_ROW) flipControls();
-          else if (cursor === AIM_ROW) flipAim();
-          else if (cursor === TOUCH_ROW) flipTouch();
+          if (cursor >= FIRST_OPT) cycleOpt(input.tapped("left") ? -1 : 1);
         }
         if (input.pressed("confirm")) choose();
         if (input.pressed("del")) askErase();

@@ -22,6 +22,8 @@ import { music, CREDITS } from "./audio.js";
 import { setupPlasma, MAX_SHOTS } from "./plasma.js";
 import { setupHealth } from "./health.js";
 import { setupTouch } from "./touch.js";
+import { settings } from "./settings.js";
+import { setupPause } from "./pause.js";
 import { showLoading, warmUp } from "./loading.js";
 import { detectTier, tierSettings, createGovernor } from "./quality.js";
 import * as keymap from "./keymap.js";
@@ -188,6 +190,23 @@ let recentering = false;
 // and no listeners.
 const touch = setupTouch();
 
+// The in-game menu, on - or =. Opening it stops the world and lets the mouse
+// go; closing it drops any key that was held when it opened, so coming back
+// from the menu never resumes into a carve nobody asked for.
+let paused = false;
+const pause = setupPause({
+  onOpen() {
+    paused = true;
+    controls?.clearKeys();
+    aim.release();
+    blastHeld = false;
+    holdR = holdSleep = false;
+    for (const k in walkKeys) walkKeys[k] = false;
+    pad?.rumble.stop?.();
+  },
+  onClose() { paused = false; },
+});
+
 // Aiming. Owns his head, the crosshair, the stamina bar and — in scoped mode —
 // the camera and the speed of the world. See js/aim.js for why the two modes
 // are shaped so differently.
@@ -293,8 +312,12 @@ window.addEventListener("mousemove", (e) => {
   if (Math.abs(e.movementX) > LOOK_SPIKE || Math.abs(e.movementY) > LOOK_SPIKE) return;
 
   recentering = false; // any look input cancels the manual camera swing
-  pendingYaw   -= e.movementX * tuning.lookSensitivity;
-  pendingPitch -= e.movementY * tuning.lookSensitivity;
+  // The inversions and the speed come from js/settings.js rather than from
+  // `tuning`. `tuning` is the debug console's scratchpad and does not persist,
+  // so "invert the camera" was a setting you had to make again every reload.
+  const sens = tuning.lookSensitivity * settings.lookSpeed();
+  pendingYaw   -= e.movementX * sens * settings.lookX();
+  pendingPitch -= e.movementY * sens * settings.lookY();
 });
 
 // Manual camera swing — player-initiated, never automatic. Puts the camera out
@@ -699,10 +722,10 @@ function updatePadView(dt) {
   if (pad.rx !== 0 || pad.ry !== 0) {
     recentering = false;
     lastLookAt = performance.now();   // parks the auto-trail, same as the mouse
-    camYaw -= pad.rx * PAD_LOOK_YAW * tuning.padLookSpeed * dt;
-    const pitchDir = tuning.padInvertY ? 1 : -1;
+    const padSpeed = tuning.padLookSpeed * settings.padSpeed();
+    camYaw -= pad.rx * PAD_LOOK_YAW * padSpeed * dt * settings.padX();
     camPitch = THREE.MathUtils.clamp(
-      camPitch + pitchDir * pad.ry * PAD_LOOK_PITCH * tuning.padLookSpeed * dt,
+      camPitch - pad.ry * PAD_LOOK_PITCH * padSpeed * dt * settings.padY(),
       -PITCH_LIMIT, PITCH_LIMIT
     );
   }
@@ -1426,6 +1449,22 @@ function frame() {
 
   const rawDt = clock.getDelta();
   const dt = Math.min(rawDt, 0.1);          // clamp so tab-outs don't lurch
+
+  // --- Paused ------------------------------------------------------------
+  // The clock is READ before this returns, which is the whole trick: getDelta
+  // resets on every call, so consuming it here means the frame the menu closes
+  // on sees an ordinary 16 ms rather than however many seconds the player
+  // spent reading. Skipping the read instead would hand the physics a
+  // thirty-second step and put him on the far side of the archipelago.
+  //
+  // It still renders. A pause that stops drawing is a pause that looks like a
+  // crash, and the menu is deliberately translucent so the world is visible
+  // behind it — sitting still, which is the point.
+  if (paused) {
+    // dt 0, so the grade's own time uniform stops with everything else.
+    post ? post.render(0) : renderer.render(scene, camera);
+    return;
+  }
   // Raw, not clamped: the governor wants to know a frame took 40 ms. It does
   // its own outlier handling, and feeding it the clamped value would hide
   // exactly the frames it exists to react to.

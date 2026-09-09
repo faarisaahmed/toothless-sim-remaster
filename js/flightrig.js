@@ -50,6 +50,31 @@ const HANG_SWEEP   = 0.40;  // raked back, the way a stalling wing sits
 const HANG_WRIST   = 0.60;  // the hand drops
 const HANG_FIN     = 0.35;  // tail fans past even its slow-flight spread
 
+// --- Curve under load -----------------------------------------------------
+// The thing that makes a wing a wing rather than a board.
+//
+// The camber above rides the beat's own sine, so before this he was exactly as
+// curved in a four-g carve as in a straight glide — the wings answered the
+// FLAP and nothing else. A membrane wing bows under load and stays bowed for
+// as long as the load lasts, and `state.load` is the real number for it: the
+// lateral acceleration of the turn and the vertical of a pull-up, in g.
+//
+// Three parts, and the tip one matters most. A wing does not bend evenly: the
+// spar is stiff at the shoulder and there is almost nothing holding the
+// membrane out at the tip, so under load the tips bend far more than the root.
+// That progressive bend is the shape the eye reads as lift.
+const LOAD_CAMBER  = 0.16;  // static bow per g, at the root
+const LOAD_TIP     = 0.30;  // ...and how much more of it at the tip
+const LOAD_ASYM    = 0.34;  // outer wing loads harder than the inner in a carve
+// The g at which the bow stops deepening, and it has to be read off the flight
+// model rather than picked: controls.js allows TURN_G = 196 m/s² of lateral
+// acceleration, so a full carve is TWENTY g and a cruise-speed one is eight.
+// The first version of this saturated at 3.2 and the wings were therefore
+// pegged at maximum bow through ordinary flying, which is the same as having no
+// load term at all. At 16 a cruise carve sits about half way and only a
+// flat-out one runs out of bend.
+const LOAD_MAX     = 16;    // g
+
 // Tail.
 const FIN_SPREAD  = 0.65;   // fans open when slow, furls when fast
 const FIN_RUDDER  = 0.55;   // differential deflection into a turn
@@ -104,7 +129,7 @@ export function setupFlightRig(root) {
   }));
 
   // Smoothed so a twitch on the stick does not snap the tail.
-  let sTurn = 0, sClimb = 0, sSpeed = 0, sHang = 0;
+  let sTurn = 0, sClimb = 0, sSpeed = 0, sHang = 0, sLoad = 0;
 
   /**
    * Hand every bone back.
@@ -131,6 +156,12 @@ export function setupFlightRig(root) {
     const knife = state.knife || 0;
     // Eased rather than taken raw: the hang is a pose he adopts, not a switch.
     sHang += ((state.hang || 0) - sHang) * damp(3.6, dt);
+    // Load eases in faster than the hang and out slower, which is how a
+    // membrane behaves: it takes the load the moment it arrives and lets go of
+    // it reluctantly. One rate for both made the wings snap flat the instant a
+    // carve ended, and the flattening is the half you actually notice.
+    const wantLoad = Math.min(LOAD_MAX, state.load || 0) / LOAD_MAX;
+    sLoad += (wantLoad - sLoad) * damp(wantLoad > sLoad ? 9 : 3.5, dt);
 
     // --- Legs -------------------------------------------------------------
     // Tucked in flight, and tucked harder the faster he goes. He used to fly
@@ -170,7 +201,15 @@ export function setupFlightRig(root) {
         // is what hooks the tips over instead of leaving them flat.
         const beatCurl = (camber + WASHOUT * k) * lag;
         const hangCurl = HANG_CAMBER + HANG_WASHOUT * k * k;
-        const curl = beatCurl * (1 - sHang) + hangCurl * sHang;
+        // The bow: static, not on the sine, and squared toward the tip so the
+        // bend is progressive rather than a uniform fold. The outer wing of a
+        // carve takes more of it than the inner, which is what makes a hard
+        // turn read as asymmetric rather than as a symmetric flap in a bank.
+        const asym = 1 - LOAD_ASYM * sTurn * sign;
+        const bow = (LOAD_CAMBER + LOAD_TIP * k * k) * sLoad * asym;
+        // Suppressed by the hang, which is its own held shape and would
+        // otherwise be fighting this for the same bones.
+        const curl = beatCurl * (1 - sHang) + hangCurl * sHang + bow * (1 - sHang);
         const sweep = SWEEP_DIGIT * sSpeed * k * (1 - sHang) + HANG_SWEEP * k * sHang;
         for (let g = 0; g < 3; g++) {
           const n = `Wing_Finger${String(d * 3 + g + 1).padStart(3, "0")}${s}`;
