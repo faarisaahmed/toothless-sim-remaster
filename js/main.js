@@ -820,12 +820,62 @@ const RUN_ACCEL = 2.1;         // how fast he winds up into it
 const WALK_ACCEL = 3.2;        // and how fast he answers at a walk
 const GRAVITY = 26;            // m/s^2 during the drop onto the ground
 const FOOT_CLEAR = 0.35;       // where his feet sit relative to the height field
+// His footprint, fore-aft and across. The slope is sampled over this, and it is
+// also what decides how far the ORIGIN has to rise on a hillside: he pivots
+// about his origin, so on a slope the downhill end of a 3.2 m body drops
+// 3.2·tan(slope) below it. At 30 degrees that is 1.8 m and the origin was only
+// ever lifted 0.35 — which is why landing on anything but the flat buried one
+// side of him in the rock and left the other hanging in the air.
+const FOOT_R = 3.2;            // m
+// Steeper than this and there is nowhere to stand. Refusing is better than
+// letting him land on a cliff face and stand at sixty degrees to the world.
+const LAND_SLOPE_MAX = 0.62;   // radians, ~36 degrees
+
+/**
+ * The attitude of the ground under him, and how far his origin has to sit
+ * above the height field to keep all four feet on it.
+ *
+ * Shared by the walk loop and by land(), which is the point: the landing used
+ * to hold him level through the drop and only start matching the slope on the
+ * first frame of walking, from whatever pitch and roll were left over from the
+ * last hillside he stood on. So he arrived flat, then lurched.
+ */
+function groundAttitude(x, z, nx, nz) {
+  const hF = world.getHeightAt(x + nx * FOOT_R, z + nz * FOOT_R);
+  const hB = world.getHeightAt(x - nx * FOOT_R, z - nz * FOOT_R);
+  const hL = world.getHeightAt(x - nz * FOOT_R, z + nx * FOOT_R);
+  const hR = world.getHeightAt(x + nz * FOOT_R, z - nx * FOOT_R);
+  const pitch = Math.atan2(hF - hB, FOOT_R * 2);
+  const roll = Math.atan2(hR - hL, FOOT_R * 2);
+
+  // How much the origin has to rise, and it is a much smaller number than it
+  // first looks. The first version was FOOT_R·(|tan pitch| + |tan roll|), on
+  // the reasoning that a body pivoting about its origin drops its downhill end
+  // below it — which is true, and irrelevant, because the attitude above is
+  // fitted to the same slope, so the feet come down WITH the ground. Adding it
+  // anyway left him hovering 1.7 m over a 21-degree hillside.
+  //
+  // What is actually needed is the RESIDUAL: the plane fitted through those
+  // four samples is only a plane, and real ground is bumpy, so this is how far
+  // the worst of the four sits above the fit. Zero on anything flat or evenly
+  // sloped, a few centimetres on rough ground, and enough on a convex ridge to
+  // keep his feet out of the rock.
+  const hC = world.getHeightAt(x, z);
+  const dF = (hF - hB) / 2, dS = (hR - hL) / 2;
+  const lift = Math.max(0,
+    hF - (hC + dF), hB - (hC - dF),
+    hR - (hC + dS), hL - (hC - dS));
+  return { pitch, roll, lift, steep: Math.hypot(pitch, roll) };
+}
 // The baseline the impact slope is measured over. Fixed, not scaled by speed:
 // the question "is this a wall" is about the terrain, not about him.
 const IMPACT_BASELINE = 25;    // m
 let fallSpeed = 0;             // vertical velocity while settling
 let settling = false;          // dropping onto the ground, not walking yet
-let slopePitch = 0, slopeRoll = 0;
+// The flare. Where his attitude started when he committed to the landing, where
+// the hillside says it should end up, and how far through we are.
+let settleFrom = null, settleTo = null, settleT = 0;
+let slopePitch = 0, slopeRoll = 0, slopeLift = 0;
 let nightAmount = 0, nightTarget = 0;
 
 window.addEventListener("keydown", (e) => {
@@ -865,6 +915,17 @@ function land() {
   fallSpeed = 0;
   walkYaw = controls?.getHeading() ?? 0;
   walkSpeed = 0;
+
+  // Read the hillside NOW, before the drop, and seed the attitude with it so
+  // he flares onto the slope through the fall instead of arriving flat and
+  // then rotating into it. `slopePitch` and `slopeRoll` were whatever was left
+  // over from the last patch of ground he stood on, which on a fresh landing
+  // several islands away is a completely arbitrary attitude to start from.
+  const att = groundAttitude(dragon.position.x, dragon.position.z,
+                             Math.sin(walkYaw), Math.cos(walkYaw));
+  settleFrom = { pitch: slopePitch, roll: slopeRoll, lift: slopeLift };
+  settleTo = att;
+  settleT = 0;
 
   // Hand every bone back before the ground rig takes over. Both of these write
   // rest+delta every frame, so the moment they stop being called the pose
@@ -1596,13 +1657,27 @@ function frame() {
     const overLand = gh > world.seaLevel + 3;
 
     if (grounded && !game.cine) {
-      const deck = gh + FOOT_CLEAR;
+      // The lift matters here too: falling to `gh + 0.35` on a hillside means
+      // falling straight past the point where his downhill feet met the rock.
+      const deck = gh + FOOT_CLEAR + (settling && settleTo ? settleTo.lift : slopeLift);
 
       if (settling) {
         // Fall onto it. Short, but it is the difference between arriving and
         // being placed.
         fallSpeed += GRAVITY * dt;
         dragon.position.y -= fallSpeed * dt;
+
+        // Rotate into the hillside on the way down. An animal landing on a
+        // slope has its legs and its whole body already angled for the ground
+        // before it touches; arriving level and correcting afterwards is the
+        // single thing that made this look broken.
+        settleT = Math.min(1, settleT + dt * 2.2);
+        const k = settleT * settleT * (3 - 2 * settleT);
+        if (settleFrom && settleTo) {
+          slopePitch = THREE.MathUtils.lerp(settleFrom.pitch, settleTo.pitch, k);
+          slopeRoll = THREE.MathUtils.lerp(settleFrom.roll, settleTo.roll, k);
+          slopeLift = THREE.MathUtils.lerp(settleFrom.lift, settleTo.lift, k);
+        }
         // Fold on the way DOWN, not once he has stopped. This is the drop, and a
         // dragon flaring to land has his wings coming in through it — waiting
         // for the thump meant a second and a half of him falling with his wings
@@ -1612,11 +1687,19 @@ function frame() {
         if (dragon.position.y <= deck) {
           dragon.position.y = deck;
           settling = false;
+          // Snap the last of the flare, so the first walking frame is not a
+          // discontinuity from a half-finished blend.
+          if (settleTo) {
+            slopePitch = settleTo.pitch;
+            slopeRoll = settleTo.roll;
+            slopeLift = settleTo.lift;
+          }
           // Thump scaled by how hard he came in.
           pad.rumble.pulse(THREE.MathUtils.clamp(fallSpeed / 22, 0.25, 1), 1, 0.3);
           fallSpeed = 0;
         }
-        dragon.rotation.set(0, walkYaw + Math.PI, 0);
+        dragon.rotation.order = "YXZ";
+        dragon.rotation.set(-slopePitch, walkYaw + Math.PI, slopeRoll);
       } else {
         const turn = (walkKeys.a ? 1 : 0) - (walkKeys.d ? 1 : 0);
         // Two gears, and the turn rate falls off as he picks up speed — mixed
@@ -1642,21 +1725,18 @@ function frame() {
         dragon.position.z += nz * walkSpeed * dt;
 
         // Stick to the ground, but not instantly — a step up a rock should be a
-        // step, not a snap.
-        const target = world.getHeightAt(dragon.position.x, dragon.position.z) + FOOT_CLEAR;
+        // step, not a snap. `slopeLift` is what keeps the downhill half of him
+        // out of the rock once he is pitched over to match it.
+        const target = world.getHeightAt(dragon.position.x, dragon.position.z)
+                     + FOOT_CLEAR + slopeLift;
         dragon.position.y += (target - dragon.position.y) * damp(11, dt);
 
         // Sit on the slope. Sample the height field along his nose and across
         // it; that is the surface he is standing on, so that is his attitude.
-        const R = 3.2;
-        const hF = world.getHeightAt(dragon.position.x + nx * R, dragon.position.z + nz * R);
-        const hB = world.getHeightAt(dragon.position.x - nx * R, dragon.position.z - nz * R);
-        const hL = world.getHeightAt(dragon.position.x - nz * R, dragon.position.z + nx * R);
-        const hR = world.getHeightAt(dragon.position.x + nz * R, dragon.position.z - nx * R);
-        const wantPitch = Math.atan2(hF - hB, R * 2);
-        const wantRoll = Math.atan2(hR - hL, R * 2);
-        slopePitch += (wantPitch - slopePitch) * damp(5, dt);
-        slopeRoll += (wantRoll - slopeRoll) * damp(5, dt);
+        const att = groundAttitude(dragon.position.x, dragon.position.z, nx, nz);
+        slopePitch += (att.pitch - slopePitch) * damp(5, dt);
+        slopeRoll += (att.roll - slopeRoll) * damp(5, dt);
+        slopeLift += (att.lift - slopeLift) * damp(5, dt);
 
         dragon.rotation.order = "YXZ";
         dragon.rotation.set(-slopePitch, walkYaw + Math.PI, slopeRoll);
@@ -1689,7 +1769,13 @@ function frame() {
       // R is the one context key, so it has to pick. If there is something to
       // interact with in range, that wins — otherwise R lands.
       const busy = interactAt && dragon.position.distanceTo(interactAt) < interactRange;
-      const canLand = overLand && agl < LAND_AGL && slow && !busy;
+      // Nowhere to stand on a cliff face. Without this he could land on a
+      // sixty-degree rock wall and stand there at sixty degrees to the world.
+      const tooSteep = overLand && agl < LAND_AGL &&
+        groundAttitude(dragon.position.x, dragon.position.z,
+          Math.sin(controls?.getHeading() ?? 0),
+          Math.cos(controls?.getHeading() ?? 0)).steep > LAND_SLOPE_MAX;
+      const canLand = overLand && agl < LAND_AGL && slow && !busy && !tooSteep;
       if (canLand && holdR) {
         landHold += dt;
         if (landHold > 0.4) { land(); landHold = 0; }
@@ -1712,6 +1798,8 @@ function frame() {
         game.setPrompt(agl < 140 ? "No land below — find an island" : null, { blocked: true });
       } else if (!slow) {
         game.setPrompt(`Too fast to land — let go of ${keymap.keyTag("forward")}`, { blocked: true });
+      } else if (tooSteep) {
+        game.setPrompt("Too steep to stand — find flatter ground", { blocked: true });
       } else if (agl < 260) {
         game.setPrompt(`Too high to land — hold ${keymap.keyTag("down")} to drop`, { blocked: true });
       } else {

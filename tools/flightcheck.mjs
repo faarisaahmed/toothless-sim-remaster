@@ -170,3 +170,56 @@ console.log("\n--- zoom, stall, dive ---");
     `${mph(c.getSpeed() - entrySpeed)} mph of speed`);
   key("KeyW", false); key("ShiftLeft", false);
 }
+
+// 6. The trim, and a zoom entered flat out.
+//
+// The trim is the answer to "I just want to lose a little height": above the
+// entry speed the axis used to be all or nothing, so dropping twenty metres
+// meant committing to a dive and pulling out of it.
+console.log("\n--- trim vs commit ---");
+{
+  const up = keysFor("up")[0], down = keysFor("down")[0];
+  const runFor = (keys, secs, extra = []) => {
+    const dragon = new THREE.Object3D();
+    const c = setupDragonControls(dragon, () => 0, null);
+    for (const k of [...extra]) key(k, true);
+    for (let i = 0; i < 300; i++) c.update(1 / 60);   // up to speed
+    const y0 = dragon.position.y, s0 = c.getSpeed();
+    for (const k of keys) key(k, true);
+    for (let i = 0; i < 60 * secs; i++) c.update(1 / 60);
+    for (const k of keys) key(k, false);
+    const r = { dy: dragon.position.y - y0, mode: c.getMode(), mph: mph(c.getSpeed()),
+                from: mph(s0) };
+    for (const k of extra) key(k, false);
+    return r;
+  };
+  // A tap: shorter than MANOEUVRE_HOLD, so it must stay level and just trim.
+  const tap = runFor([up], 0.3, ["KeyW", "ShiftLeft"]);
+  console.log(`  tap up 0.3 s      ${tap.dy >= 0 ? "+" : ""}${tap.dy.toFixed(1)} m, mode ${tap.mode}` +
+    (tap.mode === "level" ? "   <- a trim, as it should be" : "   <- SHOULD NOT HAVE COMMITTED"));
+  const tapDown = runFor([down], 0.3, ["KeyW", "ShiftLeft"]);
+  console.log(`  tap down 0.3 s    ${tapDown.dy.toFixed(1)} m, mode ${tapDown.mode}`);
+  // Held: past the threshold, so it commits.
+  const held = runFor([up], 1.2, ["KeyW", "ShiftLeft"]);
+  console.log(`  hold up 1.2 s     +${held.dy.toFixed(0)} m, mode ${held.mode}` +
+    (held.mode === "zoom" ? "   <- committed" : "   <- DID NOT COMMIT"));
+}
+{
+  // Flat out into a zoom. This is the case that did not read as costing
+  // anything: at a flat 30 m/s^2 it took eleven seconds to bleed 335 m/s off.
+  const dragon = new THREE.Object3D();
+  const c = setupDragonControls(dragon, () => 0, null);
+  const up = keysFor("up")[0];
+  key("KeyW", true); key("KeyB", true);
+  for (let i = 0; i < 300; i++) c.update(1 / 60);
+  const s0 = c.getSpeed(), y0 = dragon.position.y;
+  key(up, true);
+  let t = 0, stall = null;
+  for (let i = 0; i < 60 * 20; i++) {
+    c.update(1 / 60); t += 1 / 60;
+    if (c.didStall()) { stall = t; break; }
+  }
+  key(up, false); key("KeyW", false); key("KeyB", false);
+  console.log(`  flat out zoom     from ${mph(s0)} mph -> stalled after ` +
+    `${stall ? stall.toFixed(1) + " s, " + Math.round(dragon.position.y - y0) + " m up" : "NEVER"}`);
+}

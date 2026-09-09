@@ -121,7 +121,24 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // speed you left with, having gone up and over. Diving from height you did
   // not pay for is what actually makes you fast.
   const CLIMB_ENTRY_SPEED = 105;              // m/s (~235 mph) before up goes vertical
-  const CLIMB_DRAG        = 30;               // m/s^2 of airspeed spent climbing
+  // How long up or down has to be HELD before it commits to a manoeuvre.
+  //
+  // Without this there was no way to lose a little height at speed: above the
+  // entry speed the axis was all or nothing, so wanting to drop twenty metres
+  // meant committing to a dive and pulling out of it. A press shorter than this
+  // is a TRIM — the gentle thing — and only leaning on the key stands him on
+  // his tail. It also means a fumbled tap cannot fling you into a stall.
+  const MANOEUVRE_HOLD    = 0.42;             // s
+  // What a trim is worth. Fixed rather than scaled by airspeed, which is the
+  // whole point of it: the ordinary lift axis gives 9 + 0.45·airspeed, and at
+  // 335 m/s that is a 140 m/s climb — the opposite of a small adjustment.
+  const TRIM_RATE         = 26;               // m/s
+  const CLIMB_DRAG        = 34;               // m/s^2 of airspeed spent climbing
+  // ...plus this much per (m/s)^2, because drag is not a constant and a climb
+  // that took eleven seconds to bleed 335 m/s off did not read as costing
+  // anything. With this, going vertical at 750 mph runs out in about four
+  // seconds and you can watch the number fall the whole way.
+  const CLIMB_DRAG_V2     = 6.0e-4;
   const STALL_SPEED       = 15;               // m/s where the wings stop holding him
   const STALL_HANG        = 0.5;              // s hanging at the top before the nose drops
   const NOSE_OVER_RATE    = 2.2;              // rad/s the nose swings through the stall
@@ -210,6 +227,12 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   let stalled     = false;     // true for one frame when the wings let go
   let recoverHold = 0;         // s of keeping the speed a dive earned
   let diveCommit  = 0;         // s of dive he cannot pull out of, after a stall
+  let vertHeld    = 0;         // s the up/down axis has been held one way
+  let vertHeldDir = 0;         // and which way, so a reversal resets the clock
+
+  /** How far through the climb's airspeed budget he is, 0 fresh .. 1 stalling. */
+  const getStallT01 = () => 1 - THREE.MathUtils.clamp(
+    (airspeed - STALL_SPEED) / (CLIMB_ENTRY_SPEED - STALL_SPEED), 0, 1);
   let pathAngle   = 0;   // radians off the horizontal — derived, for the visuals
   let airspeed    = SPEED_CRUISE;
   let currentRoll  = 0;
@@ -489,13 +512,21 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     const wantUp = verticalInput > 0.55, wantDown = verticalInput < -0.55;
     const setMode = (m) => { if (m !== mode) { mode = m; modeT = 0; } };
 
+    // How long the axis has been held one way. Reset the moment it centres or
+    // reverses, so a tap is always a tap.
+    if (wantUp && vertHeldDir === 1) vertHeld += dt;
+    else if (wantDown && vertHeldDir === -1) vertHeld += dt;
+    else { vertHeld = 0; vertHeldDir = wantUp ? 1 : wantDown ? -1 : 0; }
+    const committed = vertHeld >= MANOEUVRE_HOLD;
+
     if (mode === "level") {
-      if (wantUp && airspeed >= CLIMB_ENTRY_SPEED) setMode("zoom");
-      else if (wantDown && airspeed >= DIVE_ENTRY_SPEED) setMode("dive");
+      if (committed && wantUp && airspeed >= CLIMB_ENTRY_SPEED) setMode("zoom");
+      else if (committed && wantDown && airspeed >= DIVE_ENTRY_SPEED) setMode("dive");
     } else if (mode === "zoom") {
       // Straight up, and it costs. Letting go levels him off with whatever he
       // has left, which is the skill in it: too long and the wings let go.
-      airspeed = Math.max(0, airspeed - CLIMB_DRAG * dt);
+      airspeed = Math.max(0, airspeed -
+        (CLIMB_DRAG + airspeed * airspeed * CLIMB_DRAG_V2) * dt);
       pathAngle += (Math.PI / 2 - pathAngle) * damp(NOSE_OVER_RATE, dt);
       if (!wantUp) setMode("recover");
       else if (airspeed <= STALL_SPEED) { setMode("stall"); stalled = true; }
@@ -535,7 +566,13 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // Fast dragons climb faster than slow ones, so the rate rides on airspeed —
     // but it never falls to nothing, because hovering and rising is exactly the
     // thing this axis exists to make possible.
-    const vertRate = Math.min(
+    // Below the entry speed this is the original lift and is left alone: it is
+    // what makes hovering and rising possible and it is tuned. At or above it,
+    // an uncommitted press is a TRIM instead — a gentle nudge up or down —
+    // because the same formula at 335 m/s asks for a 140 m/s climb, and
+    // "gentle" is exactly what was missing.
+    const trimming = !manoeuvring && airspeed >= CLIMB_ENTRY_SPEED;
+    const vertRate = trimming ? TRIM_RATE : Math.min(
       VERT_HOVER + Math.abs(airspeed) * VERT_PER_SPEED, CLIMB_RATE_CAP
     );
     climbVel += (verticalInput * vertRate - climbVel) * damp(VERT_LAMBDA, dt);
@@ -755,6 +792,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
      * about, because the controls stop answering for about half a second.
      */
     getMode: () => mode,
+    /** 0..1 of the way to committing to a zoom or a dive. Drives the HUD. */
+    getCommitT: () => Math.min(1, vertHeld / MANOEUVRE_HOLD),
     /** True for the single frame the wings let go at the top of a zoom. */
     didStall: () => stalled,
     /**
@@ -765,10 +804,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     getEnergy: (agl = 0) => THREE.MathUtils.clamp(
       (airspeed / DIVE_MAX) * 0.6 + Math.min(1, agl / 900) * 0.4, 0, 1),
     /** How close he is to running out of airspeed on the way up. */
-    getStallT: () => mode === "zoom"
-      ? 1 - THREE.MathUtils.clamp((airspeed - STALL_SPEED) /
-            (CLIMB_ENTRY_SPEED - STALL_SPEED), 0, 1)
-      : 0,
+    getStallT: () => (mode === "zoom" ? getStallT01() : 0),
     /** How far up his range the sustained throttle has him, burst excluded. */
     getPedalT:   () => THREE.MathUtils.clamp(
       (activeSpeed - SPEED_MIN) / (PEDAL_MAX - SPEED_MIN), 0, 1),
@@ -804,6 +840,14 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       // How hard he is carving, -1 .. +1. js/flightrig.js steers the tail fins
       // and leans his head with it; wings.js ignores it.
       turn:   THREE.MathUtils.clamp(yawRate / Math.max(yawMaxNow, 1e-4), -1, 1),
+      // 0..1 of the HANG — the pose at the top of a zoom, wings held wide and
+      // curling, nose up, tail fanned, no beat in it. It comes on with the last
+      // of his airspeed rather than snapping on at the stall, because that is
+      // when it starts happening: the wings stop driving him and start just
+      // holding him, and you should be able to see that coming.
+      hang: mode === "stall" ? 1
+          : mode === "zoom" ? Math.max(0, (getStallT01() - 0.45) / 0.55)
+          : 0,
     }),
     getKnifeCharge: () => knifeCharge / KNIFE_HOLD,
 

@@ -35,6 +35,21 @@ const WASHOUT     = 0.22;   // extra curl toward the wingtip
 const WRIST_FLEX  = 0.45;   // hand folds in on the upstroke, like a bat's
 const SWEEP_DIGIT = 0.34;   // digits rake back with speed
 
+// --- The hang -------------------------------------------------------------
+// The pose at the top of a zoom climb, once the airspeed is gone: wings held
+// wide and CURLING rather than beating, tips raked back, hand dropped, tail
+// fanned. It is the shape of a wing that has stopped flying and is only hanging
+// on the air, and it is what he does in the films at the top of a climb.
+//
+// It REPLACES the beat's camber rather than adding to it, mixed by `hang`. A
+// wing curling on a sine wave is a wing still working, and the whole point of
+// this pose is that he has stopped.
+const HANG_CAMBER  = 0.62;  // curl into the digits, deep and static
+const HANG_WASHOUT = 0.55;  // and much more at the tip, so the tips hook over
+const HANG_SWEEP   = 0.40;  // raked back, the way a stalling wing sits
+const HANG_WRIST   = 0.60;  // the hand drops
+const HANG_FIN     = 0.35;  // tail fans past even its slow-flight spread
+
 // Tail.
 const FIN_SPREAD  = 0.65;   // fans open when slow, furls when fast
 const FIN_RUDDER  = 0.55;   // differential deflection into a turn
@@ -89,7 +104,7 @@ export function setupFlightRig(root) {
   }));
 
   // Smoothed so a twitch on the stick does not snap the tail.
-  let sTurn = 0, sClimb = 0, sSpeed = 0;
+  let sTurn = 0, sClimb = 0, sSpeed = 0, sHang = 0;
 
   /**
    * Hand every bone back.
@@ -114,6 +129,8 @@ export function setupFlightRig(root) {
     sClimb += ((state.climb || 0) - sClimb) * damp(3.0, dt);
     sSpeed += ((state.speedT || 0) - sSpeed) * damp(2.5, dt);
     const knife = state.knife || 0;
+    // Eased rather than taken raw: the hang is a pose he adopts, not a switch.
+    sHang += ((state.hang || 0) - sHang) * damp(3.6, dt);
 
     // --- Legs -------------------------------------------------------------
     // Tucked in flight, and tucked harder the faster he goes. He used to fly
@@ -140,14 +157,21 @@ export function setupFlightRig(root) {
 
     for (const s of SIDES) {
       const sign = s === "L" ? 1 : -1;
-      // Hand folds in on the recovery, so he is not dragging a full wing back up.
-      set(`Wing_Forearm${s}`, "z", WRIST_FLEX * upstroke * amp * sign);
+      // Hand folds in on the recovery, so he is not dragging a full wing back
+      // up — and in the hang it simply stays dropped.
+      set(`Wing_Forearm${s}`, "z",
+        (WRIST_FLEX * upstroke * amp * (1 - sHang) + HANG_WRIST * sHang) * sign);
 
       for (let d = 0; d < 6; d++) {
         const k = d / 5;                                   // 0 inner .. 1 tip
         const lag = Math.sin(phase - CAMBER_LAG * k);
-        const curl = (camber + WASHOUT * k) * lag;
-        const sweep = SWEEP_DIGIT * sSpeed * k;
+        // Two curls, mixed by the hang. The beat's rides a sine — a wing still
+        // working. The hang's is static and much deeper toward the tip, which
+        // is what hooks the tips over instead of leaving them flat.
+        const beatCurl = (camber + WASHOUT * k) * lag;
+        const hangCurl = HANG_CAMBER + HANG_WASHOUT * k * k;
+        const curl = beatCurl * (1 - sHang) + hangCurl * sHang;
+        const sweep = SWEEP_DIGIT * sSpeed * k * (1 - sHang) + HANG_SWEEP * k * sHang;
         for (let g = 0; g < 3; g++) {
           const n = `Wing_Finger${String(d * 3 + g + 1).padStart(3, "0")}${s}`;
           // Segment 1 rakes back with speed; all three share the camber, more
@@ -161,7 +185,8 @@ export function setupFlightRig(root) {
     // --- Tail fins: rudder and elevator -----------------------------------
     // Spread wide when slow because that is when he needs the authority, furled
     // when fast because that is when he does not and it costs drag.
-    const spread = FIN_SPREAD * (1 - sSpeed) - Math.abs(knife) * 0.25;
+    const spread = FIN_SPREAD * (1 - sSpeed) - Math.abs(knife) * 0.25
+                 + HANG_FIN * sHang;
     for (const s of SIDES) {
       const sign = s === "L" ? 1 : -1;
       const rudder = FIN_RUDDER * sTurn * sign;

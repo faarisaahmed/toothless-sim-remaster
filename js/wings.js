@@ -38,9 +38,16 @@ export function setupWings(boneLeft, boneRight, tuning) {
 
     // Beating hard is for climbing. Diving, going fast, or knife-edging all
     // mean the wings go still and pull in instead.
+    // The hang, from controls.js: at the top of a zoom climb the wings stop
+    // driving him and only hold him. Beating through that would undo the whole
+    // pose js/flightrig.js builds for it — a wing cannot be held still and
+    // flapping at the same time. `climb` is near its maximum up there, so
+    // without this the beat is at its HARDEST exactly when it should have
+    // stopped.
+    const hang = state.hang || 0;
     const targetAmp = THREE.MathUtils.clamp(
       0.6 + climb * 0.4 - speedT * 0.4 - knife * 0.35, 0.05, 1.15
-    );
+    ) * (1 - hang * 0.92);
     const targetSweep = THREE.MathUtils.clamp(
       Math.max(0, -climb) * 0.65 + speedT * 0.5 + knife * 0.6, 0, 1
     );
@@ -50,7 +57,7 @@ export function setupWings(boneLeft, boneRight, tuning) {
 
     // Tucked wings beat faster and shallower, like a bird in a stoop.
     const rate = (BEAT_BASE + climb * 2.0 - speedT * 0.8 - sweep * 1.2)
-               * tuning.flapSpeed;
+               * tuning.flapSpeed * (1 - hang * 0.85);
     phase += Math.max(0.4, rate) * dt;
 
     const flapAmount  = amp * tuning.flapAmplitude * MAX_FLAP;
