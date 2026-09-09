@@ -13,6 +13,57 @@ Sizes are the glTF bounding box in metres, **X x Y x Z** with +Y up and
 +Z forward. Every model sits on the ground plane at its footprint centre
 unless the notes say otherwise. No node carries a rotation or a scale.
 
+## What the detail pass changed
+
+These were 19,445 triangles across 39 models. They are now about twenty
+times that, and almost none of it went on making curves rounder -- a
+70 mm pole with sixteen sides costs four times a nine-sided one and no
+camera in the game can tell. It went on **parts**:
+
+* Every hard edge is chamfered, by a width taken from the material:
+  4 mm on sawn wood, 6 mm on adzed timber, 3 mm on rolled iron, 32 mm on
+  weathered stone. Nothing real has a mathematically sharp edge, and the
+  highlight running along an arris is what tells the eye a thing is solid.
+  Surfaces authored as curved -- rock, rope, hulls -- are left alone, and
+  so are edges barely longer than their own chamfer, like a bolt head.
+* Shading is smooth everywhere with the creases marked sharp, so the two
+  or three faces across a chamfer read as one rounded edge and the flat
+  face beyond it stays flat.
+* `COLOR_0` is now **real ambient occlusion**, ray-cast against the model
+  itself with a ground plane in the target set. See the note below.
+* Things that were built are now built out of the parts they are built
+  from: decks are boards with gaps and a nail over every bearer, the
+  barrel is fifteen staves in three riveted hoops, the crate is boarded
+  and strapped, roofs are laid in courses of individual shingles or
+  bundles of thatch, walls are staves standing on a drystone footing,
+  hulls are lapstrake, chain is interlocking links, rope is three strands
+  laid right-handed, and there are a few hundred fastener heads across
+  the set.
+* Things that were found are irregular: poles bend and carry knots,
+  no two footing stones are the same stone, and the sea stack has
+  bedding planes cut into it.
+
+## Triangle budgets are set by instance count, not importance
+
+The class in the table below is about how many of a prop the level
+stamps out, because that is what decides what a triangle costs:
+
+| Class | Budget | Instances | Why |
+|---|---:|---|---|
+| `tiled` | 1,000 | 500+ | `rig_deck_4m` only. ~600 modules merge into one floor mesh, so one triangle here is 600 triangles on screen. It is the one model in the set with no chamfers. |
+| `scatter` | 3,000 | dozens | crates, barrels, pilings, fish, kelp |
+| `small` | 9,000 | a handful | lanterns, plates, driftwood, braziers |
+| `medium` | 16,000 | a handful | racks, small cages, the rowing boat |
+| `structure` | 40,000 | 1-20 | houses, the dock, the big cage, the wreck |
+| `hero` | 110,000 | 1-3 | the longhouse, the crane, the arch, the knarr |
+
+At the placements in `js/places.js` today, the rig comes to roughly
+0.95 M triangles (half of it the deck) against about 150 k before. That
+is one or two draw calls after `mergeStatic`, so it is vertex throughput
+rather than draw calls -- fine on a desktop GPU, heavy for a phone. If
+that matters, say so and the heavy repeated props get decimated LOD
+files alongside them; nothing here assumes they exist.
+
 ### One deviation from the brief, on purpose
 
 The brief asks for non-overlapping UVs. These ship with **metre-scale**
@@ -22,9 +73,9 @@ texel density and correct grain direction -- the two things the brief
 wanted out of the unwrap -- and it is what `js/textures.js` needs, since
 its materials are `RepeatWrapping` with a `repeat` factor and would be
 stretched by per-model islands packed into 0..1. Islands do overlap in
-UV space; nothing here is baked, so nothing reads it as a fault. Say the
-word and I will repack, but the repeat factors would then have to be set
-per model instead of once per material.
+UV space; nothing here is baked into a texture, so nothing reads it as a
+fault. Say the word and I will repack, but the repeat factors would then
+have to be set per model instead of once per material.
 
 ### Material slots
 
@@ -35,15 +86,36 @@ list does not cover, and I substituted rather than inventing a slot:
 | Model | Wanted | Shipped as | Why |
 |---|---|---|---|
 | `berk_house_b.glb` | thatch | `rope` | Thatch is bundled straw; `rope` is the only fibre slot and reads correctly. |
-| `berk_house_a.glb` | turf | `wood_dark` shingles | No slot can be green, so it got a shingle roof instead of a lie. |
+| `berk_house_a.glb` | turf | `wood_dark` shingles | No slot can be green, so it got a cleft-shingle roof instead of a lie. |
 | `kelp.glb` | weed | `hide` | Kelp blades are brown and leathery; `hide` is the closest read in the list. |
 
 If you would rather add a `turf` or `weed` slot, say so and these three
 are a one-line change each.
 
-Every model also ships a greyscale `COLOR_0` attribute: cheap contact
-darkening near the ground and on downward faces, multiply it in or
-ignore it. It is not a baked AO and there is no baked lighting anywhere.
+### The occlusion in `COLOR_0`, and the one line needed to see it
+
+Every model ships a greyscale `COLOR_0`. It used to be a height ramp
+above the ground plus a bias on downward faces. It is now baked ambient
+occlusion: twenty-four stratified cosine-weighted rays per vertex, cast
+against a triangulated copy of the model with a ground plane added, with
+a linear falloff on hit distance. That is why the inside of a cage is
+dark and the outside is not, and where the contact shadow under a skid
+or a hull comes from -- a ramp cannot know either of those, and knowing
+them is most of what makes a built thing look built.
+
+It is stored **linear**, in a `FLOAT_COLOR` attribute. That matters: a
+byte colour attribute is sRGB, and Blender's exporter converts it, so
+the old 0.13 contact shadows shipped as 0.015 -- black. Occlusion is a
+multiplier on radiance and has to travel as linear light.
+
+**`js/props.js` does not read it yet.** The slot materials in `slots()`
+are built without `vertexColors`, so three.js ignores the attribute and
+the bake is invisible in game. Adding `vertexColors: true` to each of
+them turns it on, and it is free -- no extra texture, no extra draw
+call. Note that `mergeStatic` in `js/places.js` deletes every attribute
+except position, normal and uv, so the merged rig floor would need
+`color` kept in that list too. Both are one-liners in code this session
+does not own; nothing else here depends on them.
 
 ### Moving parts
 
@@ -55,46 +127,46 @@ axis, no rotation or scale baked into the node:
 
 ### The models
 
-| File | Tris | Budget | Size (m) | Slots | Nodes | Notes |
-|---|---:|---:|---|---|---|---|
-| `berk_dock.glb` | 1072 | 3000 | 2.68 x 2.03 x 12.00 | `wood`, `wood_dark`, `iron`, `rope` | `berk_dock` | 12 m jetty, deck top at y=1.60 |
-| `berk_drying_rack.glb` | 1124 | 1200 | 3.44 x 2.22 x 1.27 | `wood_dark`, `rope`, `hide` | `berk_drying_rack` | 3.4 m, ten fish on two lines |
-| `berk_fence_4m.glb` | 196 | 400 | 0.26 x 1.42 x 4.00 | `wood`, `wood_dark` | `berk_fence_4m` | modular, butts end to end on the 4 m grid |
-| `berk_house_a.glb` | 1160 | 3000 | 5.54 x 4.76 x 8.15 | `wood`, `wood_dark`, `stone` | `berk_house_a` | 7.2 m, shingle roof |
-| `berk_house_b.glb` | 1184 | 3000 | 5.04 x 4.76 x 7.42 | `wood`, `wood_dark`, `stone`, `rope`, `cloth` | `berk_house_b` | 6.4 m, thatched roof in `rope`, awning porch. See the slot note |
-| `berk_longhouse.glb` | 1744 | 8000 | 10.15 x 7.99 x 19.53 | `wood`, `wood_dark`, `stone`, `iron` | `berk_longhouse` | 18 m hall, ridge at 6.9 m, carved gable posts, door on +Z |
-| `berk_totem.glb` | 560 | 1200 | 2.95 x 4.70 x 1.86 | `wood_dark`, `stone`, `rope` | `berk_totem` | 5.2 m carved post on a stone footing |
-| `boat_row.glb` | 722 | 1200 | 1.65 x 0.63 x 4.38 | `wood`, `wood_dark`, `rope` | `boat_row` | 4.3 m open boat, sound and dry. Three thwarts, oars shipped. Waterline y=0.34 |
-| `boat_supply.glb` | 1336 | 8000 | 6.40 x 8.40 x 16.21 | `wood`, `wood_dark`, `rope`, `cloth` | `boat_supply` | 14 m hull, 16.2 m over the stem and stern posts. Furled sail. Waterline y=1.05 |
-| `buoy.glb` | 144 | 400 | 0.60 x 1.55 x 0.64 | `wood`, `wood_dark`, `iron`, `cloth` | `buoy` | float with a marker pole. Waterline y=0.30 |
-| `fish.glb` | 70 | 400 | 0.09 x 0.11 x 0.43 | `hide` | `fish` | 0.35 m, instanced in the hundreds; 70 tris |
-| `kelp.glb` | 153 | 400 | 1.36 x 2.56 x 1.02 | `hide` | `kelp` | three fronds for shallows, 2.6 m tallest. Uses `hide` -- see the slot note |
-| `rig_barrel.glb` | 156 | 400 | 0.71 x 0.90 x 0.68 | `wood`, `iron` | `rig_barrel` | 0.9 m tall, stands upright |
-| `rig_brazier.glb` | 140 | 400 | 0.92 x 1.46 x 0.92 | `iron`, `ember` | `rig_brazier` | the one the player snuffs. Coals are the only `ember` faces, 32 tris of them |
-| `rig_cage_door_open.glb` | 156 | 1200 | 0.81 x 2.71 x 2.64 | `iron` | `rig_cage_door_open` | the same door, swung 105 deg. Place at the cage hinge: local (-1.35, 0, 2.25) |
-| `rig_cage_large.glb` | 1152 | 3000 | 4.50 x 3.53 x 4.68 | `wood_dark`, `iron` | `rig_cage_large`, `door` | 4.5 x 4.5 x 3.5 m. `door` swings about +Y at its own origin (the hinge) |
-| `rig_cage_small.glb` | 516 | 1200 | 2.04 x 2.02 x 2.04 | `wood_dark`, `iron` | `rig_cage_small` | 2 m cube, flat top at y=2.00, stacks on its own lugs |
-| `rig_chain_coil.glb` | 344 | 400 | 1.13 x 0.22 x 1.11 | `iron` | `rig_chain_coil` | flaked-down chain, 1.1 m across, 0.25 m tall |
-| `rig_crane.glb` | 616 | 8000 | 8.00 x 8.00 x 11.90 | `wood`, `wood_dark`, `iron` | `rig_crane`, `boom`, `lift` | timber derrick. `boom` slews about +Y at the heel pin; `lift` is the topping chain, hide it if you luff the boom instead |
-| `rig_crate.glb` | 108 | 400 | 1.07 x 0.94 x 1.07 | `wood`, `wood_dark`, `iron` | `rig_crate` | 1.0 m, stacks flat |
-| `rig_deck_4m.glb` | 180 | 3000 | 4.00 x 0.30 x 4.00 | `wood`, `wood_dark` | `rig_deck_4m` | 4x4 m module, snaps on the 2 m grid; top face at y=0.30 |
-| `rig_deck_ramp.glb` | 216 | 3000 | 3.98 x 2.00 x 4.00 | `wood`, `wood_dark`, `iron` | `rig_deck_ramp` | 4 m run to a deck top at y=2.00; iron kick plate at the toe |
-| `rig_ladder_3m.glb` | 204 | 400 | 0.65 x 3.00 x 0.07 | `wood`, `wood_dark` | `rig_ladder_3m` | stackable end to end; stiles 3.00 m |
-| `rig_lantern.glb` | 270 | 400 | 0.26 x 0.51 x 0.23 | `iron`, `ember` | `rig_lantern` | origin is the hook; the body hangs 0.52 m below it |
-| `rig_mooring_post.glb` | 348 | 400 | 0.52 x 1.00 x 0.52 | `wood_dark`, `iron`, `rope` | `rig_mooring_post` | bollard with a rope turn on it |
-| `rig_net_pile.glb` | 480 | 1200 | 2.22 x 0.66 x 2.22 | `wood`, `rope` | `rig_net_pile` | coiled net with cork floats |
-| `rig_piling.glb` | 92 | 400 | 0.80 x 12.00 x 0.80 | `wood`, `wood_dark`, `iron` | `rig_piling` | 12 m pile; waterline mark and growth up to y=6.00 |
-| `rig_walkway_4m.glb` | 456 | 3000 | 1.50 x 1.30 x 4.00 | `wood`, `wood_dark`, `rope` | `rig_walkway_4m` | 1.5 m wide, rope handrail both sides; deck top at y=0.30 |
-| `rig_winch.glb` | 694 | 1200 | 1.48 x 0.91 x 0.80 | `wood`, `wood_dark`, `iron`, `rope` | `rig_winch`, `drum` | `drum` spins about +X through its own origin |
-| `stack_arch.glb` | 680 | 8000 | 20.80 x 10.29 x 6.27 | `stone` | `stack_arch` | landmark. 14 m clear span between the legs, 10.3 m to the crown |
-| `stack_driftwood.glb` | 300 | 400 | 3.15 x 0.77 x 1.05 | `wood_dark` | `driftwood_a`, `driftwood_b`, `driftwood_c` | three variants as separate nodes at the same origin; instance one of them |
-| `stack_fish_rack.glb` | 416 | 1200 | 3.20 x 2.08 x 1.38 | `wood_dark`, `rope` | `stack_fish_rack` | 3.0 m wide, poles at y=1.05 and 1.95 |
-| `stack_lab_shelf.glb` | 128 | 3000 | 3.27 x 0.66 x 3.19 | `stone` | `stack_lab_shelf` | the lab surface: 3.1 m across, top face at y=0.52, lip up to y=0.66 |
-| `stack_sample_plate_clean.glb` | 168 | 400 | 0.25 x 0.01 x 0.18 | `iron` | `stack_sample_plate_clean` | 0.25 x 0.18 m offcut, lying flat; clean |
-| `stack_sample_plate_dented.glb` | 168 | 400 | 0.25 x 0.03 x 0.18 | `iron` | `stack_sample_plate_dented` | 0.25 x 0.18 m offcut, lying flat; dented |
-| `stack_sample_plate_holed.glb` | 64 | 400 | 0.23 x 0.01 x 0.17 | `iron` | `stack_sample_plate_holed` | 0.25 x 0.18 m offcut, lying flat; holed |
-| `stack_sample_rack.glb` | 412 | 1200 | 1.80 x 1.13 x 0.86 | `wood`, `wood_dark`, `rope` | `stack_sample_rack` | driftwood, eight slots along the top bar |
-| `stack_shelter.glb` | 788 | 3000 | 4.95 x 2.76 x 4.50 | `wood_dark`, `stone`, `rope`, `cloth` | `stack_shelter` | lean-to, 5.2 x 4.4 m, ridge at y=2.60. Scavenged and deliberately crooked |
-| `wreck_hull.glb` | 728 | 3000 | 5.82 x 1.25 x 8.98 | `wood_dark`, `stone` | `wreck_hull` | 9 m of hull, grey, torn open down the starboard side and canted 20 deg on rocks |
+| File | Tris | Budget | Class | Size (m) | Slots | Nodes | Notes |
+|---|---:|---:|---|---|---|---|---|
+| `berk_dock.glb` | 13352 | 40000 | `structure` | 2.72 x 2.09 x 12.00 | `wood`, `wood_dark`, `iron`, `rope` | `berk_dock` | 12 m jetty, deck top at y=1.60 |
+| `berk_drying_rack.glb` | 9424 | 16000 | `medium` | 3.53 x 2.22 x 1.30 | `wood_dark`, `rope`, `hide` | `berk_drying_rack` | 3.4 m, ten fish on two lines |
+| `berk_fence_4m.glb` | 1542 | 9000 | `small` | 0.30 x 1.45 x 4.01 | `wood`, `wood_dark`, `iron` | `berk_fence_4m` | modular, butts end to end on the 4 m grid |
+| `berk_house_a.glb` | 23398 | 40000 | `structure` | 6.13 x 4.78 x 8.43 | `wood`, `wood_dark`, `stone`, `iron` | `berk_house_a` | 7.2 m, cleft-shingle roof |
+| `berk_house_b.glb` | 30956 | 40000 | `structure` | 5.79 x 4.78 x 7.69 | `wood`, `wood_dark`, `stone`, `iron`, `rope`, `cloth` | `berk_house_b` | 6.4 m, thatched roof in `rope`, awning porch. See the slot note |
+| `berk_longhouse.glb` | 100959 | 110000 | `hero` | 10.52 x 8.01 x 19.65 | `wood`, `wood_dark`, `stone`, `iron` | `berk_longhouse` | 18 m hall, ridge at 6.9 m, shingle roof laid in courses, drystone footing, stave walls, carved gable posts, door on +Z |
+| `berk_totem.glb` | 6840 | 16000 | `medium` | 3.06 x 4.65 x 1.95 | `wood_dark`, `stone`, `rope` | `berk_totem` | 5.2 m carved post on a stone footing |
+| `boat_row.glb` | 4560 | 16000 | `medium` | 1.79 x 0.63 x 4.39 | `wood`, `wood_dark`, `iron`, `rope` | `boat_row` | 4.3 m open boat, lapstrake, sound and dry. Three thwarts, oars shipped. Waterline y=0.34 |
+| `boat_supply.glb` | 44224 | 110000 | `hero` | 6.40 x 8.41 x 16.22 | `wood`, `wood_dark`, `iron`, `rope`, `cloth` | `boat_supply` | 14 m hull, 16.2 m over the stem and stern posts. Lapstrake planking, furled sail. Waterline y=1.05 |
+| `buoy.glb` | 1786 | 9000 | `small` | 0.59 x 1.54 x 0.64 | `wood`, `wood_dark`, `iron`, `cloth` | `buoy` | float with a marker pole. Waterline y=0.30 |
+| `fish.glb` | 112 | 3000 | `scatter` | 0.10 x 0.11 x 0.43 | `hide` | `fish` | 0.35 m, instanced in the hundreds, so it stays cheap on purpose |
+| `kelp.glb` | 330 | 3000 | `scatter` | 1.31 x 2.40 x 1.03 | `hide` | `kelp` | three fronds for shallows, 2.6 m tallest. Uses `hide` -- see the slot note. Instanced heavily, so it stays cheap |
+| `rig_barrel.glb` | 2482 | 3000 | `scatter` | 0.71 x 0.90 x 0.73 | `wood`, `iron` | `rig_barrel` | 0.9 m tall, fifteen staves in three riveted hoops, stands upright |
+| `rig_brazier.glb` | 3037 | 9000 | `small` | 0.93 x 1.46 x 0.93 | `iron`, `ember` | `rig_brazier`, `coals` | the one the player snuffs. Coals are the only `ember` faces |
+| `rig_cage_door_open.glb` | 2916 | 16000 | `medium` | 0.90 x 2.71 x 2.67 | `iron` | `rig_cage_door_open` | the same door, swung 105 deg. Place at the cage hinge: local (-1.35, 0, 2.25) |
+| `rig_cage_large.glb` | 15954 | 40000 | `structure` | 4.50 x 3.53 x 4.73 | `wood_dark`, `iron` | `rig_cage_large`, `door` | 4.5 x 4.5 x 3.5 m. `door` swings about +Y at its own origin (the hinge) |
+| `rig_cage_small.glb` | 6276 | 16000 | `medium` | 2.04 x 2.03 x 2.04 | `wood_dark`, `iron` | `rig_cage_small` | 2 m cube, flat top at y=2.00, stacks on its own lugs |
+| `rig_chain_coil.glb` | 8160 | 9000 | `small` | 1.10 x 0.25 x 1.13 | `iron` | `rig_chain_coil` | flaked-down chain, real links, 1.1 m across, 0.25 m tall |
+| `rig_crane.glb` | 18972 | 110000 | `hero` | 8.00 x 8.00 x 11.90 | `wood`, `wood_dark`, `iron` | `rig_crane`, `boom`, `lift` | timber derrick. `boom` slews about +Y at the heel pin; `lift` is the topping chain, hide it if you luff the boom instead |
+| `rig_crate.glb` | 2096 | 3000 | `scatter` | 1.02 x 0.95 x 1.02 | `wood`, `wood_dark`, `iron` | `rig_crate` | 1.0 m, boarded and strapped, stacks flat |
+| `rig_deck_4m.glb` | 834 | 1000 | `tiled` | 4.00 x 0.30 x 4.00 | `wood`, `wood_dark`, `iron` | `rig_deck_4m` | 4x4 m module, snaps on the 2 m grid; top face at y=0.30. Sixteen boards; no chamfers, because this one ships 600 times |
+| `rig_deck_ramp.glb` | 1630 | 40000 | `structure` | 3.90 x 2.00 x 4.00 | `wood`, `wood_dark`, `iron` | `rig_deck_ramp` | 4 m run to a deck top at y=2.00; iron kick plate at the toe |
+| `rig_ladder_3m.glb` | 826 | 9000 | `small` | 0.65 x 3.00 x 0.07 | `wood`, `wood_dark`, `iron` | `rig_ladder_3m` | stackable end to end; stiles 3.00 m |
+| `rig_lantern.glb` | 1410 | 9000 | `small` | 0.26 x 0.51 x 0.26 | `iron`, `ember` | `rig_lantern` | origin is the hook; the body hangs 0.52 m below it |
+| `rig_mooring_post.glb` | 2636 | 9000 | `small` | 0.52 x 1.01 x 0.51 | `wood_dark`, `iron`, `rope` | `rig_mooring_post` | bollard with a rope turn on it |
+| `rig_net_pile.glb` | 4704 | 16000 | `medium` | 2.23 x 0.68 x 2.16 | `wood`, `rope` | `rig_net_pile` | coiled net with cork floats |
+| `rig_piling.glb` | 1424 | 3000 | `scatter` | 0.94 x 12.00 x 1.01 | `wood`, `wood_dark`, `iron` | `rig_piling` | 12 m pile; iron bands, waterline mark and growth up to y=6.00 |
+| `rig_walkway_4m.glb` | 7162 | 40000 | `structure` | 1.57 x 1.30 x 4.05 | `wood`, `wood_dark`, `iron`, `rope` | `rig_walkway_4m` | 1.5 m wide, rope handrail both sides; deck top at y=0.30 |
+| `rig_winch.glb` | 3536 | 16000 | `medium` | 1.48 x 0.91 x 0.80 | `wood`, `wood_dark`, `iron`, `rope` | `rig_winch`, `drum` | `drum` spins about +X through its own origin |
+| `stack_arch.glb` | 32440 | 110000 | `hero` | 22.22 x 10.36 x 7.24 | `stone` | `stack_arch` | landmark. 14 m clear span between the legs, 10.3 m to the crown |
+| `stack_driftwood.glb` | 1686 | 9000 | `small` | 3.16 x 0.75 x 1.00 | `wood_dark` | `driftwood_a`, `driftwood_b`, `driftwood_c` | three variants as separate nodes at the same origin; instance one of them |
+| `stack_fish_rack.glb` | 11898 | 16000 | `medium` | 3.21 x 2.09 x 1.40 | `wood_dark`, `rope` | `stack_fish_rack` | 3.0 m wide, poles at y=1.05 and 1.95 |
+| `stack_lab_shelf.glb` | 2840 | 40000 | `structure` | 3.29 x 0.67 x 3.38 | `stone` | `stack_lab_shelf` | the lab surface: 3.1 m across, top face at y=0.52, lip up to y=0.66 |
+| `stack_sample_plate_clean.glb` | 496 | 9000 | `small` | 0.25 x 0.01 x 0.18 | `iron` | `stack_sample_plate_clean` | 0.25 x 0.18 m offcut, lying flat; clean |
+| `stack_sample_plate_dented.glb` | 496 | 9000 | `small` | 0.25 x 0.03 x 0.18 | `iron` | `stack_sample_plate_dented` | 0.25 x 0.18 m offcut, lying flat; dented |
+| `stack_sample_plate_holed.glb` | 288 | 9000 | `small` | 0.24 x 0.02 x 0.18 | `iron` | `stack_sample_plate_holed` | 0.25 x 0.18 m offcut, lying flat; holed |
+| `stack_sample_rack.glb` | 4592 | 16000 | `medium` | 1.85 x 1.15 x 0.87 | `wood`, `wood_dark`, `rope` | `stack_sample_rack` | driftwood, eight slots along the top bar |
+| `stack_shelter.glb` | 17208 | 40000 | `structure` | 4.97 x 2.78 x 4.51 | `wood_dark`, `stone`, `rope`, `cloth` | `stack_shelter` | lean-to, 5.2 x 4.4 m, ridge at y=2.60. Scavenged and deliberately crooked |
+| `wreck_hull.glb` | 4440 | 40000 | `structure` | 5.07 x 1.95 x 8.93 | `wood_dark`, `stone` | `wreck_hull` | 9 m of hull, grey, torn open down the starboard side and canted 20 deg where it came down across a reef |
 
-Total triangles: **19445** across 39 models.
+Total triangles: **397922** across 39 models.
