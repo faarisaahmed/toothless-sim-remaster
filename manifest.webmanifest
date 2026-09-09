@@ -1,0 +1,16 @@
+{
+  "name": "Night Alone",
+  "short_name": "Night Alone",
+  "description": "A Night Fury over a Norse archipelago.",
+  "start_url": "./?stage=title",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0a0e18",
+  "theme_color": "#0a0e18",
+  "icons": [
+    { "src": "./assets/icon/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./assets/icon/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./assets/icon/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
