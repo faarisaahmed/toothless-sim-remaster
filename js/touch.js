@@ -103,8 +103,11 @@ const LAYOUTS = {
     { action: "aim",       label: "Aim",     kind: "hold",  cls: "b-aim",   hint: "HOLD" },
     { action: "burst",     label: "Flat Out", kind: "hold", cls: "b-burst", hint: "HOLD" },
     { action: "sprint",    label: "Sprint",  kind: "latch", cls: "b-sprint", hint: "ON/OFF" },
-    { action: "up",        label: "Climb",   kind: "hold",  cls: "b-up",    hint: "HOLD" },
-    { action: "down",      label: "Dive",    kind: "hold",  cls: "b-down",  hint: "HOLD" },
+    // A hold trims; a double-tap-and-hold commits to the zoom or the dive.
+    // Same grammar as the keyboard, and it comes for free: these buttons send
+    // real keydown/keyup, so controls.js sees exactly what a key would send.
+    { action: "up",        label: "Climb",   kind: "hold",  cls: "b-up",    hint: "2\u00d7 HOLD" },
+    { action: "down",      label: "Dive",    kind: "hold",  cls: "b-down",  hint: "2\u00d7 HOLD" },
     { action: "landUse",   label: "Land / Use", kind: "hold", cls: "b-land", hint: "HOLD" },
     { action: "sleepfire", label: "Sleepfire", kind: "hold", cls: "b-sleep", hint: "HOLD" },
     { action: "knifeL",    label: "Knife L", kind: "hold",  cls: "b-knl",   hint: "HOLD" },

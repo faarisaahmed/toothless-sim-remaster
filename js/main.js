@@ -21,6 +21,7 @@ import { setupDualSense } from "./dualsense.js";
 import { setupPadView } from "./padview.js";
 import { music, CREDITS } from "./audio.js";
 import { setupPlasma, MAX_SHOTS } from "./plasma.js";
+import { setupBolas } from "./bolas.js";
 import { setupHealth } from "./health.js";
 import { setupTouch } from "./touch.js";
 import { settings } from "./settings.js";
@@ -412,6 +413,12 @@ const plasma = setupPlasma(scene, {
   getHeightAt: (x, z) => world.getHeightAt(x, z),
   seaLevel: world.seaLevel,
 });
+// What the hunters throw back. Same two hooks as the plasma — a height field
+// so a miss lands on the deck instead of falling through it, and the sea.
+const bolas = setupBolas(scene, {
+  getHeightAt: (x, z) => world.getHeightAt(x, z),
+  seaLevel: world.seaLevel,
+});
 
 let controls = null;
 let dragon = null;
@@ -540,16 +547,26 @@ function updateHud() {
   // it the honest reading is that the game broke.
   const mode = controls.getMode();
   const flatOut = controls.isBursting();
-  const line = mode === "zoom"  ? `Climbing · ${Math.round((1 - controls.getStallT()) * 100)}%`
+  // Trimming outranks the burst readout too, and it names the way out of it.
+  // Climb and dive are double-tap-and-hold now (see controls.js), and a gate
+  // the player cannot see is a gate they will assume is a bug — they lean on
+  // the key, he rises a little, and nothing they do makes it a climb.
+  // Snared outranks everything, including the stall. He is falling, the lift
+  // axis has stopped answering, and the way out is not obvious — so the line
+  // says the word and then says what to do about it.
+  const snared = controls.getSnared();
+  const line = snared > 0 ? "SNARED · roll left and right"
+             : mode === "zoom"  ? `Climbing · ${Math.round((1 - controls.getStallT()) * 100)}%`
              : mode === "stall" ? "STALL"
              : mode === "dive"  ? "Diving"
              : mode === "recover" ? "Pulling up"
+             : controls.isTrimming() ? "Trim · double-tap to commit"
              : flatOut ? "Flat Out"
              : `Flat Out · ${keymap.label(keymap.keysFor("burst")[0])}`;
   if (line !== shownBurst) {
     hudBurst.textContent = line;
     hudBurst.classList.toggle("ready", flatOut || mode === "dive");
-    hudBurst.classList.toggle("stall", mode === "stall");
+    hudBurst.classList.toggle("stall", mode === "stall" || snared > 0);
     shownBurst = line;
   }
 }
@@ -825,6 +842,8 @@ const debugConsole = setupDebugConsole({
   // Built after this call, so a getter rather than a value — same reason as
   // `post` and `governor` below.
   get plasma() { return plasma; },
+  get bolas() { return bolas; },
+  get rig() { return rig; },
   get health() { return health; },
   get grounded() { return grounded; },
   // Function declarations, so hoisting makes these safe to hand over from
@@ -987,6 +1006,11 @@ function land() {
   fallSpeed = 0;
   walkYaw = controls?.getHeading() ?? 0;
   walkSpeed = 0;
+  // On the ground he gets the cords off. Nothing here animates him doing it —
+  // but carrying a snare into the walk rig would leave him sinking through an
+  // island, and the flight model is the only thing the snare knows how to act
+  // on in the first place.
+  controls?.clearSnare();
 
   // Read the hillside NOW, before the drop, and seed the attitude with it so
   // he flares onto the slope through the fall instead of arriving flat and
@@ -1079,8 +1103,116 @@ function blastTargets() {
   for (const b of rig?.braziers ?? []) {
     if (b.lit) _blastTargets.push({ pos: b.pos, hit: () => b.snuff() });
   }
+  // A bola in the air is something he can shoot. It costs one of six shots and
+  // it needs a lead on a small moving target, which makes it a real decision
+  // rather than a free answer — and it is the only thing in the game that
+  // rewards firing at something other than a brazier.
+  for (const t of bolas.targets()) _blastTargets.push(t);
   return _blastTargets;
 }
+
+// ---------------------------------------------------------------------------
+// The hunters throw back.
+//
+// The compound has had a stealth score since it was built — §2.6's "the
+// darkness is the resource" — and nothing was ever spent against it. Snuffing
+// sixteen braziers changed a fraction on a readout and that was all, so the
+// dark was a collectible. This is what it buys.
+//
+// The rule is the one the recon beat already states out loud: they throw at
+// what they can SEE. Light is most of that and noise is the rest, so a glide
+// through a dark compound draws nothing at all, and a climb across a lit deck
+// draws everything. Every brazier he puts out is a real reduction in what is
+// coming at him, and he can feel it go down while he works.
+//
+// The projectile itself lives in bolas.js; this is only the decision to throw.
+// ---------------------------------------------------------------------------
+
+/** A guard will throw at anything inside this, and nothing outside it. */
+const HUNT_RANGE   = 250;   // m
+/** ...but not at something already past him. Under this he is gone before the
+ *  weight arrives, and a throw straight up reads as a bug. */
+const HUNT_MIN     = 18;    // m
+/** Seconds between one man's throws. The spread is what stops five guards
+ *  firing on the same frame forever once they have all seen him at once. */
+const HUNT_RELOAD  = 2.2;
+const HUNT_RELOAD_SPREAD = 2.6;
+/** ...and no two throws anywhere closer together than this, so the deck lays
+ *  down a rhythm he can fly through rather than a wall he cannot. */
+const HUNT_STAGGER = 0.55;  // s
+/** Below this much visibility they never throw. Full dark and gliding is
+ *  genuinely invisible, and it has to be, or stealth is decoration. */
+const HUNT_SEEN_MIN = 0.14;
+
+let huntStagger = 0;
+const _hv = new THREE.Vector3();
+const _hfrom = new THREE.Vector3();
+
+function updateHunters(dt) {
+  huntStagger = Math.max(0, huntStagger - dt);
+  if (!rig || !dragon || !controls || grounded || game.cine) return;
+
+  // What the deck can see of him. Light first — that is the resource — and
+  // noise on top of it, using the same test the recon beat is scored on so
+  // "loud" means one thing everywhere in the game.
+  const loud = controls.getClimb() > 0.15 || controls.getSpeedT() > 0.30;
+  const seen = Math.min(1, rig.litFraction * 1.3 + (loud ? 0.45 : 0));
+  if (seen < HUNT_SEEN_MIN) return;
+
+  // Nobody throws at a dragon who is already coming down. Without this the deck
+  // chain-locks him: five men, a four-second snare, and every landed throw
+  // refreshing it — which is not difficulty, it is the game taking the controls
+  // away and not giving them back. Being snared is the punishment; the seconds
+  // after it are his.
+  if (controls.getSnared() > 0) return;
+
+  // His velocity, so the throw can lead him: ground speed down his heading
+  // plus whatever the lift axis is doing. Worked out here rather than asked of
+  // controls.js because this is the only caller that wants it as a vector.
+  const h = controls.getHeading();
+  const sp = controls.getSpeed();
+  _hv.set(Math.sin(h) * sp, controls.getVerticalSpeed(), Math.cos(h) * sp);
+
+  for (const g of rig.guards) {
+    g.reload = (g.reload ?? Math.random() * HUNT_RELOAD) - dt;
+    if (g.reload > 0 || huntStagger > 0) continue;
+
+    const d = g.pos.distanceTo(dragon.position);
+    if (d > HUNT_RANGE || d < HUNT_MIN) continue;
+
+    // Out of the hand, not out of the middle of the man.
+    _hfrom.copy(g.pos).setY(g.pos.y + 1.1);
+
+    // How good the throw is. Everything that makes him hard to hit is here in
+    // one line, and all three are things he chooses: stay dark, stay far, stay
+    // fast. At two hundred metres flat out in the dark they are throwing at a
+    // rumour; at sixty metres hovering over a lit deck they will not miss.
+    const acc = THREE.MathUtils.clamp(
+      seen * (1 - d / HUNT_RANGE) * (1 - controls.getSpeedT() * 0.45) * 1.15,
+      0.04, 1);
+
+    if (bolas.fire(_hfrom, dragon.position, _hv, acc)) {
+      g.reload = HUNT_RELOAD + Math.random() * HUNT_RELOAD_SPREAD;
+      huntStagger = HUNT_STAGGER;
+      g.alerted = 2.5;
+    } else {
+      // No shot — he is outrunning the weight, and bolas.js said so. Wait a
+      // beat before asking again rather than re-solving the quadratic for five
+      // men on every frame of a pass they cannot make.
+      g.reload = 0.4;
+    }
+  }
+}
+
+// What it costs when one lands. Health and the snare are billed separately on
+// purpose: the damage is small and the seconds are the punishment.
+bolas.onHit(() => {
+  if (!dragon || !controls) return;
+  health.damage(12, "Bola \u2014 his wings are bound");
+  controls.snare();
+  pad.rumble.pulse(1.0, 1.0, 0.5);
+  game.toast("Snared. Roll out of it.", 1500);
+});
 
 function takeOffImpulse() {
   settling = false;
@@ -1205,6 +1337,7 @@ window.__na = {
   get dragon() { return dragon; },
   get groundRig() { return groundRig; },
   get plasma() { return plasma; },
+  bolas,
   get rig() { return rig; },
   get stack() { return stack; },
   get grounded() { return grounded; },
@@ -1913,6 +2046,12 @@ function frame() {
   // --- Story ----------------------------------------------------------------
   rig?.update(sdt, camera);
   stack?.update(sdt, camera);
+  updateHunters(sdt);
+  // A cutscene takes the camera somewhere he cannot fly, so anything already
+  // in the air would hang there in shot. Cut it, and cut the snare with it —
+  // the alternative is coming back from the reveal already falling.
+  if (game.cine && bolas.liveCount) { bolas.clear(); controls?.clearSnare(); }
+  bolas.update(sdt, dragon && !grounded && !game.cine ? { pos: dragon.position } : null);
 
   // --- Plasma ---------------------------------------------------------
   // See fireBlast() for the muzzle and the aiming. The gating is all here, and

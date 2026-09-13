@@ -121,14 +121,32 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // speed you left with, having gone up and over. Diving from height you did
   // not pay for is what actually makes you fast.
   const CLIMB_ENTRY_SPEED = 105;              // m/s (~235 mph) before up goes vertical
-  // How long up or down has to be HELD before it commits to a manoeuvre.
+  // --- How the axis commits to a manoeuvre ---------------------------------
   //
-  // Without this there was no way to lose a little height at speed: above the
-  // entry speed the axis was all or nothing, so wanting to drop twenty metres
-  // meant committing to a dive and pulling out of it. A press shorter than this
-  // is a TRIM — the gentle thing — and only leaning on the key stands him on
-  // his tail. It also means a fumbled tap cannot fling you into a stall.
-  const MANOEUVRE_HOLD    = 0.42;             // s
+  // DOUBLE-TAP AND HOLD. Press-and-hold is a TRIM — the gentle thing, a nudge
+  // up or down and nothing more, however long you lean on it. Tap the same key
+  // again and keep it down and he commits: stands on his tail, or puts his nose
+  // through the floor.
+  //
+  // This replaced a pure time gate (hold for 0.42 s and it commits), and the
+  // time gate was wrong for the same reason a hair trigger is. Losing a little
+  // height at speed is the single most common thing this axis is asked to do —
+  // an approach, a pass over a shoal, dropping under a ridge — and all of those
+  // take longer than half a second, so the ordinary use of the key kept turning
+  // into a committed dive nobody asked for. There was no way to say "a bit"
+  // and mean it.
+  //
+  // A double tap cannot be arrived at by accident, so the two things separate
+  // cleanly: one press is adjustment, two is commitment. It is also the same
+  // grammar everywhere — keyboard, trigger, and the touch buttons, which send
+  // real key events (see touch.js).
+  //
+  // The second press still has to be HELD, because the manoeuvre is a hold:
+  // letting go levels him off, and a double tap with nothing after it should
+  // not fling him into a stall.
+  const TAP_MAX           = 0.30;   // s — a press shorter than this was a tap
+  const DOUBLE_GAP        = 0.34;   // s — and the next press has to follow inside this
+  const MANOEUVRE_HOLD    = 0.10;   // s the *second* press is held before it bites
   // What a trim is worth. Fixed rather than scaled by airspeed, which is the
   // whole point of it: the ordinary lift axis gives 9 + 0.45·airspeed, and at
   // 335 m/s that is a 140 m/s climb — the opposite of a small adjustment.
@@ -158,6 +176,34 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // Held for this long after a recovery, so the speed a dive earned is still
   // there when he comes out of it rather than bleeding off during the pull-up.
   const RECOVER_HOLD      = 1.1;              // s
+
+  // --- Snared --------------------------------------------------------------
+  //
+  // What a hunter's bola does when it lands (see bolas.js). It is not damage —
+  // health.js bills that separately — it is a few seconds of a dragon whose
+  // wings are tied, and every number here exists to make it frightening without
+  // making it a death sentence.
+  //
+  // He SINKS, he SLOWS, and he can barely steer. Over open water that is a
+  // scare; forty metres over a lit deck with a caldera wall coming up it is the
+  // most dangerous thing in the game, which is exactly where the hunters are.
+  // It cancels whatever manoeuvre he was in for the same reason a crash does:
+  // a zoom with bound wings is not a zoom.
+  //
+  // And it can be fought. Rolling hard one way and then the other — the thing
+  // you would actually do — takes a chunk off every time the stick crosses
+  // over, so a player who reacts is down for about a second and a player who
+  // freezes is down for the full four.
+  const SNARE_TIME    = 4.0;   // s if he does nothing at all
+  // Deliberately the same number as health.js's SAFE_CLOSING. A snare that ends
+  // on the deck should put him on the deck, not kill him: arriving at exactly
+  // the speed the impact model calls free means the fall itself costs nothing
+  // and what it cost was the seconds and the height.
+  const SNARE_SINK    = 26;    // m/s down, and the lift axis cannot answer
+  const SNARE_SPEED   = 32;    // m/s his airspeed is dragged down to
+  const SNARE_DRAG    = 2.2;   // how fast it is dragged there
+  const SNARE_STEER   = 0.22;  // fraction of his yaw he keeps
+  const SNARE_SHAKE   = 0.62;  // s off per reversal of the turn input
   // Denominator floor when working out which way his nose points. Without it a
   // climb from a standstill is atan2(9, 0) and he stands on his tail.
   const PATH_REF_SPEED = 25;
@@ -231,6 +277,15 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   let lastClimb   = 0;
   let vertHeld    = 0;         // s the up/down axis has been held one way
   let vertHeldDir = 0;         // and which way, so a reversal resets the clock
+  // The double-tap gate. `vertTapDir`/`vertTapAge` remember the tap that just
+  // ended; `vertArmed` is set on the press that follows it and stays set for
+  // as long as that press lasts, so releasing the key disarms and the next
+  // single hold is a trim again.
+  let vertTapDir  = 0;         // direction of the last completed short press
+  let vertTapAge  = 99;        // s since it was released
+  let vertArmed   = false;     // this press was preceded by a tap
+  let snared      = 0;         // s left with his wings bound — see SNARE_TIME
+  let snareDir    = 0;         // which way he last rolled, for the shake
 
   /** How far through the climb's airspeed budget he is, 0 fresh .. 1 stalling. */
   const getStallT01 = () => 1 - THREE.MathUtils.clamp(
@@ -436,6 +491,25 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // Stick right is +x, and turning right means a falling heading.
     if (padOn) turnInput = THREE.MathUtils.clamp(turnInput - pad.lx, -1, 1);
 
+    // --- Snared: the shake -------------------------------------------------
+    // Read off the same axis he steers with, before it is scaled down, so what
+    // gets him out is the thing he would do anyway: roll hard one way, then
+    // hard the other. Every crossing takes SNARE_SHAKE off. He keeps a sliver
+    // of steering while it lasts rather than none, because controls that stop
+    // answering entirely read as a crash rather than as a struggle.
+    if (snared > 0) {
+      snared = Math.max(0, snared - dt);
+      const d = turnInput > 0.55 ? 1 : turnInput < -0.55 ? -1 : 0;
+      if (d !== 0) {
+        if (snareDir !== 0 && d !== snareDir) snared = Math.max(0, snared - SNARE_SHAKE);
+        snareDir = d;
+      }
+      turnInput *= SNARE_STEER;
+      alignTarget = null;          // nothing is flying itself out of this
+    } else {
+      snareDir = 0;
+    }
+
     if (turnInput !== 0) alignTarget = null; // manual input always wins
 
     // What he can physically pull at this airspeed. A turn is lateral
@@ -514,12 +588,40 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     const wantUp = verticalInput > 0.55, wantDown = verticalInput < -0.55;
     const setMode = (m) => { if (m !== mode) { mode = m; modeT = 0; } };
 
+    // --- The double-tap gate ----------------------------------------------
     // How long the axis has been held one way. Reset the moment it centres or
     // reverses, so a tap is always a tap.
-    if (wantUp && vertHeldDir === 1) vertHeld += dt;
-    else if (wantDown && vertHeldDir === -1) vertHeld += dt;
-    else { vertHeld = 0; vertHeldDir = wantUp ? 1 : wantDown ? -1 : 0; }
-    const committed = vertHeld >= MANOEUVRE_HOLD;
+    const wantDir = wantUp ? 1 : wantDown ? -1 : 0;
+    vertTapAge += dt;
+    if (wantDir !== 0 && wantDir === vertHeldDir) {
+      vertHeld += dt;
+    } else {
+      // The axis just centred or reversed. If what it was doing was SHORT, it
+      // was a tap, and a tap arms the next press in the same direction.
+      if (vertHeldDir !== 0 && vertHeld > 0 && vertHeld <= TAP_MAX) {
+        vertTapDir = vertHeldDir;
+        vertTapAge = 0;
+      } else if (vertHeldDir !== 0) {
+        // A long press that ended is not a tap, and it must not leave a stale
+        // one behind — otherwise a lean, a release and a lean again commits.
+        vertTapDir = 0;
+      }
+      vertHeld = 0;
+      vertHeldDir = wantDir;
+      // Arm on the press itself rather than on the frame it crosses the hold
+      // threshold, so a slow tap-tap-hold still counts: the window is measured
+      // from the tap's release, which is the thing the player can feel.
+      vertArmed = wantDir !== 0 && wantDir === vertTapDir && vertTapAge <= DOUBLE_GAP;
+      if (vertArmed) vertTapDir = 0;   // spend it, so one tap arms one press
+    }
+    if (wantDir === 0) vertArmed = false;
+    // Bound wings cannot be stood on. A snare drops him out of whatever he was
+    // in and refuses the next one until he is loose, for the same reason a
+    // crash does: a zoom climb with the cords round him is not a zoom climb.
+    const committed = snared <= 0 && vertArmed && vertHeld >= MANOEUVRE_HOLD;
+    if (snared > 0 && mode !== "level") {
+      mode = "level"; modeT = 0; diveCommit = 0; recoverHold = 0;
+    }
 
     if (mode === "level") {
       if (committed && wantUp && airspeed >= CLIMB_ENTRY_SPEED) setMode("zoom");
@@ -578,6 +680,14 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       VERT_HOVER + Math.abs(airspeed) * VERT_PER_SPEED, CLIMB_RATE_CAP
     );
     climbVel += (verticalInput * vertRate - climbVel) * damp(VERT_LAMBDA, dt);
+
+    // ...and then the snare overrides all of it. Written after the lift rather
+    // than folded into `vertRate` so it is plainly an override: while the cords
+    // are on him, holding climb does nothing whatsoever and he goes down.
+    if (snared > 0) {
+      climbVel += (-SNARE_SINK - climbVel) * damp(6.0, dt);
+      airspeed += (SNARE_SPEED - airspeed) * damp(SNARE_DRAG, dt);
+    }
 
     // --- Translation ------------------------------------------------------
     //
@@ -805,7 +915,13 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
      */
     getMode: () => mode,
     /** 0..1 of the way to committing to a zoom or a dive. Drives the HUD. */
-    getCommitT: () => Math.min(1, vertHeld / MANOEUVRE_HOLD),
+    getCommitT: () => (vertArmed ? Math.min(1, vertHeld / MANOEUVRE_HOLD) : 0),
+    /**
+     * True while the axis is held but has NOT been double-tapped — i.e. he is
+     * trimming rather than manoeuvring. The HUD says so, because the whole
+     * point of the gate is that the player can tell the two apart.
+     */
+    isTrimming: () => mode === "level" && vertHeldDir !== 0 && !vertArmed,
     /** True for the single frame the wings let go at the top of a zoom. */
     didStall: () => stalled,
     /**
@@ -835,6 +951,25 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       climbVel *= 0.2;
       mode = "level"; modeT = 0; recoverHold = 0; diveCommit = 0;
     },
+    /**
+     * A hunter's bola has landed: bind his wings for `seconds`.
+     *
+     * Takes the LONGER of what is left and what is asked for rather than
+     * adding, so being hit twice in a second is not eight seconds of falling —
+     * the second bola is frightening, not fatal. See bolas.js.
+     */
+    snare(seconds = SNARE_TIME) {
+      snared = Math.max(snared, seconds);
+      snareDir = 0;
+      mode = "level"; modeT = 0; diveCommit = 0; recoverHold = 0;
+      // Whatever speed the pass was carrying goes with the wings.
+      airspeed *= 0.55;
+    },
+    /** Seconds left of it, for the HUD. */
+    getSnared: () => snared,
+    /** Let go — a landing, a cutscene, a chapter jump. */
+    clearSnare() { snared = 0; snareDir = 0; },
+
     /** Radians off the horizontal — the camera uses this to lead him. */
     getPathAngle: () => pathAngle,
     getYawRate:  () => yawRate,

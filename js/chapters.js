@@ -19,6 +19,18 @@ import { music } from "./audio.js";
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
+/** How wide the search over the clearing is, and how low he has to be in it.
+ *  Sized off the opening on the ground rather than picked: terrain.js opens
+ *  the wood to 96 m and lets it die back out to 168, so this covers the gap
+ *  he is actually looking at. */
+const SEARCH_R   = 220;
+const SEARCH_AGL = 150;
+
+/** The middle of Peaceable Country, straight out of terrain.js's island table.
+ *  Both the waypoint the search starts on and the "which side of it" hint are
+ *  measured from here, so they cannot end up describing different woods. */
+const WOOD = V(1250, 210, 1500);
+
 /**
  * Where everything is. Open water south-east of Berk, in the gap between Raven
  * Point and Changewing — off the drawn coastline but not off the corner of the
@@ -94,17 +106,65 @@ export function mission1(ctx) {
       enter(g, c) {
         // The island, not the clearing. A waypoint on the clearing would hand
         // over the one thing this beat is about.
-        g.setWaypoint(V(1250, 210, 1500), "The wood");
+        g.setWaypoint(WOOD.clone(), "The wood");
+        this._t = 0;
+        this._hinted = false;
+        this._marked = false;
+        this._spot = 0;
       },
       update(dt, g, c) {
         const p = c.getPosition();
         const agl = p.y - world.getHeightAt(p.x, p.z);
         const d = game.flatDist(SITES.camp);
-        // Seen, not reached: 180 m out but under 130 m above the canopy. From
+        this._t += dt;
+        // Seen, not reached: 220 m out but under 150 m above the canopy. From
         // cruise altitude the clearing is a slightly paler patch among eighty
         // thousand trees and you will fly over it four times.
-        if (d < 180 && agl < 130) this._spot = (this._spot || 0) + dt;
+        //
+        // The radius is the whole opening plus its dying margin (CLEARING_R is
+        // 96 and the margin runs to 168), because the thing you are looking
+        // for is that big on the ground — a trigger tighter than the gap
+        // itself means flying straight across it and being told nothing.
+        const over = d < SEARCH_R;
+        if (over && agl < SEARCH_AGL) this._spot = (this._spot || 0) + dt;
         else this._spot = Math.max(0, (this._spot || 0) - dt * 0.5);
+
+        // --- Say whether he is warm --------------------------------------
+        //
+        // This beat used to be silent. The waypoint sits on the middle of a
+        // 620 m island and the trigger is 320 m away from it under a hundred
+        // and fifty metres of air, and NOTHING on screen moved as you got
+        // closer or as you came down — so a player who flew to the marker,
+        // circled it and left had no way to tell the difference between "keep
+        // looking" and "this is broken". It reads as broken. It is the same
+        // rule the fishing pass already follows: say why it did not count.
+        let why;
+        if (over && agl >= SEARCH_AGL) why = "Lower. You are over it and above the trees.";
+        else if (this._spot > 0) why = "Hold it. Keep the gap under you.";
+        else if (d < 520) why = "Close. Something opened the wood near here.";
+        else if (d < 1100) why = "Somewhere under this wood. Get down among the trees.";
+        else why = this.sub;
+        g.setObjective(this.objective, why);
+
+        // --- And if he cannot find it, help -------------------------------
+        //
+        // Searching is the point of the beat, but a search with no floor under
+        // it is just a place the mission stops. After half a minute of hunting
+        // he gets told which side of the island; after a minute the clearing
+        // goes on the marker and the beat becomes a flight. Losing the
+        // discovery is a much smaller price than losing the player.
+        if (!this._hinted && this._t > 30) {
+          this._hinted = true;
+          const dx = SITES.camp.x - WOOD.x, dz = SITES.camp.z - WOOD.z;
+          const side = Math.abs(dx) > Math.abs(dz)
+            ? (dx < 0 ? "west" : "east") : (dz < 0 ? "north" : "south");
+          g.toast(`The ${side} side of the wood.`, 2400);
+        }
+        if (!this._marked && this._t > 60) {
+          this._marked = true;
+          g.setWaypoint(SITES.camp.clone().setY(
+            world.getHeightAt(SITES.camp.x, SITES.camp.z) + 90), "The gap");
+        }
       },
       done() { return (this._spot || 0) > 0.8; },
       exit(g, c) {
@@ -208,7 +268,7 @@ export function mission1(ctx) {
     {
       id: "rig-recon",
       objective: "Get a look at it without being seen.",
-      sub: "Glide in. Powered flight is loud.",
+      sub: "Glide in. Powered flight is loud \u2014 and they throw.",
       enter(g) {
         g.setWaypoint(SITES.rig.clone().setY(RIG.y + 60), "The compound");
         // The beat where being heard is the whole mechanic gets the sparse bed.
@@ -389,6 +449,12 @@ export function mission1(ctx) {
         c.setNight(true);
         g.setWaypoint(SITES.rig.clone().setY(RIG.y + 60), "The compound");
         c.rig?.braziers.forEach((b) => b.relight());
+        // Said out loud, once, at the top of the raid. The bolas are the only
+        // thing in the game that throws back, and this is the first time he
+        // meets them under fire — so the connection between the light on the
+        // deck and the weight in the air gets stated rather than discovered at
+        // the bottom of a caldera.
+        g.toast("They can see you. Put the lights out.", 2600);
         // The fast Viking theme, and it holds for the whole raid — the flying
         // music in main.js is suppressed while a chapter has something to say.
         music.play("raid", { fade: 4 });

@@ -704,6 +704,46 @@ export function setupDebugConsole(ctx) {
       },
     },
 
+    bola: {
+      help: "bola [n] — have the hunters throw n at you from where they stand",
+      run(args) {
+        const d = ctx.getDragon();
+        const c = ctx.getControls?.();
+        const b = ctx.bolas, rig = ctx.rig;
+        if (!d || !c) return log("dragon not loaded yet", "err");
+        if (!b) return log("no bolas on this scene", "err");
+        const n = Math.max(1, Math.min(8, num(args[0], 1)));
+        const h = c.getHeading(), sp = c.getSpeed();
+        const vel = new THREE.Vector3(Math.sin(h) * sp, c.getVerticalSpeed(), Math.cos(h) * sp);
+        // From the guards if they are in range, otherwise from a notional man
+        // standing on the ground below and behind him — so the command works
+        // anywhere on the map, not only over the compound.
+        const guards = (rig?.guards ?? []).filter((g) => g.pos.distanceTo(d.position) < 400);
+        let thrown = 0;
+        for (let i = 0; i < n; i++) {
+          const from = guards.length
+            ? guards[i % guards.length].pos.clone().setY(guards[i % guards.length].pos.y + 1.1)
+            : new THREE.Vector3(
+                d.position.x - Math.sin(h) * 150,
+                Math.max(ctx.world.getHeightAt(d.position.x, d.position.z), 0) + 2,
+                d.position.z - Math.cos(h) * 150);
+          if (b.fire(from, d.position, vel, 1)) thrown++;
+        }
+        log(`${thrown} thrown${guards.length ? ` from ${guards.length} guards` : " from the ground"}`);
+      },
+    },
+
+    snare: {
+      help: "snare [seconds] — bind his wings, as a bola would",
+      run(args) {
+        const c = ctx.getControls?.();
+        if (!c) return log("dragon not loaded yet", "err");
+        if (args[0] === "off") { c.clearSnare(); return log("loose"); }
+        c.snare(num(args[0], 4));
+        log(`snared for ${num(args[0], 4)}s — roll left and right to shake it`);
+      },
+    },
+
     scale: {
       help: "scale <n> — dragon size (default 2)",
       run(args) {

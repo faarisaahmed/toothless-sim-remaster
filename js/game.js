@@ -176,7 +176,16 @@ export function setupGame(ctx) {
     return new Promise((r) => setTimeout(r, 580));
   }
 
+  // Chapters that narrate their own progress call this every frame — the
+  // fishing pass and the search in the wood both do — and the text is the same
+  // on nearly all of them. Writing innerHTML sixty times a second to say the
+  // identical thing costs a parse and a layout each time, so remember the last
+  // one and do nothing when it has not moved.
+  let shownObj = null;
   function setObjective(line, sub = "", eyebrow = "Objective") {
+    const key = `${eyebrow}\u0000${line}\u0000${sub}`;
+    if (key === shownObj) return;
+    shownObj = key;
     objEyebrow.textContent = eyebrow;
     objLine.innerHTML = line;
     objSub.innerHTML = sub;
@@ -300,7 +309,10 @@ export function setupGame(ctx) {
       sinceEnter = 0;
       holdDone = 0;
       setWaypoint(null);
-      if (!current) { objEl.classList.remove("on"); return; }
+      if (!current) { objEl.classList.remove("on"); shownObj = null; return; }
+      // Forget what was on screen, or a chapter whose objective happens to read
+      // the same as the last one's inherits its struck-through "done" styling.
+      shownObj = null;
       if (current.objective) setObjective(current.objective, current.sub || "");
       if (current.enter) await current.enter(api, ctx);
       stateEl.classList.toggle("on", current.showState !== false);

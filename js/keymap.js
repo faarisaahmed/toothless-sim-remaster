@@ -215,7 +215,8 @@ export const LEGEND = [
   { keys: ["turnL", "turnR"],     pad: ["L●", "↔"],
     desc: "Turn &mdash; hold to carve harder" },
   { keys: ["up", "down"],         pad: ["R2", "L2"],
-    desc: "Up and down &mdash; on the ground, take off" },
+    desc: "Up and down &mdash; a hold trims a little. " +
+          "<em>Double-tap and hold</em> to climb or dive for real" },
   { keys: ["sprint"],             pad: [],
     desc: "Sprint &mdash; hold for 400 mph" },
   { keys: ["burst"],              pad: ["✕:shape"], hold: true,
