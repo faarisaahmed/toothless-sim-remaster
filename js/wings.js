@@ -45,11 +45,17 @@ export function setupWings(boneLeft, boneRight, tuning) {
     // without this the beat is at its HARDEST exactly when it should have
     // stopped.
     const hang = state.hang || 0;
+    // A barrel roll is flown on HELD wings, not beaten ones. The roll moment
+    // comes from the two wings taking opposite twist (see flightrig.js), and
+    // you cannot twist a wing one way and flap it at the same time — a beat
+    // through the corkscrew reads as panic rather than as a manoeuvre. Same
+    // reasoning as the hang above, and the same shape of fix.
+    const roll = Math.abs(state.roll || 0);
     const targetAmp = THREE.MathUtils.clamp(
       0.6 + climb * 0.4 - speedT * 0.4 - knife * 0.35, 0.05, 1.15
-    ) * (1 - hang * 0.92);
+    ) * (1 - hang * 0.92) * (1 - roll * 0.8);
     const targetSweep = THREE.MathUtils.clamp(
-      Math.max(0, -climb) * 0.65 + speedT * 0.5 + knife * 0.6, 0, 1
+      Math.max(0, -climb) * 0.65 + speedT * 0.5 + knife * 0.6 + roll * 0.45, 0, 1
     );
 
     amp   += (targetAmp   - amp)   * damp(AMP_LAMBDA, dt);
@@ -57,7 +63,7 @@ export function setupWings(boneLeft, boneRight, tuning) {
 
     // Tucked wings beat faster and shallower, like a bird in a stoop.
     const rate = (BEAT_BASE + climb * 2.0 - speedT * 0.8 - sweep * 1.2)
-               * tuning.flapSpeed * (1 - hang * 0.85);
+               * tuning.flapSpeed * (1 - hang * 0.85) * (1 - roll * 0.7);
     phase += Math.max(0.4, rate) * dt;
 
     const flapAmount  = amp * tuning.flapAmplitude * MAX_FLAP;

@@ -353,10 +353,24 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
   const foam = makeFoamTexture();
   const waterNormals = makeWaterNormals();
 
-  // 16 km of sea. The power is the whole trick: at 2.6 the quads are about
-  // four metres across under him and sixty at three kilometres, so the swell is
-  // resolved where he can see it and costs nothing where he cannot.
-  const geo = discGeometry(200, 220, 16000, 2.6);
+  // Thirty kilometres of sea. The power is the whole trick: at 2.6 the quads are
+  // about four metres across under him and sixty at three kilometres, so the
+  // swell is resolved where he can see it and costs nothing where he cannot.
+  //
+  // It was 16 km, which was ample for a ten-kilometre archipelago and stopped
+  // being so the moment there was land past the edge of it (horizon.js). Those
+  // islands stand out to eighteen kilometres from the middle of the world, and
+  // from the far corner of the boundary the ones on the opposite side are
+  // twenty-seven away — past the rim of a 16 km disc, where they would have
+  // hung in the sky over the end of the water.
+  //
+  // It is close to free: the ring count, the sector count and therefore the
+  // vertex count are all unchanged, so this only makes the outermost quads
+  // larger, in the part of the frame that is two-thirds fog. Nothing else reads
+  // the radius, and the sea field already returns open-ocean defaults for
+  // anything sampled outside its extent (see seaAt() above), which is exactly
+  // what all of the new area is.
+  const geo = discGeometry(200, 220, 30000, 2.6);
 
   const water = new Water(geo, {
     textureWidth: 512,

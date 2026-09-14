@@ -110,8 +110,11 @@ const LAYOUTS = {
     { action: "down",      label: "Dive",    kind: "hold",  cls: "b-down",  hint: "2\u00d7 HOLD" },
     { action: "landUse",   label: "Land / Use", kind: "hold", cls: "b-land", hint: "HOLD" },
     { action: "sleepfire", label: "Sleepfire", kind: "hold", cls: "b-sleep", hint: "HOLD" },
-    { action: "knifeL",    label: "Knife L", kind: "hold",  cls: "b-knl",   hint: "HOLD" },
-    { action: "knifeR",    label: "Knife R", kind: "hold",  cls: "b-knr",   hint: "HOLD" },
+    // Hold knifes onto a wingtip; a double-tap is a barrel roll. Free again —
+    // these send real key events, so controls.js cannot tell a thumb from a
+    // finger on a keyboard.
+    { action: "knifeL",    label: "Knife L", kind: "hold",  cls: "b-knl",   hint: "2\u00d7 ROLL" },
+    { action: "knifeR",    label: "Knife R", kind: "hold",  cls: "b-knr",   hint: "2\u00d7 ROLL" },
     { action: "strafeL",   label: "Strafe L", kind: "hold", cls: "b-stl",   hint: "HOLD" },
     { action: "strafeR",   label: "Strafe R", kind: "hold", cls: "b-str",   hint: "HOLD" },
     { action: "alignCamera", label: "Recentre", kind: "tap", cls: "b-cam", hint: "TAP" },

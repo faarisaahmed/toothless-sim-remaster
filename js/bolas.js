@@ -20,9 +20,12 @@ import * as THREE from "three";
 //
 //   HE HAS TO SEE IT COMING  It leaves on a visible arc and it spins, and at
 //                            the far edge of their range that is a second and a
-//                            half of warning. You can fly out from under it, or
-//                            outrun it, or shoot it — a bola in the air is a
-//                            blast target like any other.
+//                            half of warning. You can outrun it, shoot it out of
+//                            the air — a bola in the air is a blast target like
+//                            any other — or barrel-roll off the line it was
+//                            aimed at, which only works if you leave the roll
+//                            late enough to still be in it when the weight
+//                            arrives. See the note in controls.js.
 //
 //   IT HAS TO BE HIS FAULT   They only throw at what they can see. That test
 //                            lives in main.js with the rest of the stealth

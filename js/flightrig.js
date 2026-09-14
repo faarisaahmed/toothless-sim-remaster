@@ -75,6 +75,42 @@ const LOAD_ASYM    = 0.34;  // outer wing loads harder than the inner in a carve
 // flat-out one runs out of bend.
 const LOAD_MAX     = 16;    // g
 
+// --- The barrel roll ------------------------------------------------------
+//
+// What an animal does to roll, which is not what an aeroplane does.
+//
+// An aircraft rolls with ailerons: two small flaps at the wingtips, and the
+// wing itself is a rigid board that does not change shape. A bird has no
+// ailerons, so it rolls by making the two wings do different things — and the
+// literature on avian roll control is specific about which difference matters.
+// Asymmetric wing PITCH, one wing twisting leading-edge-up while the other
+// twists leading-edge-down, produces a much larger roll moment than asymmetric
+// FOLDING does; folding is the secondary term. The tail twists with it, and the
+// asymmetric flow that twist puts over the tail is itself enough to coordinate
+// a banked turn in a soaring raptor.
+//
+// So all three are here, in that order of size:
+//
+//   TWIST  the big one. The two wings take opposite camber — the rising wing
+//          curls its digits under to bite, the falling one flattens and spills.
+//   TUCK   the falling wing pulls in and sweeps back, the rising one reaches.
+//          Less span on the inside of the roll, which is also just what it
+//          looks like in every shot of a dragon going over.
+//   TAIL   the fins deflect differentially, hard, and the tail itself lays over
+//          into the roll. It is a rudder and he is using it.
+//
+// All of it is driven off `state.roll`, which controls.js only makes non-zero
+// inside a barrel roll — so ordinary banked flight is untouched.
+const ROLL_TWIST  = 0.55;   // rad of opposite camber between the two wings
+const ROLL_TIP    = 0.45;   // ...and how much more of it out at the tip
+const ROLL_TUCK   = 0.42;   // the falling wing pulls in
+const ROLL_REACH  = 0.20;   // and the rising one reaches out
+const ROLL_SWEEP  = 0.30;   // rake, on the tucked side
+const ROLL_FIN    = 0.85;   // tail fins, deflected much harder than a carve
+const ROLL_TAIL   = 0.10;   // per link, laying the tail over into it
+const ROLL_HEAD   = 0.5;    // he looks where he is going round to
+const ROLL_LEG    = 0.35;   // legs come in tight — everything narrows
+
 // Tail.
 const FIN_SPREAD  = 0.65;   // fans open when slow, furls when fast
 const FIN_RUDDER  = 0.55;   // differential deflection into a turn
@@ -129,7 +165,7 @@ export function setupFlightRig(root) {
   }));
 
   // Smoothed so a twitch on the stick does not snap the tail.
-  let sTurn = 0, sClimb = 0, sSpeed = 0, sHang = 0, sLoad = 0;
+  let sTurn = 0, sClimb = 0, sSpeed = 0, sHang = 0, sLoad = 0, sRoll = 0;
 
   /**
    * Hand every bone back.
@@ -162,11 +198,20 @@ export function setupFlightRig(root) {
     // carve ended, and the flattening is the half you actually notice.
     const wantLoad = Math.min(LOAD_MAX, state.load || 0) / LOAD_MAX;
     sLoad += (wantLoad - sLoad) * damp(wantLoad > sLoad ? 9 : 3.5, dt);
+    // The roll is fast and deliberate, so it is smoothed far less than anything
+    // else here — a barrel roll is over in about a second and a rig that eases
+    // into it over half of that has missed it. Enough to take the corner off,
+    // no more.
+    sRoll += ((state.roll || 0) - sRoll) * damp(14, dt);
+    const rollMag = Math.abs(sRoll);
 
     // --- Legs -------------------------------------------------------------
     // Tucked in flight, and tucked harder the faster he goes. He used to fly
     // the whole archipelago with them hanging.
-    const tuck = 1 - LEG_LOOSE * (1 - sSpeed);
+    // Everything narrows in a roll: he is a spindle going round its own length,
+    // and legs hanging half out of the tuck are the thing that would give that
+    // away first.
+    const tuck = (1 - LEG_LOOSE * (1 - sSpeed)) * (1 + ROLL_LEG * rollMag);
     for (const l of legs) {
       const paddle = Math.sin(phase * 0.5 + (l.s === "L" ? 0 : 1.1)) * 0.05;
       set(`Thigh${l.s}`, "x", TUCK_THIGH * tuck + paddle);
@@ -188,10 +233,15 @@ export function setupFlightRig(root) {
 
     for (const s of SIDES) {
       const sign = s === "L" ? 1 : -1;
+      // Which end of the roll this wing is on. +1 for the wing going DOWN
+      // (the inside of the barrel), -1 for the one coming up and over.
+      const rollSide = sRoll * sign;
       // Hand folds in on the recovery, so he is not dragging a full wing back
-      // up — and in the hang it simply stays dropped.
+      // up — and in the hang it simply stays dropped. In a roll the inside
+      // hand folds hard: that asymmetry is the fold half of the roll moment.
       set(`Wing_Forearm${s}`, "z",
-        (WRIST_FLEX * upstroke * amp * (1 - sHang) + HANG_WRIST * sHang) * sign);
+        (WRIST_FLEX * upstroke * amp * (1 - sHang) + HANG_WRIST * sHang
+         + Math.max(0, rollSide) * ROLL_TUCK) * sign);
 
       for (let d = 0; d < 6; d++) {
         const k = d / 5;                                   // 0 inner .. 1 tip
@@ -209,8 +259,21 @@ export function setupFlightRig(root) {
         const bow = (LOAD_CAMBER + LOAD_TIP * k * k) * sLoad * asym;
         // Suppressed by the hang, which is its own held shape and would
         // otherwise be fighting this for the same bones.
-        const curl = beatCurl * (1 - sHang) + hangCurl * sHang + bow * (1 - sHang);
-        const sweep = SWEEP_DIGIT * sSpeed * k * (1 - sHang) + HANG_SWEEP * k * sHang;
+        // THE TWIST. Equal and opposite between the two wings, deepest at the
+        // tip where there is least holding the membrane out, and it is by far
+        // the biggest of the three roll terms — see the note at the top. The
+        // wing coming up curls under and bites; the one going down flattens
+        // out and spills. It ADDS to whatever the beat and the load are doing
+        // rather than replacing them, because he is still flying.
+        const twist = -rollSide * (ROLL_TWIST + ROLL_TIP * k * k);
+        const curl = beatCurl * (1 - sHang) + hangCurl * sHang + bow * (1 - sHang)
+                   + twist;
+        // ...and the fold. The inside wing rakes back and shortens, the
+        // outside one reaches. Span asymmetry, which is the secondary term.
+        const rollSweep = Math.max(0, rollSide) * ROLL_SWEEP * (0.4 + k)
+                        - Math.max(0, -rollSide) * ROLL_REACH * k;
+        const sweep = SWEEP_DIGIT * sSpeed * k * (1 - sHang) + HANG_SWEEP * k * sHang
+                    + rollSweep;
         for (let g = 0; g < 3; g++) {
           const n = `Wing_Finger${String(d * 3 + g + 1).padStart(3, "0")}${s}`;
           // Segment 1 rakes back with speed; all three share the camber, more
@@ -228,7 +291,9 @@ export function setupFlightRig(root) {
                  + HANG_FIN * sHang;
     for (const s of SIDES) {
       const sign = s === "L" ? 1 : -1;
-      const rudder = FIN_RUDDER * sTurn * sign;
+      // The rudder takes the roll as well as the carve, and much harder. A
+      // raptor turning on tail twist alone is doing this and nothing else.
+      const rudder = (FIN_RUDDER * sTurn + ROLL_FIN * sRoll) * sign;
       const elevator = FIN_ELEVATOR * sClimb;
       for (let i = 1; i <= 6; i++) {
         const k = (i - 1) / 5;
@@ -243,15 +308,18 @@ export function setupFlightRig(root) {
     for (let i = 1; i <= 11; i++) {
       const k = i / 11;
       const n = `Tail${String(i).padStart(3, "0")}`;
-      set(n, "z", TAIL_CARVE * sTurn * (0.35 + k));
+      set(n, "z", (TAIL_CARVE * sTurn + ROLL_TAIL * sRoll) * (0.35 + k));
       add(n, "x", Math.sin(phase * 0.6 - k * 1.8) * TAIL_WAVE + sClimb * 0.02);
     }
 
     // --- Head, neck, crest, ears -------------------------------------------
     for (let i = 1; i <= 3; i++) {
-      set(`Neck${String(i).padStart(3, "0")}`, "z", HEAD_LOOK * NECK_SHARE * sTurn);
+      set(`Neck${String(i).padStart(3, "0")}`, "z",
+        (HEAD_LOOK * sTurn + ROLL_HEAD * sRoll) * NECK_SHARE);
     }
-    set("Head", "z", HEAD_LOOK * sTurn);
+    // He looks the way he is going round. Half of what sells a roll as flown
+    // rather than applied is that the head leads it.
+    set("Head", "z", HEAD_LOOK * sTurn + ROLL_HEAD * sRoll);
     add("Head", "x", -HEAD_PITCH * sClimb);
     set("Jaw", "x", 0);
 

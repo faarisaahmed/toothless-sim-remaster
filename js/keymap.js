@@ -216,7 +216,8 @@ export const LEGEND = [
     desc: "Turn &mdash; hold to carve harder" },
   { keys: ["up", "down"],         pad: ["R2", "L2"],
     desc: "Up and down &mdash; a hold trims a little. " +
-          "<em>Double-tap and hold</em> to climb or dive for real" },
+          "<em>Double-tap and hold</em> to climb, or to drop fast &mdash; " +
+          "and it is a full dive if you are already sprinting" },
   { keys: ["sprint"],             pad: [],
     desc: "Sprint &mdash; hold for 400 mph" },
   { keys: ["burst"],              pad: ["✕:shape"], hold: true,
@@ -233,7 +234,9 @@ export const LEGEND = [
   { keys: ["strafeL", "strafeR"], pad: ["□:shape", "○:shape"],
     desc: "Strafe sideways, heading unchanged" },
   { keys: ["knifeL", "knifeR"],   pad: ["L1", "R1"],
-    desc: "Hold to knife edge onto a wingtip" },
+    desc: "Hold to knife edge onto a wingtip. " +
+          "<em>Double-tap</em> for a barrel roll &mdash; time it late and " +
+          "a bola goes through where you were" },
   { keys: ["!Mouse"],             pad: ["R●"],
     desc: "Free look &mdash; click to capture" },
   { keys: ["alignDragon"],        pad: ["D↑"],

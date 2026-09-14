@@ -10,6 +10,57 @@ export function angleDelta(a, b) {
   return d;
 }
 
+/**
+ * The double-tap gate, as one small machine per axis.
+ *
+ * "Press and hold is the gentle version, double-tap and hold is the committed
+ * one" is now the grammar of two different controls — up/down for the zoom and
+ * the dive, left/right wingtip for the barrel roll — and it is exactly the kind
+ * of fiddly edge-case logic that goes subtly wrong when it is written twice.
+ * The awkward cases are all in here once: a lean that ends must not leave a tap
+ * behind (or a lean, a release and a lean commits), the arming has to survive
+ * for the whole of the second press rather than being re-tested per frame, and
+ * a reversal has to reset everything so a fumble cannot fling him anywhere.
+ *
+ * @param {number} tapMax  s — a press shorter than this counted as a tap
+ * @param {number} gap     s — and the next press has to follow inside this
+ */
+function makeTapGate(tapMax, gap) {
+  let held = 0;       // s the axis has been held its current way
+  let dir = 0;        // which way, 0 when centred
+  let tapDir = 0;     // direction of the last completed short press
+  let age = 99;       // s since that tap was released
+  let armed = false;  // this press was preceded by a tap
+  let fired = false;  // ...and this is the single frame it became true
+
+  return {
+    /** @param {number} want -1, 0 or +1, off whatever the axis reads. */
+    update(dt, want) {
+      age += dt;
+      fired = false;
+      if (want !== 0 && want === dir) { held += dt; return; }
+      // Centred, or reversed. Decide what the press that just ended was.
+      if (dir !== 0) {
+        if (held > 0 && held <= tapMax) { tapDir = dir; age = 0; }
+        else tapDir = 0;
+      }
+      held = 0;
+      dir = want;
+      armed = want !== 0 && want === tapDir && age <= gap;
+      if (armed) { tapDir = 0; fired = true; }   // one tap arms one press
+    },
+    /** True for as long as the armed press lasts. */
+    get armed() { return armed; },
+    /** True only on the frame the armed press began — for one-shot actions. */
+    get fired() { return fired; },
+    /** Seconds the current press has lasted. */
+    get held() { return held; },
+    /** Which way it is being held, 0 when centred. */
+    get dir() { return dir; },
+    reset() { held = 0; dir = 0; tapDir = 0; age = 99; armed = false; fired = false; },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Units
 //
@@ -167,6 +218,103 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // that axis has to keep doing — losing a little height on an approach. The
   // landing prompt says "hold down to drop" and it has to still mean that.
   const DIVE_ENTRY_SPEED  = CLIMB_ENTRY_SPEED;
+
+  // --- The drop: a fast descent that is not a dive --------------------------
+  //
+  // Down had exactly two settings, and the gap between them was the size of the
+  // whole flight model: a hold trims him down at 26-34 m/s, and a double tap at
+  // dive speed puts his nose through the floor at 900 mph. There was nothing in
+  // between — no way to get DOWN quickly, on purpose, while still flying.
+  //
+  // So the double tap now reads the speed he is already doing and gives him the
+  // one that fits. Dashing, it is the dive it always was. Not dashing, it is
+  // this: a steep, controlled descent at 75 m/s with his heading and his
+  // steering intact, about twice what leaning on the key gives him. He is
+  // falling, not committing.
+  //
+  // It stays on the LEVEL translation model rather than the manoeuvring one,
+  // and that is the whole difference. A dive is one speed along one flight path
+  // and the controls stop arguing; a drop is the ordinary helicopter model with
+  // the lift axis pushed hard over, so he can still turn, still strafe, still
+  // pull out the instant he lets go. And it caps its own speed just under the
+  // dive threshold, so leaning on it never quietly becomes the thing he chose
+  // not to do.
+  const DROP_SINK   = 75;                      // m/s down
+  const DROP_LAMBDA = 3.0;                     // how fast the sink arrives
+  const DROP_SPEED  = DIVE_ENTRY_SPEED * 0.86; // ...and the airspeed it settles at
+  const DROP_DRAG   = 1.4;                     // how fast it gets there
+
+  // --- The barrel roll ------------------------------------------------------
+  //
+  // Double-tap a wingtip key and he corkscrews. Not an aileron roll — that is a
+  // spin about his own length that goes nowhere and is worth nothing but the
+  // look of it. A barrel roll is a HELIX: the nose scribes a circle around the
+  // line he was already flying, so he rolls all the way over AND steps bodily
+  // sideways and up and back, ending on the heading he started on, a wingspan
+  // and a half from where he would have been.
+  //
+  // That displacement is the entire point, and it is why this is the answer to
+  // being shot at. A hunter's launcher solves a lead on where he is going (see
+  // bolas.js); a barrel roll makes that solution wrong, without giving up the
+  // heading, and it costs the same wing stamina the knife edge spends.
+  //
+  // It is an evasion and it has to be TIMED, which is the good part. The helix
+  // comes back to the line it left, so rolling the instant a launcher fires
+  // does nothing at all — he is home and level again well before the weight
+  // arrives, and it hits him. Rolling late, so the corkscrew is still running
+  // when it gets there, throws it off. Measured at about eight hundred
+  // milliseconds into a one-and-a-half second flight: react to the thing in the
+  // air, not to the muzzle. Panic and you wear it.
+  //
+  // Positive g the whole way round, which is what separates it from a roll: he
+  // pulls up into it, goes over the top, and comes down the other side. He is
+  // never hanging in his straps, so nothing about the flight model has to
+  // pretend to be upside down.
+  const ROLL_TIME    = 1.05;   // s for the full turn at cruise
+  const ROLL_TIME_FAST = 0.72; // ...and flat out, where everything happens sooner
+  // Radius of the barrel. Grows with speed because a real one has to: the
+  // radius of a constant-g turn is v squared over the acceleration, so a fast
+  // roll describes a much bigger circle than a slow one, and one fixed number
+  // would read as a twitch at 750 mph and a loop-the-loop at a hover.
+  const ROLL_R_SLOW  = 11;     // m at a crawl
+  const ROLL_R_FAST  = 30;     // m flat out
+  // How much of the bottom of the barrel he actually flies. A true one is
+  // symmetric about the entry line; this one is flattened underneath, because
+  // the half of it that goes DOWN is the half that meets a ridge, and a
+  // manoeuvre that kills you for using it near the ground is a manoeuvre nobody
+  // uses. He still dips, just not by the full radius.
+  const ROLL_UNDER   = 0.45;
+  const ROLL_PITCH   = 0.20;   // rad of nose-up over the top and down the far side
+  const ROLL_COST    = 1.15;   // s of the wing stamina the knife edge also spends
+  const ROLL_DRAG    = 0.10;   // fraction of airspeed it costs
+  // A tap on a wingtip key is also the start of a knife edge, so the two have to
+  // be told apart by the same clock the vertical axis uses.
+  const ROLL_TAP_MAX = 0.26;   // s
+  const ROLL_GAP     = 0.32;   // s
+
+  // --- The edge of the chart ------------------------------------------------
+  //
+  // The height field is a ten-kilometre square and every island in it is inside
+  // a chebyshev 5,260 from the middle. Past that there is nothing but the ocean
+  // disc, and past 5,000 there is not even terrain — the mesh has ended, and
+  // what the player gets for their trouble is water with no bottom drawn under
+  // it, forever, until they turn round out of boredom.
+  //
+  // Measured as a SQUARE rather than a circle, because the world is one: a
+  // circle inscribed in the mesh would fence off the four outermost islands,
+  // and one drawn round them would let him off the mesh entirely along the
+  // axes. Chebyshev distance is the shape of the thing being bounded.
+  //
+  // It is a current, not a wall. Nothing stops, nothing is refused, no message
+  // interrupts: his heading is bent back toward the middle, gently at the ring
+  // and firmly a kilometre past it, and only ever when he is actually pointed
+  // OUTWARD — flying along the edge or coming home costs him nothing. The
+  // horizon islands are out there for him to look at while it happens
+  // (horizon.js), so the reason is visible rather than administrative.
+  const EDGE_SOFT   = 5400;   // m per axis, just past the last island's shore
+  const EDGE_HARD   = 6400;   // ...and where it stops being a suggestion
+  const EDGE_TURN   = 0.62;   // rad/s of heading at the hard edge, at full outward
+
   // Seconds of the post-stall dive he cannot pull out of. Without it, holding
   // the climb key through a stall put him straight into `recover`, so the nose
   // dropped, nothing happened, and running out of airspeed cost nothing at all.
@@ -268,24 +416,61 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   let climbVel    = 0;   // m/s, straight up. Owned by Space/Ctrl and nothing else
   // "level" is the ordinary flight model and the only state the old code had.
   // The other four are the zoom climb and what it costs — see the constants.
-  let mode        = "level";   // level | zoom | stall | dive | recover
+  let mode        = "level";   // level | drop | zoom | stall | dive | recover
   let modeT       = 0;         // seconds in the current state
   let stalled     = false;     // true for one frame when the wings let go
   let recoverHold = 0;         // s of keeping the speed a dive earned
   let diveCommit  = 0;         // s of dive he cannot pull out of, after a stall
   let vertAccel   = 0;         // m/s^2, smoothed. Feeds the wing load below
   let lastClimb   = 0;
-  let vertHeld    = 0;         // s the up/down axis has been held one way
-  let vertHeldDir = 0;         // and which way, so a reversal resets the clock
-  // The double-tap gate. `vertTapDir`/`vertTapAge` remember the tap that just
-  // ended; `vertArmed` is set on the press that follows it and stays set for
-  // as long as that press lasts, so releasing the key disarms and the next
-  // single hold is a trim again.
-  let vertTapDir  = 0;         // direction of the last completed short press
-  let vertTapAge  = 99;        // s since it was released
-  let vertArmed   = false;     // this press was preceded by a tap
+  // The two double-tap gates — up/down for the zoom, the dive and the drop, and
+  // the wingtip keys for the barrel roll. See makeTapGate().
+  const vertGate = makeTapGate(TAP_MAX, DOUBLE_GAP);
+  const rollGate = makeTapGate(ROLL_TAP_MAX, ROLL_GAP);
   let snared      = 0;         // s left with his wings bound — see SNARE_TIME
   let snareDir    = 0;         // which way he last rolled, for the shake
+
+  // The barrel roll, while one is running. `rollDir` is +1 for a roll to the
+  // left (the same sign convention as the knife edge and as rotation.z) and 0
+  // when he is not in one.
+  let rollDir   = 0;
+  let rollT     = 0;      // 0..1 through the turn
+  let rollTime  = ROLL_TIME;
+  let rollR     = ROLL_R_SLOW;
+  let rollEntry = 0;      // the bank he was in when it started
+  let rollLat   = 0;      // metres of the helix already applied, so the offset
+  let rollUp    = 0;      // ...can be laid down as per-frame deltas
+  // How fast he is going round, signed and normalised — 0 at the two ends of
+  // the turn and 1 through the middle. The wing rig twists on this.
+  let rollRate  = 0;
+
+  /** 0 inside the chart, 1 at the hard edge. Read by main.js for the HUD. */
+  let edgeT = 0;
+
+  /**
+   * Begin a barrel roll, if he is in a state to fly one.
+   *
+   * Refused out of anything that is already a manoeuvre — a corkscrew out of a
+   * stall is not a thing a wing does — and refused with the wing stamina spent,
+   * which is what stops it being a free button you hold down. `dir` is +1 for a
+   * roll to the left, matching the knife edge and rotation.z.
+   */
+  function startRoll(dir) {
+    if (!dir || rollDir !== 0) return false;
+    if (snared > 0 || mode !== "level") return false;
+    if (knifeCharge < ROLL_COST) return false;
+    rollDir = dir;
+    rollT = 0;
+    rollLat = 0;
+    rollUp = 0;
+    rollEntry = currentRoll;
+    knifeCharge = Math.max(0, knifeCharge - ROLL_COST);
+    const t = speedRatio();
+    rollTime = THREE.MathUtils.lerp(ROLL_TIME, ROLL_TIME_FAST, t);
+    rollR    = THREE.MathUtils.lerp(ROLL_R_SLOW, ROLL_R_FAST, t);
+    airspeed *= 1 - ROLL_DRAG;
+    return true;
+  }
 
   /** How far through the climb's airspeed budget he is, 0 fresh .. 1 stalling. */
   const getStallT01 = () => 1 - THREE.MathUtils.clamp(
@@ -469,6 +654,20 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     if (heldIn(keys, "knifeL") || (padOn && pad.held(BTN.L1))) knifeWant =  1; // left wing down
     if (heldIn(keys, "knifeR") || (padOn && pad.held(BTN.R1))) knifeWant = -1; // right wing down
 
+    // --- Barrel roll: the same key, tapped twice --------------------------
+    // Deliberately the wingtip key rather than a new binding. It is the axis
+    // that already means "put a wing down", the double tap already means "the
+    // committed version of this" everywhere else in the game, and it leaves the
+    // roll on a button the hand is already resting on when it is needed — which
+    // is while something is in the air on its way to him.
+    rollGate.update(dt, knifeWant);
+    if (rollGate.fired) startRoll(rollGate.dir);
+
+    // A roll owns the wings for its second and a bit. Holding the key through
+    // one would otherwise have him arrive out of the corkscrew already on a
+    // wingtip, which looks like the roll never finished.
+    if (rollDir !== 0) knifeWant = 0;
+
     if (knifeWant !== 0) {
       knifeCharge = Math.max(0, knifeCharge - dt);
     } else {
@@ -542,6 +741,30 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
 
     yawRate = THREE.MathUtils.clamp(yawRate, -yawMaxNow, yawMaxNow);
     heading += yawRate * dt;
+
+    // --- The edge of the chart ---------------------------------------------
+    // Applied to `heading` outside the yaw clamp, exactly as the knife edge's
+    // slice is below: this is the world dragging him round, not extra steering,
+    // and it must not eat into the turn rate he still has.
+    {
+      const cheb = Math.max(Math.abs(dragon.position.x), Math.abs(dragon.position.z));
+      edgeT = THREE.MathUtils.clamp(
+        (cheb - EDGE_SOFT) / (EDGE_HARD - EDGE_SOFT), 0, 1);
+      if (edgeT > 0) {
+        // Which way is home, and how much of his nose is pointed away from it.
+        const home = Math.atan2(-dragon.position.x, -dragon.position.z);
+        const delta = angleDelta(heading, home);
+        // cos of the angle off home: +1 flying straight back, -1 straight out.
+        // Only the outward half of that is worth anything — turning a dragon
+        // who is already coming home is the game arguing with a player who has
+        // done what it wanted.
+        const outward = THREE.MathUtils.clamp(-Math.cos(delta), 0, 1);
+        // Squared, so the ring itself is a drift you would struggle to name and
+        // the far side of it is unmistakable.
+        const pull = EDGE_TURN * edgeT * edgeT * outward;
+        heading += Math.sign(delta) * Math.min(pull * dt, Math.abs(delta));
+      }
+    }
     // On a wingtip he slices toward the low wing. Applied outside the clamp so
     // it reads as the maneuver dragging him round, not as extra steering.
     heading += knifeAmount * KNIFE_YAW * dt;
@@ -589,43 +812,28 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     const setMode = (m) => { if (m !== mode) { mode = m; modeT = 0; } };
 
     // --- The double-tap gate ----------------------------------------------
-    // How long the axis has been held one way. Reset the moment it centres or
-    // reverses, so a tap is always a tap.
-    const wantDir = wantUp ? 1 : wantDown ? -1 : 0;
-    vertTapAge += dt;
-    if (wantDir !== 0 && wantDir === vertHeldDir) {
-      vertHeld += dt;
-    } else {
-      // The axis just centred or reversed. If what it was doing was SHORT, it
-      // was a tap, and a tap arms the next press in the same direction.
-      if (vertHeldDir !== 0 && vertHeld > 0 && vertHeld <= TAP_MAX) {
-        vertTapDir = vertHeldDir;
-        vertTapAge = 0;
-      } else if (vertHeldDir !== 0) {
-        // A long press that ended is not a tap, and it must not leave a stale
-        // one behind — otherwise a lean, a release and a lean again commits.
-        vertTapDir = 0;
-      }
-      vertHeld = 0;
-      vertHeldDir = wantDir;
-      // Arm on the press itself rather than on the frame it crosses the hold
-      // threshold, so a slow tap-tap-hold still counts: the window is measured
-      // from the tap's release, which is the thing the player can feel.
-      vertArmed = wantDir !== 0 && wantDir === vertTapDir && vertTapAge <= DOUBLE_GAP;
-      if (vertArmed) vertTapDir = 0;   // spend it, so one tap arms one press
-    }
-    if (wantDir === 0) vertArmed = false;
+    vertGate.update(dt, wantUp ? 1 : wantDown ? -1 : 0);
     // Bound wings cannot be stood on. A snare drops him out of whatever he was
     // in and refuses the next one until he is loose, for the same reason a
     // crash does: a zoom climb with the cords round him is not a zoom climb.
-    const committed = snared <= 0 && vertArmed && vertHeld >= MANOEUVRE_HOLD;
+    const committed = snared <= 0 && vertGate.armed && vertGate.held >= MANOEUVRE_HOLD;
     if (snared > 0 && mode !== "level") {
       mode = "level"; modeT = 0; diveCommit = 0; recoverHold = 0;
     }
 
     if (mode === "level") {
       if (committed && wantUp && airspeed >= CLIMB_ENTRY_SPEED) setMode("zoom");
-      else if (committed && wantDown && airspeed >= DIVE_ENTRY_SPEED) setMode("dive");
+      // Down reads the speed he is already doing and gives him the version of
+      // itself that fits it: the dive if he is dashing, the drop if he is not.
+      else if (committed && wantDown) {
+        setMode(airspeed >= DIVE_ENTRY_SPEED ? "dive" : "drop");
+      }
+    } else if (mode === "drop") {
+      // Height, quickly, with everything else still working. The airspeed is
+      // pulled TOWARD a number rather than allowed to build, so however long he
+      // holds it this never turns into the dive he chose not to ask for.
+      airspeed += (DROP_SPEED - airspeed) * damp(DROP_DRAG, dt);
+      if (!wantDown || wantUp) setMode("level");
     } else if (mode === "zoom") {
       // Straight up, and it costs. Letting go levels him off with whatever he
       // has left, which is the skill in it: too long and the wings let go.
@@ -665,7 +873,12 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
 
     // While a manoeuvre owns him, the throttle does not: the pedal cannot pull
     // him out of a stall and gravity cannot be out-accelerated with a key.
-    const manoeuvring = mode !== "level";
+    //
+    // The drop is deliberately NOT one of them. It runs on the level model with
+    // the lift axis shoved over, which is what leaves him his heading, his
+    // turn and his strafe all the way down — the difference between falling on
+    // purpose and committing to a dive.
+    const manoeuvring = mode !== "level" && mode !== "drop";
 
     // Fast dragons climb faster than slow ones, so the rate rides on airspeed —
     // but it never falls to nothing, because hovering and rising is exactly the
@@ -680,6 +893,12 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       VERT_HOVER + Math.abs(airspeed) * VERT_PER_SPEED, CLIMB_RATE_CAP
     );
     climbVel += (verticalInput * vertRate - climbVel) * damp(VERT_LAMBDA, dt);
+
+    // The drop overrides the lift axis for the same reason the snare below does:
+    // it is not a stronger press, it is a different thing the axis is doing.
+    if (mode === "drop") {
+      climbVel += (-DROP_SINK - climbVel) * damp(DROP_LAMBDA, dt);
+    }
 
     // ...and then the snare overrides all of it. Written after the lift rather
     // than folded into `vertRate` so it is plainly an override: while the cords
@@ -742,6 +961,46 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     dragon.position.x -= Math.cos(heading) * strafeVel * dt;
     dragon.position.z += Math.sin(heading) * strafeVel * dt;
 
+    // --- The barrel: the path, not the spin --------------------------------
+    //
+    // Laid on top of wherever the flight model just put him, as a DELTA from
+    // last frame's offset rather than as an absolute position. That is what
+    // keeps it composable: he is still flying forward at whatever speed he was
+    // doing, still turning if he is turning, still climbing if he is climbing,
+    // and this steps him round a circle in the plane across all of it. At the
+    // end of the turn the offset is back at zero, so nothing is left behind and
+    // he comes out exactly on the line he would have been on.
+    //
+    // The circle is centred one radius off to the side he rolled toward, so he
+    // starts at the bottom of it: up and over, out to two radii at the halfway
+    // point, and back. Under the entry line it is flattened by ROLL_UNDER, so
+    // rolling over a ridge does not put him into it.
+    rollRate = 0;
+    if (rollDir !== 0) {
+      rollT = Math.min(1, rollT + dt / rollTime);
+      const th = rollT * Math.PI * 2;
+      const sinT = Math.sin(th);
+      const lat = rollDir * rollR * (1 - Math.cos(th));
+      const up  = rollR * sinT * (sinT > 0 ? 1 : ROLL_UNDER);
+      // Left, for a heading whose forward is (sin h, cos h).
+      dragon.position.x += Math.cos(heading) * (lat - rollLat);
+      dragon.position.z -= Math.sin(heading) * (lat - rollLat);
+      dragon.position.y += up - rollUp;
+      rollLat = lat;
+      rollUp = up;
+      // How fast he is going round, normalised — 0 at the ends and 1 in the
+      // middle. This is what the wing rig twists on.
+      rollRate = rollDir * (1 - Math.cos(th)) * 0.5;
+      if (rollT >= 1) {
+        // One whole turn is the same attitude as none. Take it off here, at the
+        // moment it finishes and while the direction is still known, so the
+        // bank model picks up from the attitude he is actually in instead of
+        // unwinding six radians over the next second.
+        currentRoll -= rollDir * Math.PI * 2;
+        rollDir = 0; rollT = 0; rollLat = 0; rollUp = 0;
+      }
+    }
+
     // From `climbVel`, NOT `climbRate`. climbRate has the wingbeat bob added
     // to it — a sine at beat frequency — and differentiating that gives a huge
     // spurious acceleration, which is how "straight and level" first measured
@@ -766,7 +1025,16 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // Nothing alive holds a wingtip-down attitude perfectly still.
     const tremble = Math.sin(elapsed * 18.6) * Math.sin(elapsed * 7.8) * KNIFE_TREMBLE * knifeBlend;
     const targetRoll = knifeAmount * KNIFE_ANGLE + (1 - knifeBlend) * bank + tremble;
-    currentRoll += (targetRoll - currentRoll) * damp(BANK_LAMBDA, dt);
+    if (rollDir !== 0 || rollT > 0) {
+      // A full turn, driven off the same clock as the path so the spin and the
+      // corkscrew cannot drift apart. The easing is t - sin(2*pi*t)/(2*pi):
+      // it lands exactly on one turn, and its derivative is zero at both ends,
+      // so he rolls INTO it and settles OUT of it instead of snapping.
+      const th = rollT * Math.PI * 2;
+      currentRoll = rollEntry + rollDir * (th - Math.sin(th));
+    } else {
+      currentRoll += (targetRoll - currentRoll) * damp(BANK_LAMBDA, dt);
+    }
     dragon.rotation.z = currentRoll;
 
     // --- Pitch ---
@@ -781,7 +1049,12 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // straight up while pointing forty degrees off it.
     const pitchLimit = manoeuvring ? Math.PI / 2 + 0.08 : PITCH_MAX;
     const targetPitch = THREE.MathUtils.clamp(
-      pathAngle + (manoeuvring ? 0 : slowT * AOA_SLOW) + knifeBlend * 0.14,
+      pathAngle + (manoeuvring ? 0 : slowT * AOA_SLOW) + knifeBlend * 0.14
+        // Nose up going over the top of the barrel and down coming off it,
+        // which is the pull that keeps a barrel roll positive-g. Without it he
+        // slides round the helix pointing dead ahead, and the body reads as
+        // being carried through the manoeuvre rather than flying it.
+        + (rollT > 0 ? Math.sin(rollT * Math.PI * 2) * ROLL_PITCH : 0),
       -pitchLimit, pitchLimit
     );
     currentPitch += (targetPitch - currentPitch) * damp(PITCH_LAMBDA, dt);
@@ -915,13 +1188,14 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
      */
     getMode: () => mode,
     /** 0..1 of the way to committing to a zoom or a dive. Drives the HUD. */
-    getCommitT: () => (vertArmed ? Math.min(1, vertHeld / MANOEUVRE_HOLD) : 0),
+    getCommitT: () =>
+      (vertGate.armed ? Math.min(1, vertGate.held / MANOEUVRE_HOLD) : 0),
     /**
      * True while the axis is held but has NOT been double-tapped — i.e. he is
      * trimming rather than manoeuvring. The HUD says so, because the whole
      * point of the gate is that the player can tell the two apart.
      */
-    isTrimming: () => mode === "level" && vertHeldDir !== 0 && !vertArmed,
+    isTrimming: () => mode === "level" && vertGate.dir !== 0 && !vertGate.armed,
     /** True for the single frame the wings let go at the top of a zoom. */
     didStall: () => stalled,
     /**
@@ -950,6 +1224,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       airspeed *= Math.max(0, 1 - fraction);
       climbVel *= 0.2;
       mode = "level"; modeT = 0; recoverHold = 0; diveCommit = 0;
+      if (rollDir !== 0) { currentRoll -= rollDir * Math.PI * 2; }
+      rollDir = 0; rollT = 0; rollLat = 0; rollUp = 0; rollRate = 0;
     },
     /**
      * A hunter's bola has landed: bind his wings for `seconds`.
@@ -961,14 +1237,45 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     snare(seconds = SNARE_TIME) {
       snared = Math.max(snared, seconds);
       snareDir = 0;
+      // Cords round the wings end a corkscrew, and end it where he is rather
+      // than a whole turn away from it.
+      if (rollDir !== 0) currentRoll -= rollDir * Math.PI * 2;
+      rollDir = 0; rollT = 0; rollLat = 0; rollUp = 0; rollRate = 0;
       mode = "level"; modeT = 0; diveCommit = 0; recoverHold = 0;
       // Whatever speed the pass was carrying goes with the wings.
       airspeed *= 0.55;
     },
     /** Seconds left of it, for the HUD. */
     getSnared: () => snared,
+
+    /**
+     * Fly a barrel roll now, if he can. +1 rolls left, -1 right.
+     * @returns {boolean} whether one actually started
+     */
+    barrelRoll: (dir) => startRoll(Math.sign(dir) || 1),
+    /** 0 when he is not in one, otherwise 0..1 through the turn. */
+    getRollT: () => (rollDir !== 0 ? rollT : 0),
+    /**
+     * How far outside the chart he is: 0 inside it, 1 at the hard edge, where
+     * he is being turned as hard as this will turn him. main.js says so on
+     * screen; nothing here does.
+     */
+    getEdgeT: () => edgeT,
+    /** Signed roll rate, -1..1. Non-zero only inside a barrel roll. */
+    getRollRate: () => rollRate,
+    /** Whether a barrel roll would be refused, and why — for the HUD. */
+    canRoll: () => snared <= 0 && mode === "level" && rollDir === 0
+                   && knifeCharge >= ROLL_COST,
+
     /** Let go — a landing, a cutscene, a chapter jump. */
     clearSnare() { snared = 0; snareDir = 0; },
+    /** Abandon a barrel roll mid-turn. Landing and cutscenes both need this,
+     *  or he keeps corkscrewing through a scene that owns the camera. */
+    clearRoll() {
+      if (rollDir !== 0) currentRoll -= rollDir * Math.PI * 2;
+      rollDir = 0; rollT = 0; rollLat = 0; rollUp = 0; rollRate = 0;
+      rollGate.reset();
+    },
 
     /** Radians off the horizontal — the camera uses this to lead him. */
     getPathAngle: () => pathAngle,
@@ -1006,6 +1313,17 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       hang: mode === "stall" ? 1
           : mode === "zoom" ? Math.max(0, (getStallT01() - 0.45) / 0.55)
           : 0,
+      // --- ROLL RATE, -1 .. +1 --------------------------------------------
+      // Signed, +1 rolling left, and only ever non-zero inside a barrel roll.
+      //
+      // The rig twists the wings ASYMMETRICALLY on this rather than just
+      // spinning the body, because that is how the animal does it: the work on
+      // bird flight is clear that asymmetric wing PITCH — one wing twisting
+      // nose-up while the other twists nose-down — produces a far larger roll
+      // moment than asymmetric folding, and that the tail twists with it. The
+      // body rotation is the RESULT of the wings doing that, so the wings have
+      // to lead it or the whole manoeuvre reads as a model spun on a spit.
+      roll: rollRate,
     }),
     getKnifeCharge: () => knifeCharge / KNIFE_HOLD,
 

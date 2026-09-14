@@ -22,6 +22,7 @@ import { setupPadView } from "./padview.js";
 import { music, CREDITS } from "./audio.js";
 import { setupPlasma, MAX_SHOTS } from "./plasma.js";
 import { setupBolas } from "./bolas.js";
+import { setupHorizon } from "./horizon.js";
 import { setupHealth } from "./health.js";
 import { setupTouch } from "./touch.js";
 import { settings } from "./settings.js";
@@ -393,6 +394,19 @@ let rigReady = false;
 let lastLookAt = 0;   // when the player last moved the look stick or mouse
 
 const world = setupWorld(scene, renderer, QUALITY);
+// Land past the edge of the chart. Silhouettes only — see horizon.js. Built
+// here rather than inside setupWorld because it is not part of the world in the
+// sense the rest of that file means: nothing samples it, nothing collides with
+// it, and the height field does not know it exists.
+const horizon = setupHorizon(scene);
+// Kept out of the mirror pass, and it is not an optimisation. A nine-kilometre
+// island reflected in water that is itself nine kilometres away is a shape the
+// reflection has no resolution to place: it renders as a second, inverted
+// mountain hanging under the real one, right where the sea is palest and the
+// contrast is highest. The real reflection of something that far away is worth
+// nothing and the artefact is worth less than nothing. No lights in it, so
+// ocean.js will not refuse this.
+world.excludeFromReflection(horizon.group);
 
 // The archipelago has a tune. It will not actually make a sound until the
 // player clicks or presses something — see the note in audio.js — so calling it
@@ -556,16 +570,19 @@ function updateHud() {
   // says the word and then says what to do about it.
   const snared = controls.getSnared();
   const line = snared > 0 ? "SNARED · roll left and right"
+             : controls.getRollT() > 0 ? "Barrel roll"
              : mode === "zoom"  ? `Climbing · ${Math.round((1 - controls.getStallT()) * 100)}%`
              : mode === "stall" ? "STALL"
              : mode === "dive"  ? "Diving"
+             : mode === "drop"  ? "Dropping"
              : mode === "recover" ? "Pulling up"
              : controls.isTrimming() ? "Trim · double-tap to commit"
              : flatOut ? "Flat Out"
              : `Flat Out · ${keymap.label(keymap.keysFor("burst")[0])}`;
   if (line !== shownBurst) {
     hudBurst.textContent = line;
-    hudBurst.classList.toggle("ready", flatOut || mode === "dive");
+    hudBurst.classList.toggle("ready",
+      flatOut || mode === "dive" || controls.getRollT() > 0);
     hudBurst.classList.toggle("stall", mode === "stall" || snared > 0);
     shownBurst = line;
   }
@@ -844,6 +861,7 @@ const debugConsole = setupDebugConsole({
   get plasma() { return plasma; },
   get bolas() { return bolas; },
   get rig() { return rig; },
+  horizon,
   get health() { return health; },
   get grounded() { return grounded; },
   // Function declarations, so hoisting makes these safe to hand over from
@@ -1011,6 +1029,7 @@ function land() {
   // island, and the flight model is the only thing the snare knows how to act
   // on in the first place.
   controls?.clearSnare();
+  controls?.clearRoll();
 
   // Read the hillside NOW, before the drop, and seed the attitude with it so
   // he flares onto the slope through the fall instead of arriving flat and
@@ -1337,7 +1356,7 @@ window.__na = {
   get dragon() { return dragon; },
   get groundRig() { return groundRig; },
   get plasma() { return plasma; },
-  bolas,
+  bolas, horizon,
   get rig() { return rig; },
   get stack() { return stack; },
   get grounded() { return grounded; },
@@ -2024,7 +2043,17 @@ function frame() {
       // which reads as "landing is broken" rather than "not here". Now every
       // state says which condition is failing and which key fixes it, so the
       // thing is teachable from the screen instead of from the README.
-      if (busy) {
+      // The edge of the chart outranks all of it. Out here the honest landing
+      // prompt is "No land below — find an island", which is true, useless, and
+      // says nothing about why he will not fly straight — so it gets replaced
+      // by the one thing the player actually needs told. Escalates rather than
+      // repeating: a nudge at the ring, a statement past it.
+      const edgeT = controls?.getEdgeT() ?? 0;
+      if (edgeT > 0.02) {
+        game.setPrompt(edgeT > 0.45
+          ? "He will not go further. There is nothing charted out here."
+          : "The last of the chart. He is drifting back.", { blocked: true });
+      } else if (busy) {
         game.setPrompt(`Hold ${keymap.keyTag("landUse")} — ${interactLabel || "use"}`, { hold: interactHold / 0.9 });
       } else if (canLand) {
         game.setPrompt(`Hold ${keymap.keyTag("landUse")} to land`, { hold: landHold / 0.4 });
@@ -2051,6 +2080,7 @@ function frame() {
   // in the air would hang there in shot. Cut it, and cut the snare with it —
   // the alternative is coming back from the reveal already falling.
   if (game.cine && bolas.liveCount) { bolas.clear(); controls?.clearSnare(); }
+  if (game.cine) controls?.clearRoll();
   bolas.update(sdt, dragon && !grounded && !game.cine ? { pos: dragon.position } : null);
 
   // --- Plasma ---------------------------------------------------------

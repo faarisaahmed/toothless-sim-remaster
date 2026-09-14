@@ -733,6 +733,36 @@ export function setupDebugConsole(ctx) {
       },
     },
 
+    roll: {
+      help: "roll [l|r] — fly a barrel roll",
+      run(args) {
+        const c = ctx.getControls?.();
+        if (!c) return log("dragon not loaded yet", "err");
+        const dir = /^r/i.test(args[0] || "") ? -1 : 1;
+        if (!c.barrelRoll(dir)) {
+          return log(c.getSnared() > 0 ? "snared — he cannot"
+            : c.getMode() !== "level" ? `busy: ${c.getMode()}`
+            : c.getRollT() > 0 ? "already rolling"
+            : "not enough wing left — wait for the knife bar", "err");
+        }
+        log(`barrel roll ${dir > 0 ? "left" : "right"}`);
+      },
+    },
+
+    edge: {
+      help: "edge — how far outside the chart he is",
+      run() {
+        const d = ctx.getDragon();
+        const c = ctx.getControls?.();
+        if (!d || !c) return log("dragon not loaded yet", "err");
+        const cheb = Math.max(Math.abs(d.position.x), Math.abs(d.position.z));
+        log(`chebyshev  ${Math.round(cheb)} m from the middle`);
+        log(`edge       ${(c.getEdgeT() * 100).toFixed(0)}% of the way to the hard limit`);
+        log(`horizon    ${ctx.horizon?.count ?? "?"} islands, nearest at ` +
+            `${Math.round(ctx.horizon?.nearest ?? 0)} m`);
+      },
+    },
+
     snare: {
       help: "snare [seconds] — bind his wings, as a bola would",
       run(args) {
