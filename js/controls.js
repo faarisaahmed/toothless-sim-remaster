@@ -258,35 +258,64 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // bolas.js); a barrel roll makes that solution wrong, without giving up the
   // heading, and it costs the same wing stamina the knife edge spends.
   //
-  // It is an evasion and it has to be TIMED, which is the good part. The helix
-  // comes back to the line it left, so rolling the instant a launcher fires
-  // does nothing at all — he is home and level again well before the weight
-  // arrives, and it hits him. Rolling late, so the corkscrew is still running
-  // when it gets there, throws it off. Measured at about eight hundred
-  // milliseconds into a one-and-a-half second flight: react to the thing in the
-  // air, not to the muzzle. Panic and you wear it.
+  // TIGHT, AND IT ENDS OFF THE LINE. Both of those are corrections.
+  //
+  // The first version took a second flat and described a sixty-metre barrel. On
+  // a control you reach for because something is already in the air that is not
+  // a manoeuvre, it is a cutscene: you press it, he swings out and round and
+  // lands back where he was, and the whole thing is over the horizon of the
+  // moment it was for. So it is about half as long now and the barrel is a
+  // third of the width — it snaps.
+  //
+  // The second is the one that actually mattered. A textbook barrel roll comes
+  // back to the line it left, and a manoeuvre that comes back to the line does
+  // not dodge anything: he was home and level again before the weight arrived,
+  // so pressing the dodge button on seeing the shot got him hit, and only
+  // leaving it dangerously late worked. That is a lovely piece of theory and a
+  // miserable thing to play. So the helix now walks: it steps him bodily to the
+  // side he rolled toward and LEAVES him there, which is what a pilot flying
+  // one to break a gun solution is doing anyway. Press it any time between the
+  // launch and the arrival and the weight goes through where he was.
   //
   // Positive g the whole way round, which is what separates it from a roll: he
   // pulls up into it, goes over the top, and comes down the other side. He is
   // never hanging in his straps, so nothing about the flight model has to
   // pretend to be upside down.
-  const ROLL_TIME    = 1.05;   // s for the full turn at cruise
-  const ROLL_TIME_FAST = 0.72; // ...and flat out, where everything happens sooner
-  // Radius of the barrel. Grows with speed because a real one has to: the
-  // radius of a constant-g turn is v squared over the acceleration, so a fast
-  // roll describes a much bigger circle than a slow one, and one fixed number
-  // would read as a twitch at 750 mph and a loop-the-loop at a hover.
-  const ROLL_R_SLOW  = 11;     // m at a crawl
-  const ROLL_R_FAST  = 30;     // m flat out
+  const ROLL_TIME    = 0.58;   // s for the full turn at cruise
+  const ROLL_TIME_FAST = 0.46; // ...and flat out, where everything happens sooner
+  // Radius of the barrel itself — the bulge, not the dodge. Grows with speed
+  // because a real one has to: the radius of a constant-g turn is v squared
+  // over the acceleration, so a fast roll describes a bigger circle than a slow
+  // one. Small on purpose. This is the corkscrew he flies THROUGH; the distance
+  // he ends up from where he started is ROLL_SHIFT below.
+  const ROLL_R_SLOW  = 8;      // m at a crawl
+  const ROLL_R_FAST  = 15;     // m flat out
+  // ...and the step sideways he keeps. Comfortably more than the six metres a
+  // bola needs to be within (bolas.js HIT_R) plus the width of the dragon, at
+  // every speed, so a roll flown at any point in the weight's flight is a miss
+  // rather than a coin toss.
+  const ROLL_SHIFT_SLOW = 20;  // m
+  const ROLL_SHIFT_FAST = 34;  // m
+  // How much of the turn is eased. 0 is a constant roll rate — instant, and it
+  // corners visibly at both ends; 1 is zero rate at both ends, which is the
+  // smooth version and reads as slow to start. This is the snappy end of the
+  // middle: he is at two-thirds rate on the first frame, so it BITES.
+  const ROLL_EASE    = 0.35;
   // How much of the bottom of the barrel he actually flies. A true one is
   // symmetric about the entry line; this one is flattened underneath, because
   // the half of it that goes DOWN is the half that meets a ridge, and a
   // manoeuvre that kills you for using it near the ground is a manoeuvre nobody
   // uses. He still dips, just not by the full radius.
   const ROLL_UNDER   = 0.45;
-  const ROLL_PITCH   = 0.20;   // rad of nose-up over the top and down the far side
-  const ROLL_COST    = 1.15;   // s of the wing stamina the knife edge also spends
-  const ROLL_DRAG    = 0.10;   // fraction of airspeed it costs
+  // Small, and smaller than it was: over half a second a big nose-up/nose-down
+  // nod stops reading as the pull that holds a barrel roll together and starts
+  // reading as a bobble.
+  const ROLL_PITCH   = 0.13;   // rad of nose-up over the top and down the far side
+  // Wing stamina, shared with the knife edge. Cheap enough to fly two in a row
+  // under fire and then wait — being unable to dodge because you dodged is the
+  // correct cost, being unable to dodge twice in a raid is not.
+  const ROLL_COST    = 0.85;   // s of the three-second bar
+  const ROLL_DRAG    = 0.07;   // fraction of airspeed it costs
   // A tap on a wingtip key is also the start of a knife edge, so the two have to
   // be told apart by the same clock the vertical axis uses.
   const ROLL_TAP_MAX = 0.26;   // s
@@ -437,6 +466,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   let rollT     = 0;      // 0..1 through the turn
   let rollTime  = ROLL_TIME;
   let rollR     = ROLL_R_SLOW;
+  let rollShift = ROLL_SHIFT_SLOW;
   let rollEntry = 0;      // the bank he was in when it started
   let rollLat   = 0;      // metres of the helix already applied, so the offset
   let rollUp    = 0;      // ...can be laid down as per-frame deltas
@@ -457,8 +487,13 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
    */
   function startRoll(dir) {
     if (!dir || rollDir !== 0) return false;
-    if (snared > 0 || mode !== "level") return false;
+    // Refused out of anything that is already an aeroplane manoeuvre, but NOT
+    // out of a drop: a raid is flown coming down, and taking the dodge away
+    // exactly when he is descending onto a lit deck takes it away when it is
+    // the only thing he wants. The drop ends, and the roll takes over.
+    if (snared > 0 || (mode !== "level" && mode !== "drop")) return false;
     if (knifeCharge < ROLL_COST) return false;
+    mode = "level"; modeT = 0;
     rollDir = dir;
     rollT = 0;
     rollLat = 0;
@@ -466,8 +501,9 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     rollEntry = currentRoll;
     knifeCharge = Math.max(0, knifeCharge - ROLL_COST);
     const t = speedRatio();
-    rollTime = THREE.MathUtils.lerp(ROLL_TIME, ROLL_TIME_FAST, t);
-    rollR    = THREE.MathUtils.lerp(ROLL_R_SLOW, ROLL_R_FAST, t);
+    rollTime  = THREE.MathUtils.lerp(ROLL_TIME, ROLL_TIME_FAST, t);
+    rollR     = THREE.MathUtils.lerp(ROLL_R_SLOW, ROLL_R_FAST, t);
+    rollShift = THREE.MathUtils.lerp(ROLL_SHIFT_SLOW, ROLL_SHIFT_FAST, t);
     airspeed *= 1 - ROLL_DRAG;
     return true;
   }
@@ -668,7 +704,14 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // wingtip, which looks like the roll never finished.
     if (rollDir !== 0) knifeWant = 0;
 
-    if (knifeWant !== 0) {
+    // A roll counts as working the wings, so the bar does not refill through
+    // one. Without this the manoeuvre is free: it costs ROLL_COST up front and
+    // then earns exactly that back over its own half second, so he could
+    // corkscrew from one end of the archipelago to the other and never be
+    // hittable. Now a roll really does spend something, and the gap before the
+    // next one is about as long as the roll — enough to dodge a volley, not
+    // enough to live inside the dodge.
+    if (knifeWant !== 0 || rollDir !== 0) {
       knifeCharge = Math.max(0, knifeCharge - dt);
     } else {
       knifeCharge = Math.min(KNIFE_HOLD, knifeCharge + dt * (KNIFE_HOLD / KNIFE_RECOVER));
@@ -967,20 +1010,31 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // last frame's offset rather than as an absolute position. That is what
     // keeps it composable: he is still flying forward at whatever speed he was
     // doing, still turning if he is turning, still climbing if he is climbing,
-    // and this steps him round a circle in the plane across all of it. At the
-    // end of the turn the offset is back at zero, so nothing is left behind and
-    // he comes out exactly on the line he would have been on.
+    // and this walks him sideways across all of it.
     //
-    // The circle is centred one radius off to the side he rolled toward, so he
-    // starts at the bottom of it: up and over, out to two radii at the halfway
-    // point, and back. Under the entry line it is flattened by ROLL_UNDER, so
-    // rolling over a ridge does not put him into it.
+    // Two parts to the lateral, and the split is the whole design:
+    //
+    //   THE BARREL  `rollR * (1 - cos)` — out and back, peaking at the halfway
+    //               point and closing again. This is the corkscrew, and it is
+    //               deliberately small. It is what you SEE.
+    //   THE STEP    `rollShift * swept` — monotonic, and it does not come back.
+    //               This is what dodges, and at the end of the turn it is all
+    //               that is left. It is what the weight MISSES.
+    //
+    // The vertical is pure barrel and nets to nothing: up over the top, down
+    // the far side, back to the entry height, flattened underneath by
+    // ROLL_UNDER so rolling over a ridge does not put him into it. He comes out
+    // of this beside where he was, not under it.
     rollRate = 0;
     if (rollDir !== 0) {
       rollT = Math.min(1, rollT + dt / rollTime);
       const th = rollT * Math.PI * 2;
       const sinT = Math.sin(th);
-      const lat = rollDir * rollR * (1 - Math.cos(th));
+      // The same eased sweep the visual roll uses, 0..1 over the turn, so the
+      // step he takes and the attitude he is in cannot come apart: both are
+      // this one number.
+      const swept = (th - ROLL_EASE * sinT) / (Math.PI * 2);
+      const lat = rollDir * (rollR * (1 - Math.cos(th)) + rollShift * swept);
       const up  = rollR * sinT * (sinT > 0 ? 1 : ROLL_UNDER);
       // Left, for a heading whose forward is (sin h, cos h).
       dragon.position.x += Math.cos(heading) * (lat - rollLat);
@@ -988,9 +1042,12 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       dragon.position.y += up - rollUp;
       rollLat = lat;
       rollUp = up;
-      // How fast he is going round, normalised — 0 at the ends and 1 in the
-      // middle. This is what the wing rig twists on.
-      rollRate = rollDir * (1 - Math.cos(th)) * 0.5;
+      // How fast he is going round, normalised — near 0 at the ends and 1 in
+      // the middle. This is what the wing rig twists on.
+      // Normalised by its own peak so this stays inside -1..1 whatever ROLL_EASE
+      // is: the rig scales bone angles by it and a value over one would push
+      // the wing twist past the deflection it was tuned for.
+      rollRate = rollDir * (1 - ROLL_EASE * Math.cos(th)) / (1 + ROLL_EASE);
       if (rollT >= 1) {
         // One whole turn is the same attitude as none. Take it off here, at the
         // moment it finishes and while the direction is still known, so the
@@ -1027,11 +1084,13 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     const targetRoll = knifeAmount * KNIFE_ANGLE + (1 - knifeBlend) * bank + tremble;
     if (rollDir !== 0 || rollT > 0) {
       // A full turn, driven off the same clock as the path so the spin and the
-      // corkscrew cannot drift apart. The easing is t - sin(2*pi*t)/(2*pi):
-      // it lands exactly on one turn, and its derivative is zero at both ends,
-      // so he rolls INTO it and settles OUT of it instead of snapping.
+      // corkscrew cannot drift apart. `th - k*sin(th)` lands exactly on one
+      // turn whatever k is, and k sets how much it eases: at 0 the rate is
+      // constant and it corners at both ends, at 1 the rate is zero at both
+      // ends and it feels slow to start. ROLL_EASE is the snappy end of the
+      // middle — see the note on it.
       const th = rollT * Math.PI * 2;
-      currentRoll = rollEntry + rollDir * (th - Math.sin(th));
+      currentRoll = rollEntry + rollDir * (th - ROLL_EASE * Math.sin(th));
     } else {
       currentRoll += (targetRoll - currentRoll) * damp(BANK_LAMBDA, dt);
     }
@@ -1253,6 +1312,9 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
      * @returns {boolean} whether one actually started
      */
     barrelRoll: (dir) => startRoll(Math.sign(dir) || 1),
+    /** Whether a barrel roll is running. True from the frame it starts, which
+     *  `getRollT` is not — that is still zero until the first step. */
+    isRolling: () => rollDir !== 0,
     /** 0 when he is not in one, otherwise 0..1 through the turn. */
     getRollT: () => (rollDir !== 0 ? rollT : 0),
     /**
@@ -1264,8 +1326,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     /** Signed roll rate, -1..1. Non-zero only inside a barrel roll. */
     getRollRate: () => rollRate,
     /** Whether a barrel roll would be refused, and why — for the HUD. */
-    canRoll: () => snared <= 0 && mode === "level" && rollDir === 0
-                   && knifeCharge >= ROLL_COST,
+    canRoll: () => snared <= 0 && (mode === "level" || mode === "drop")
+                   && rollDir === 0 && knifeCharge >= ROLL_COST,
 
     /** Let go — a landing, a cutscene, a chapter jump. */
     clearSnare() { snared = 0; snareDir = 0; },

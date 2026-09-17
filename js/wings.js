@@ -58,8 +58,13 @@ export function setupWings(boneLeft, boneRight, tuning) {
       Math.max(0, -climb) * 0.65 + speedT * 0.5 + knife * 0.6 + roll * 0.45, 0, 1
     );
 
-    amp   += (targetAmp   - amp)   * damp(AMP_LAMBDA, dt);
-    sweep += (targetSweep - sweep) * damp(SWEEP_LAMBDA, dt);
+    // The roll rates are deliberately far higher than the others. A barrel roll
+    // is over in a little over half a second, and at the ordinary 2.6 the wings
+    // would only be a third of the way into holding by the time he came out of
+    // it — the beat would run straight through the manoeuvre and none of the
+    // shape below would ever be seen.
+    amp   += (targetAmp   - amp)   * damp(AMP_LAMBDA   + roll * 14, dt);
+    sweep += (targetSweep - sweep) * damp(SWEEP_LAMBDA + roll * 14, dt);
 
     // Tucked wings beat faster and shallower, like a bird in a stoop.
     const rate = (BEAT_BASE + climb * 2.0 - speedT * 0.8 - sweep * 1.2)

@@ -235,8 +235,8 @@ export const LEGEND = [
     desc: "Strafe sideways, heading unchanged" },
   { keys: ["knifeL", "knifeR"],   pad: ["L1", "R1"],
     desc: "Hold to knife edge onto a wingtip. " +
-          "<em>Double-tap</em> for a barrel roll &mdash; time it late and " +
-          "a bola goes through where you were" },
+          "<em>Double-tap</em> for a barrel roll &mdash; it steps him off the " +
+          "line he was on, so what was aimed at him misses" },
   { keys: ["!Mouse"],             pad: ["R●"],
     desc: "Free look &mdash; click to capture" },
   { keys: ["alignDragon"],        pad: ["D↑"],

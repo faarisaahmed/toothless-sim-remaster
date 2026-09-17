@@ -570,7 +570,7 @@ function updateHud() {
   // says the word and then says what to do about it.
   const snared = controls.getSnared();
   const line = snared > 0 ? "SNARED · roll left and right"
-             : controls.getRollT() > 0 ? "Barrel roll"
+             : controls.isRolling() ? "Barrel roll"
              : mode === "zoom"  ? `Climbing · ${Math.round((1 - controls.getStallT()) * 100)}%`
              : mode === "stall" ? "STALL"
              : mode === "dive"  ? "Diving"
@@ -582,7 +582,7 @@ function updateHud() {
   if (line !== shownBurst) {
     hudBurst.textContent = line;
     hudBurst.classList.toggle("ready",
-      flatOut || mode === "dive" || controls.getRollT() > 0);
+      flatOut || mode === "dive" || controls.isRolling());
     hudBurst.classList.toggle("stall", mode === "stall" || snared > 0);
     shownBurst = line;
   }
