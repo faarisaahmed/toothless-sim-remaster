@@ -283,13 +283,28 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // pretend to be upside down.
   const ROLL_TIME    = 0.58;   // s for the full turn at cruise
   const ROLL_TIME_FAST = 0.46; // ...and flat out, where everything happens sooner
-  // Radius of the barrel itself — the bulge, not the dodge. Grows with speed
-  // because a real one has to: the radius of a constant-g turn is v squared
-  // over the acceleration, so a fast roll describes a bigger circle than a slow
-  // one. Small on purpose. This is the corkscrew he flies THROUGH; the distance
-  // he ends up from where he started is ROLL_SHIFT below.
-  const ROLL_R_SLOW  = 8;      // m at a crawl
-  const ROLL_R_FAST  = 15;     // m flat out
+  // --- Why the barrel is nearly flat now -----------------------------------
+  //
+  // It used to swing him out and back by two radii — sixteen metres at cruise,
+  // sixty flat out. He is fifteen metres across the wings, so a sixteen-metre
+  // lateral excursion timed with a 360-degree roll puts the apparent centre of
+  // rotation almost exactly at his own WINGTIP. That is not a figure of speech:
+  // rotate a body about its own axis while translating it round a circle of
+  // radius equal to its half-span and the far wingtip is the one point that
+  // barely moves. It read as a dragon nailed to a pole by one wing and spun,
+  // because geometrically that is what it was.
+  //
+  // So the out-and-back is now a few metres — a hint of a corkscrew — and the
+  // work is done by ROLL_SHIFT, which is monotonic and therefore reads as a
+  // slide rather than as a swing. He rolls about himself and slides out from
+  // under what was aimed at him, which is both the dodge and the shape the eye
+  // expects.
+  const ROLL_BULGE_SLOW = 2.5; // m of out-and-back at a crawl
+  const ROLL_BULGE_FAST = 5;   // ...and flat out
+  // The vertical arc, up over the top and down the far side. Kept small for the
+  // same reason: it nets to zero either way, and a big one is another swing.
+  const ROLL_RISE_SLOW  = 4;   // m
+  const ROLL_RISE_FAST  = 8;   // m
   // ...and the step sideways he keeps. Comfortably more than the six metres a
   // bola needs to be within (bolas.js HIT_R) plus the width of the dragon, at
   // every speed, so a roll flown at any point in the weight's flight is a miss
@@ -441,6 +456,38 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // it silently turns into a roll once he's flying east or west.
   dragon.rotation.order = "YXZ";
 
+  // --- Where he rotates ABOUT ----------------------------------------------
+  //
+  // The GLB's origin is at his FEET: the skinned mesh's local box runs from
+  // y 0 to y 1.6, his spine sits at 1.35 and his shoulders at 1.74. So setting
+  // `dragon.rotation.z` rolled him about a line a metre and a half UNDER his
+  // belly, and `dragon.rotation.x` pitched him about the same line. Every bank,
+  // every knife edge and every barrel roll swung his whole body round a point
+  // in the air below him instead of turning him on his own length.
+  //
+  // Yaw stays on the dragon, because a vertical axis through his feet and one
+  // through his spine are the same line. Pitch and roll move onto a node whose
+  // origin IS his spine, with the model hung back down underneath it — so the
+  // composition is identical to the old Ry·Rx·Rz, just taken about the body
+  // instead of about the ground under it.
+  //
+  // main.js writes `dragon.rotation` directly for the walk, where pivoting on
+  // the feet is exactly right, so that path is untouched — it just has to have
+  // this node back at identity, which is what releaseAttitude() is for.
+  const BODY_CENTRE = 1.45;
+  const attitude = new THREE.Group();
+  attitude.name = "attitude";
+  attitude.position.y = BODY_CENTRE;
+  attitude.rotation.order = "YXZ";
+  {
+    const body = new THREE.Group();
+    body.name = "body";
+    body.position.y = -BODY_CENTRE;
+    while (dragon.children.length) body.add(dragon.children[0]);
+    attitude.add(body);
+    dragon.add(attitude);
+  }
+
   let strafeVel   = 0;   // m/s, sideways
   let climbVel    = 0;   // m/s, straight up. Owned by Space/Ctrl and nothing else
   // "level" is the ordinary flight model and the only state the old code had.
@@ -465,7 +512,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   let rollDir   = 0;
   let rollT     = 0;      // 0..1 through the turn
   let rollTime  = ROLL_TIME;
-  let rollR     = ROLL_R_SLOW;
+  let rollBulge = ROLL_BULGE_SLOW;
+  let rollRise  = ROLL_RISE_SLOW;
   let rollShift = ROLL_SHIFT_SLOW;
   let rollEntry = 0;      // the bank he was in when it started
   let rollLat   = 0;      // metres of the helix already applied, so the offset
@@ -502,7 +550,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     knifeCharge = Math.max(0, knifeCharge - ROLL_COST);
     const t = speedRatio();
     rollTime  = THREE.MathUtils.lerp(ROLL_TIME, ROLL_TIME_FAST, t);
-    rollR     = THREE.MathUtils.lerp(ROLL_R_SLOW, ROLL_R_FAST, t);
+    rollBulge = THREE.MathUtils.lerp(ROLL_BULGE_SLOW, ROLL_BULGE_FAST, t);
+    rollRise  = THREE.MathUtils.lerp(ROLL_RISE_SLOW, ROLL_RISE_FAST, t);
     rollShift = THREE.MathUtils.lerp(ROLL_SHIFT_SLOW, ROLL_SHIFT_FAST, t);
     airspeed *= 1 - ROLL_DRAG;
     return true;
@@ -1014,12 +1063,14 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     //
     // Two parts to the lateral, and the split is the whole design:
     //
-    //   THE BARREL  `rollR * (1 - cos)` — out and back, peaking at the halfway
-    //               point and closing again. This is the corkscrew, and it is
-    //               deliberately small. It is what you SEE.
+    //   THE BARREL  `rollBulge * (1 - cos)` — out and back, peaking at the
+    //               halfway point and closing again. A few metres, no more: any
+    //               bigger and it competes with his own half-span and the roll
+    //               stops looking like it is about him. See the note on it.
     //   THE STEP    `rollShift * swept` — monotonic, and it does not come back.
     //               This is what dodges, and at the end of the turn it is all
-    //               that is left. It is what the weight MISSES.
+    //               that is left. It is what the weight MISSES. Monotonic is
+    //               also what makes it read as a slide instead of a swing.
     //
     // The vertical is pure barrel and nets to nothing: up over the top, down
     // the far side, back to the entry height, flattened underneath by
@@ -1034,8 +1085,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       // step he takes and the attitude he is in cannot come apart: both are
       // this one number.
       const swept = (th - ROLL_EASE * sinT) / (Math.PI * 2);
-      const lat = rollDir * (rollR * (1 - Math.cos(th)) + rollShift * swept);
-      const up  = rollR * sinT * (sinT > 0 ? 1 : ROLL_UNDER);
+      const lat = rollDir * (rollBulge * (1 - Math.cos(th)) + rollShift * swept);
+      const up  = rollRise * sinT * (sinT > 0 ? 1 : ROLL_UNDER);
       // Left, for a heading whose forward is (sin h, cos h).
       dragon.position.x += Math.cos(heading) * (lat - rollLat);
       dragon.position.z -= Math.sin(heading) * (lat - rollLat);
@@ -1094,7 +1145,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     } else {
       currentRoll += (targetRoll - currentRoll) * damp(BANK_LAMBDA, dt);
     }
-    dragon.rotation.z = currentRoll;
+    attitude.rotation.z = currentRoll;
 
     // --- Pitch ---
     // His nose sits on the flight path, plus the angle of attack he needs to
@@ -1117,7 +1168,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       -pitchLimit, pitchLimit
     );
     currentPitch += (targetPitch - currentPitch) * damp(PITCH_LAMBDA, dt);
-    dragon.rotation.x = currentPitch;
+    attitude.rotation.x = currentPitch;
 
     // --- Rumble ---------------------------------------------------------
     if (pad) {
@@ -1331,6 +1382,20 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
 
     /** Let go — a landing, a cutscene, a chapter jump. */
     clearSnare() { snared = 0; snareDir = 0; },
+    /**
+     * Hand the pitch/roll node back to identity.
+     *
+     * main.js owns his attitude on the ground — it writes `dragon.rotation`
+     * against the slope he is standing on — and this node sits between that and
+     * the model. Left where the last frame of flight put it, he lands in a
+     * forty-degree bank and stays there.
+     */
+    releaseAttitude() {
+      attitude.rotation.set(0, 0, 0);
+      currentRoll = 0;
+      currentPitch = 0;
+    },
+
     /** Abandon a barrel roll mid-turn. Landing and cutscenes both need this,
      *  or he keeps corkscrewing through a scene that owns the camera. */
     clearRoll() {

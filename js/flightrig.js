@@ -89,23 +89,35 @@ const LOAD_MAX     = 16;    // g
 // asymmetric flow that twist puts over the tail is itself enough to coordinate
 // a banked turn in a soaring raptor.
 //
-// So all three are here, in that order of size:
+// So four things are here, and the FIRST one is the one that was missing.
 //
-//   TWIST  the big one. The two wings take opposite camber — the rising wing
-//          curls its digits under to bite, the falling one flattens and spills.
-//   TUCK   the falling wing pulls in and sweeps back, the rising one reaches.
-//          Less span on the inside of the roll, which is also just what it
-//          looks like in every shot of a dragon going over.
+//   CLOSE  Both wings come in. Not one of them — both. A fifteen-metre span is
+//          an enormous roll damper and an enormous roll inertia, and no flying
+//          animal rolls fast with its wings out; it pulls them in, rolls, and
+//          opens them again. Leaving them stretched was most of why the old
+//          version read as a model being spun rather than an animal rolling:
+//          the silhouette never changed, so nothing about it looked difficult
+//          or deliberate. The hand folds, the membrane curls, the whole wing
+//          rakes back, and the span he is turning drops by a third.
+//   TWIST  Then the asymmetry, which is what actually produces the moment: the
+//          two wings take opposite camber, the rising wing curling under to
+//          bite while the falling one flattens and spills. The literature on
+//          avian roll is clear that this beats asymmetric folding.
+//   TUCK   ...and a little asymmetric folding on top, the inside wing pulling
+//          in harder than the outside one reaches.
 //   TAIL   the fins deflect differentially, hard, and the tail itself lays over
 //          into the roll. It is a rudder and he is using it.
 //
 // All of it is driven off `state.roll`, which controls.js only makes non-zero
 // inside a barrel roll — so ordinary banked flight is untouched.
+const ROLL_CLOSE  = 0.52;   // rad the hand folds in, BOTH wings
+const ROLL_CURL   = 0.34;   // ...and the membrane curls, both wings
+const ROLL_CURL_TIP = 0.30; // more of it at the tip, where nothing holds it out
+const ROLL_RAKE   = 0.42;   // whole wing swept back, both sides
 const ROLL_TWIST  = 0.55;   // rad of opposite camber between the two wings
 const ROLL_TIP    = 0.45;   // ...and how much more of it out at the tip
-const ROLL_TUCK   = 0.42;   // the falling wing pulls in
-const ROLL_REACH  = 0.20;   // and the rising one reaches out
-const ROLL_SWEEP  = 0.30;   // rake, on the tucked side
+const ROLL_TUCK   = 0.30;   // the falling wing pulls in further still
+const ROLL_REACH  = 0.16;   // and the rising one gives a little back
 const ROLL_FIN    = 0.85;   // tail fins, deflected much harder than a carve
 const ROLL_TAIL   = 0.10;   // per link, laying the tail over into it
 const ROLL_HEAD   = 0.5;    // he looks where he is going round to
@@ -241,6 +253,10 @@ export function setupFlightRig(root) {
       // hand folds hard: that asymmetry is the fold half of the roll moment.
       set(`Wing_Forearm${s}`, "z",
         (WRIST_FLEX * upstroke * amp * (1 - sHang) + HANG_WRIST * sHang
+         // Both hands fold, hard, and then the inside one folds further. The
+         // symmetric part is the one that makes the roll possible; the
+         // asymmetric part is decoration on top of it.
+         + rollMag * ROLL_CLOSE
          + Math.max(0, rollSide) * ROLL_TUCK) * sign);
 
       for (let d = 0; d < 6; d++) {
@@ -266,11 +282,17 @@ export function setupFlightRig(root) {
         // out and spills. It ADDS to whatever the beat and the load are doing
         // rather than replacing them, because he is still flying.
         const twist = -rollSide * (ROLL_TWIST + ROLL_TIP * k * k);
+        // The symmetric curl: both wings draw their membrane in, more toward
+        // the tip. This is the shape that lets him turn at all — a stretched
+        // wing at three hundred knots does not roll, it resists.
+        const close = rollMag * (ROLL_CURL + ROLL_CURL_TIP * k * k);
         const curl = beatCurl * (1 - sHang) + hangCurl * sHang + bow * (1 - sHang)
-                   + twist;
-        // ...and the fold. The inside wing rakes back and shortens, the
-        // outside one reaches. Span asymmetry, which is the secondary term.
-        const rollSweep = Math.max(0, rollSide) * ROLL_SWEEP * (0.4 + k)
+                   + twist + close;
+        // Rake: both wings back, and then the inside one further than the
+        // outside. Same split as the hand above — symmetric first, asymmetric
+        // as the trim on it.
+        const rollSweep = rollMag * ROLL_RAKE * (0.4 + k)
+                        + Math.max(0, rollSide) * ROLL_TUCK * (0.4 + k)
                         - Math.max(0, -rollSide) * ROLL_REACH * k;
         const sweep = SWEEP_DIGIT * sSpeed * k * (1 - sHang) + HANG_SWEEP * k * sHang
                     + rollSweep;

@@ -1030,6 +1030,10 @@ function land() {
   // on in the first place.
   controls?.clearSnare();
   controls?.clearRoll();
+  // The walk owns his attitude from here, and it writes dragon.rotation against
+  // the slope. controls.js's pitch/roll node sits under that — see
+  // releaseAttitude() — so it has to go back to identity or he lands banked.
+  controls?.releaseAttitude();
 
   // Read the hillside NOW, before the drop, and seed the attitude with it so
   // he flares onto the slope through the fall instead of arriving flat and

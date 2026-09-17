@@ -53,9 +53,14 @@ export function setupWings(boneLeft, boneRight, tuning) {
     const roll = Math.abs(state.roll || 0);
     const targetAmp = THREE.MathUtils.clamp(
       0.6 + climb * 0.4 - speedT * 0.4 - knife * 0.35, 0.05, 1.15
-    ) * (1 - hang * 0.92) * (1 - roll * 0.8);
+    ) * (1 - hang * 0.92) * (1 - roll * 0.95);
+    // The shoulder sweep is the big one — wingposes.js measured it taking the
+    // span from 3.1 m to 0.76 on its own — so this is where most of the wings
+    // coming IN for a roll actually happens. It saturates during one: he cannot
+    // turn about his own length with fifteen metres of membrane held out in a
+    // three-hundred-knot airflow, and the silhouette has to say so.
     const targetSweep = THREE.MathUtils.clamp(
-      Math.max(0, -climb) * 0.65 + speedT * 0.5 + knife * 0.6 + roll * 0.45, 0, 1
+      Math.max(0, -climb) * 0.65 + speedT * 0.5 + knife * 0.6 + roll * 0.95, 0, 1
     );
 
     // The roll rates are deliberately far higher than the others. A barrel roll
