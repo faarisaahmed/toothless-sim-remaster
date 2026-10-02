@@ -415,6 +415,10 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
     uShallow:   { value: new THREE.Color(0x357a6c) },
     uDeep:      { value: new THREE.Color(0x0a3350) },
     uSurf:      { value: 1.0 },
+    // How much light there is to see the water's own colour by: 1 at noon,
+    // a few percent at night. sky.js drives it; without it the sea's body
+    // colour, which is not lit by anything, glowed teal under the stars.
+    uLight:     { value: 1.0 },
   });
 
   // --- Vertex: give the plane a surface ----------------------------------
@@ -476,6 +480,7 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
       uniform vec3 uShallow;
       uniform vec3 uDeep;
       uniform float uSurf;
+      uniform float uLight;
       uniform vec2 uWind;
       varying float vSteep;
       varying float vPhase;`,
@@ -500,7 +505,7 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
       // straight by N dot V, as the stock shader does, means the whole middle
       // distance loses its colour and goes the colour of the sky, which off a
       // hazy horizon is white.
-      vec3 waterBody = body * ( 0.55 + 0.45 * max( 0.0, dot( surfaceNormal, eyeDirection ) ) )
+      vec3 waterBody = body * ( 0.55 + 0.45 * max( 0.0, dot( surfaceNormal, eyeDirection ) ) ) * uLight
                      + sunColor * diffuseLight * 0.18;
 
       // The stock Fresnel base is 0.3, which is about right for a rough sea seen
@@ -553,7 +558,7 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
       // white stripe following the contour.
       foamAmt *= smoothstep( 0.30, 0.82, foamTex * ( 0.5 + foamAmt * 1.0 ) );
 
-      vec3 foamColor = vec3( 0.86, 0.92, 0.95 ) * ( 0.55 + diffuseLight * 0.6 );
+      vec3 foamColor = vec3( 0.86, 0.92, 0.95 ) * ( 0.55 + diffuseLight * 0.6 ) * uLight;
       albedo = mix( albedo, foamColor, clamp( foamAmt, 0.0, 1.0 ) );
 
       // Let the beach show through the last metre of water. There is no
@@ -601,6 +606,9 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
   const waterOnBeforeRender = water.onBeforeRender;
   let reflectEvery = 1;
   let reflectTick = 0;
+  // Swaps around the mirror pass that are not just "hide this" — the terrain
+  // trades its fine chunks for the coarse sheet while the reflection draws.
+  let reflectBefore = null, reflectAfter = null;
 
   water.onBeforeRender = function (renderer, scene_, camera) {
     // Frame zero always renders, so the target is never sampled before anything
@@ -612,8 +620,10 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
       if (o.visible) { o.visible = false; reflectRestore.push(o); }
     }
     try {
+      reflectBefore?.();
       waterOnBeforeRender.call(this, renderer, scene_, camera);
     } finally {
+      reflectAfter?.();
       // finally, not just after: if the mirror render throws — a shader that
       // failed to compile, a lost context — the trees must still come back, or
       // the main pass silently loses the entire forest from then on.
@@ -670,11 +680,14 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
 
     /** 1 = every frame, 2 = every other, and so on. */
     setReflectionEvery(n) { reflectEvery = Math.max(1, n | 0); },
+    setReflectionHooks(before, after) { reflectBefore = before; reflectAfter = after; },
 
     /** How far ahead of the mesh the waves assume the bottom is, in metres. */
     setShoalBias(m) { u.uShoalBias.value = m; },
 
     setSun(dir) { u.sunDirection.value.copy(dir); },
+    setSunColor(c) { u.sunColor.value.copy(c); },
+    setLight(v) { u.uLight.value = v; },
 
     /** Sea state. 0 is a millpond, 1 is the sea this archipelago normally has. */
     setWindScale(v) { u.uWindScale.value = v; },

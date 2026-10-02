@@ -1,14 +1,16 @@
 import * as THREE from "three";
-import { Sky } from "three/addons/objects/Sky.js";
 import {
-  terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL,
-  WIND_BEARING, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R,
+  terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL, WIND_BEARING,
 } from "./terrain.js";
-import { loadGround, makeTerrainMaterial } from "./terrainmat.js";
+import { paintGround, edgeLoop } from "./groundpaint.js";
+import { createTerrainLod } from "./terrainlod.js";
+import { loadGround, makeTerrainMaterial, applyGround, setGroundLowQuality } from "./terrainmat.js";
 import { bakeSeaField } from "./sea_field.js";
 import { createOcean } from "./ocean.js";
 import { createSurf } from "./surf.js";
 import { createFlora } from "./flora.js";
+import { createSky } from "./sky.js";
+import { createRain, thunder } from "./rain.js";
 
 // ---------------------------------------------------------------------------
 // The world.
@@ -39,12 +41,7 @@ export { terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL };
 // the islands could not hold a headland under a hundred metres across.
 const TERRAIN_SEGMENTS = 768;   // ~13 world units per quad
 
-const SUN_ELEVATION = 24;  // late afternoon — noon is the flattest light there is,
-                           // and this is a game about weather and long water
-const SUN_AZIMUTH   = 150;
-
-const CLOUD_COUNT   = 105;
-const CLOUD_DRIFT   = 2.4;      // m/s, downwind
+// The sun, the weather and the clouds belong to sky.js now.
 
 const GRID_SPACING = 200;
 const GRID_STEP    = 25;
@@ -52,35 +49,6 @@ const GRID_LIFT    = 1.5;
 
 const clamp = THREE.MathUtils.clamp;
 const smoothstep = THREE.MathUtils.smoothstep;
-
-// ---------------------------------------------------------------------------
-function makeCloudTexture() {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d");
-
-  for (let i = 0; i < 48; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const d = Math.pow(Math.random(), 0.6) * size * 0.32;
-    const x = size / 2 + Math.cos(a) * d;
-    const y = size / 2 + Math.sin(a) * d * 0.55;
-    const r = size * (0.08 + Math.random() * 0.16);
-
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, "rgba(255,255,255,0.22)");
-    g.addColorStop(0.5, "rgba(255,255,255,0.09)");
-    g.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
 
 // ---------------------------------------------------------------------------
 export function setupWorld(scene, renderer, quality = {}) {
@@ -96,54 +64,13 @@ export function setupWorld(scene, renderer, quality = {}) {
     markT = now;
   };
   const q = {
-    shadowMap: 2048, clouds: CLOUD_COUNT, reflectEvery: 1,
-    treeNear: undefined, treeFar: undefined, grass: false,
+    shadowMap: 2048, reflectEvery: 1,
+    treeNear: undefined, treeFar: undefined, grass: false, terrainDetail: "high",
     ...quality,
   };
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(
-    1,
-    THREE.MathUtils.degToRad(90 - SUN_ELEVATION),
-    THREE.MathUtils.degToRad(SUN_AZIMUTH)
-  );
-
-  // --- Physical sky ---
-  const sky = new Sky();
-  sky.scale.setScalar(40000);   // has to enclose a 16 km ocean disc
-
-  const u = sky.material.uniforms;
-  // Clear air and strong Rayleigh scattering — a deep summer blue rather than
-  // the pale, hazy sky that reads as winter.
-  // Turbidity is the haze knob and it was the thing washing the whole picture
-  // out: at 2.2 the twenty degrees of sky above the horizon — which is all you
-  // ever see from a dragon — came out pure white, and everything reflecting it
-  // came out grey. Clean air and hard Rayleigh instead.
-  u.turbidity.value       = 1.1;
-  u.rayleigh.value        = 3.4;
-  u.mieCoefficient.value  = 0.0022;
-  u.mieDirectionalG.value = 0.82;
-  u.sunPosition.value.copy(sunDir);
-
-  scene.add(sky);
-
-  // Prefilter the sky into an environment map. This is what gives the ocean
-  // real sky reflections and lifts the ambient response on everything else.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const skyScene = new THREE.Scene();
-  let envRT = null;
-  let envElevation = -999;
-
-  function rebuildEnvironment() {
-    if (envRT) envRT.texture.dispose();
-    scene.remove(sky);
-    skyScene.add(sky);
-    envRT = pmrem.fromScene(skyScene, 0, 1, 120000);
-    skyScene.remove(sky);
-    scene.add(sky);
-    scene.environment = envRT.texture;
-  }
-  rebuildEnvironment();
-
-  scene.fog = new THREE.FogExp2(0x8fb2cf, 0.000036);
+  // Which way the shadow-casting light shines from: the sun by day, the moon
+  // by night. sky.js writes it every frame.
+  const sunDir = new THREE.Vector3(0.4, 0.6, -0.5).normalize();
 
   // --- Lighting ---
   // scene.environment already supplies the full sky ambient, so the direct
@@ -151,8 +78,8 @@ export function setupWorld(scene, renderer, quality = {}) {
   // Stacking a bright sun + hemisphere on top of IBL is what blew this out.
   const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
   sun.position.copy(sunDir).multiplyScalar(500);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+  sun.castShadow = q.shadowMap > 0;
+  sun.shadow.mapSize.set(q.shadowMap || 1024, q.shadowMap || 1024);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 1500;
   sun.shadow.camera.left = -180;
@@ -196,110 +123,31 @@ export function setupWorld(scene, renderer, quality = {}) {
   }
   mark("heights");
 
-  // Dark basalt cliffs under mossy green tops — the North Sea look, not chalk.
-  const seabed    = new THREE.Color(0x0e2422);
-  const shallow   = new THREE.Color(0x3f8578);
-  const sandCol   = new THREE.Color(0xb9a887);
-  const grassCool = new THREE.Color(0x3a6b28);
-  const grassWarm = new THREE.Color(0x6d8434);
-  const darkMoss  = new THREE.Color(0x24421d);
-  const rockLight = new THREE.Color(0x736a5c);
-  const rockDark  = new THREE.Color(0x3b372f);
-  const snowCol   = new THREE.Color(0xdfe8ec);
-  // Burnt ground. Bare mineral soil and a season of ash, and it has to be a
-  // colour of its own rather than just an absence of trees: a gap in the wood
-  // that is the same grey as every crag on every island is not findable from
-  // the air, and finding it is what the beat is for. Pale against dark green
-  // reads at two hundred metres; dark against dark does not.
-  const ashCol    = new THREE.Color(0x7d7462);
-  const charCol   = new THREE.Color(0x2b2620);
-  const c = new THREE.Color();
-  const rockTone = new THREE.Color();
-  const grass = new THREE.Color();
-
+  // What every vertex is coloured, and what is lying on it, comes from
+  // groundpaint.js — shared with the worker that builds the fine chunks, so
+  // the two meshes agree about the ground wherever they meet.
   const quad = TERRAIN_SIZE / TERRAIN_SEGMENTS;
+  const paint = new Float32Array(6);
 
   for (let i = 0; i < pos.count; i++) {
     const row = Math.floor(i / verts);
     const col = i % verts;
     const h = heights[i];
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
 
     const hL = heights[i - (col > 0 ? 1 : 0)];
     const hR = heights[i + (col < verts - 1 ? 1 : 0)];
     const hU = heights[i - (row > 0 ? verts : 0)];
     const hD = heights[i + (row < verts - 1 ? verts : 0)];
     const slope = Math.min(1, Math.hypot(hR - hL, hD - hU) / (quad * 2.2));
-
-    // Cheap ambient occlusion: sit lower than your neighbours and you're in a
-    // crevice, so you get less sky. This is what gives the cliffs depth.
     const curvature = h - (hL + hR + hU + hD) / 4;
-    const ao = clamp(1 + (curvature / (quad * 1.5)) * 0.45, 0.62, 1.12);
 
-    let veg = 0, sand = 0, snow = 0;
-
-    if (h < SEA_LEVEL - 1.5) {
-      // Under water the terrain is only ever seen through the sea, and the sea
-      // now goes translucent in the last three metres, so the shallows have to
-      // be a colour worth seeing: pale bar, then green, then nothing.
-      c.copy(sandCol).lerp(shallow, smoothstep(-h, 1, 11));
-      c.lerp(seabed, smoothstep(-h, 8, 85));
-      sand = 1 - smoothstep(-h, 1, 9);
-    } else {
-      const isl = islandAt(x, z);
-      const bare = isl ? isl.bare : 0.45;
-      const snowLine = 320 - (isl ? isl.snow : 0);
-
-      veg = fertility(x, z, h, slope);
-
-      // Beach: the last few metres above the water, and only where it is not
-      // standing on end. A wave-cut bench of bare rock is not a beach.
-      sand = (1 - smoothstep(h, 2.5, 9)) * (1 - smoothstep(slope, 0.16, 0.42))
-           * (0.35 + 0.65 * (1 - bare));
-
-      snow = smoothstep(h, snowLine, snowLine + 130) * (1 - smoothstep(slope, 0.30, 0.72));
-
-      // Large-scale patchiness so the greens aren't one flat wash.
-      const patch = fbm(x * 0.0011, z * 0.0011, 3) * 0.5 + 0.5;
-      grass.copy(grassCool).lerp(grassWarm, patch);
-
-      // Horizontal strata on exposed rock, following the terracing that the
-      // height field already cut, so the banding lands on the steps rather than
-      // across them.
-      const band = Math.sin(h * 0.36 + fbm(x * 0.004, z * 0.004, 2) * 2.4) * 0.5 + 0.5;
-      rockTone.copy(rockDark).lerp(rockLight, band * 0.75 + 0.12);
-
-      c.copy(rockTone);
-      c.lerp(grass, veg * 0.92);
-      c.lerp(darkMoss, smoothstep(veg, 0.45, 0.95) * (0.35 + patch * 0.4));
-      c.lerp(sandCol, sand);
-      // Steep ground is rock whatever grew near it.
-      c.lerp(rockTone, smoothstep(slope, 0.26, 0.62) * (1 - snow * 0.6));
-      c.lerp(snowCol, snow);
-
-      if (CLEARING) {
-        const cd = Math.hypot(x - CLEARING.x, z - CLEARING.z);
-        const burn = 1 - smoothstep(cd, CLEARING_R * 0.7, CLEARING_R * 1.7);
-        if (burn > 0.004) {
-          // Ash over most of it, char in the hollows and on the stump line,
-          // so it is not one flat wash of grey.
-          const soot = fbm(x * 0.021, z * 0.021, 2) * 0.5 + 0.5;
-          c.lerp(ashCol, burn * 0.82 * (1 - soot * 0.35));
-          c.lerp(charCol, burn * soot * 0.42);
-          veg *= 1 - burn * 0.9;      // and the grass texture stops with it
-        }
-      }
-    }
-
-    surf[i * 3] = veg;
-    surf[i * 3 + 1] = sand;
-    surf[i * 3 + 2] = snow;
-
-    const tint = ao * (1 + noise2(x * 0.02, z * 0.02) * 0.06);
-    colors[i * 3]     = c.r * tint;
-    colors[i * 3 + 1] = c.g * tint;
-    colors[i * 3 + 2] = c.b * tint;
+    paintGround(pos.getX(i), pos.getZ(i), h, slope, curvature, paint, 0);
+    colors[i * 3]     = paint[0];
+    colors[i * 3 + 1] = paint[1];
+    colors[i * 3 + 2] = paint[2];
+    surf[i * 3]     = paint[3];
+    surf[i * 3 + 1] = paint[4];
+    surf[i * 3 + 2] = paint[5];
   }
 
   mark("colours");
@@ -403,25 +251,20 @@ export function setupWorld(scene, renderer, quality = {}) {
   geo.dispose();                  // the uncut original has done its job
   mark("tiles");
 
+  // Fine chunks streamed in around the dragon, over the top of the sheet above.
+  const detail = createTerrainLod({
+    parent: ground, material: groundMat, tiles: groundTiles,
+    tilesPerSide: GROUND_TILES, size: TERRAIN_SIZE, edgeLoop,
+  });
+  detail.setDetail(q.terrainDetail);
+  setGroundLowQuality(groundMat, q.terrainDetail === "low");
+
   // The photographs are the one thing here that has to come off the network, so
   // the terrain is built with flat stand-ins and they are swapped in when they
   // land. Nothing recompiles: the uniforms already point at a 1x1 texture of the
   // same type, and only the value changes.
   const groundReady = loadGround().then((tex) => {
-    const u2 = groundMat.userData.uniforms;
-    const set = (key, slot, prop) => {
-      const t = slot && slot[prop];
-      if (t) u2[key].value = t;
-    };
-    set("tRockD", tex.rock, "map");     set("tRockN", tex.rock, "normal");
-    set("tRockA", tex.rock, "arm");
-    set("tScreeD", tex.scree, "map");   set("tScreeN", tex.scree, "normal");
-    set("tGrassD", tex.grass, "map");   set("tGrassN", tex.grass, "normal");
-    set("tForestD", tex.forest, "map"); set("tForestN", tex.forest, "normal");
-    set("tSandD", tex.sand, "map");     set("tSandN", tex.sand, "normal");
-    set("tSnowD", tex.snow, "map");     set("tSnowN", tex.snow, "normal");
-    groundMat.needsUpdate = false;      // uniform values only — no relink needed
-    const have = Object.entries(tex).filter(([, t]) => t && t.map).map(([k]) => k);
+    const have = applyGround(groundMat, tex);
     console.info(`world: ground textures in — ${have.join(", ") || "none"}`);
     return tex;
   }).catch((e) => { console.warn("world: ground textures failed", e); return null; });
@@ -478,56 +321,16 @@ export function setupWorld(scene, renderer, quality = {}) {
   grid.visible = false;
   scene.add(grid);
 
-  // --- Clouds ---
-  // Two decks. The low one is what he flies through and it drifts fast; the
-  // high one barely moves and is mostly there so the sky is not empty above the
-  // altitude where the low deck has gone past.
-  const cloudTex = makeCloudTexture();
-  const clouds = [];
-  // One parent for all of them. Cloud sprites are big, transparent and
-  // overlapping, which makes them the most fill-rate-hungry thing in the frame
-  // per unit of visual interest — and in a 512-pixel reflection they are a
-  // white smear. Grouping them is what lets the water skip the lot.
-  const cloudGroup = new THREE.Group();
-  cloudGroup.name = "clouds";
-  scene.add(cloudGroup);
-  const windX = Math.sin(WIND_BEARING), windZ = Math.cos(WIND_BEARING);
-
-  const cloudCount = q.clouds;
-  for (let i = 0; i < cloudCount; i++) {
-    const high = i > cloudCount * 0.62;
-    const mat = new THREE.SpriteMaterial({
-      map: cloudTex,
-      transparent: true,
-      depthWrite: false,
-      opacity: high ? 0.13 + Math.random() * 0.12 : 0.20 + Math.random() * 0.24,
-      fog: true,
-    });
-    const cloud = new THREE.Sprite(mat);
-
-    const a = Math.random() * Math.PI * 2;
-    const r = 700 + Math.random() * 6000;
-    // The low deck used to sit at 460 m with sprites a kilometre across, which
-    // meant a single one of them filled the screen with white the moment he
-    // climbed off a ridge. Cloud base goes at 900: high enough to fly under all
-    // day, low enough to fly INTO on purpose.
-    cloud.position.set(
-      Math.cos(a) * r,
-      high ? 2300 + Math.random() * 1500 : 900 + Math.random() * 700,
-      Math.sin(a) * r
-    );
-    const s = (high ? 1000 : 420) + Math.random() * (high ? 1400 : 700);
-    cloud.scale.set(s, s * (0.32 + Math.random() * 0.26), 1);
-    cloud.userData.drift = high ? 0.35 : 1;
-
-    cloudGroup.add(cloud);
-    clouds.push(cloud);
-  }
+  // --- Sky, weather, rain ---
+  const sky = createSky({ scene, renderer, sun, hemi, ocean, lightDir: sunDir });
+  const rain = createRain(scene);
+  sky.setRain(rain);
+  sky.onThunder((d) => thunder(d));
+  mark("sky");
 
   // --- Renderer setup that has to match the sky's dynamic range ---
   if (renderer) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.60;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
@@ -535,13 +338,13 @@ export function setupWorld(scene, renderer, quality = {}) {
   // One line in the console saying what this actually is, because "the trees
   // did not load" and "the trees loaded and you are too high to see them" look
   // identical from the cockpit.
-  mark("clouds");
+
   console.info(`world: build ${marks.join(", ")}`);
   console.info(
     `world: ${ISLANDS.length} islands (${ISLANDS.filter((i) => i.name).length} named), ` +
     `${flora.treeCount} trees over ${flora.tileCount} tiles, ${flora.boulderCount} boulders, ` +
     `${surfSpray.siteCount} surf sites, ${groundTiles.length} terrain tiles, ` +
-    `${clouds.length} clouds, shadows ${q.shadowMap}, grass ${flora.hasGrass ? "on" : "off"}`);
+    `shadows ${q.shadowMap}, grass ${flora.hasGrass ? "on" : "off"}`);
 
   // -------------------------------------------------------------------------
   // What the sea is allowed to see.
@@ -552,8 +355,11 @@ export function setupWorld(scene, renderer, quality = {}) {
   // this list was being drawn a second time every frame to contribute less than
   // a pixel of blur, and the trees alone are ~30 instanced draw calls.
   // -------------------------------------------------------------------------
-  ocean.excludeFromReflection(flora.root, cloudGroup, surfSpray.mesh, grid);
+  ocean.excludeFromReflection(flora.root, surfSpray.mesh, grid, rain.mesh);
   ocean.setReflectionEvery(q.reflectEvery);
+  ocean.setReflectionHooks(
+    () => { detail.beforeReflect(); sky.beforeReflect(); },
+    () => { detail.afterReflect(); sky.afterReflect(); });
 
   const water = ocean.mesh;
 
@@ -561,7 +367,7 @@ export function setupWorld(scene, renderer, quality = {}) {
     /** So main.js can add the compound and the stack once they have loaded. */
     excludeFromReflection: (...o) => ocean.excludeFromReflection(...o),
     groundTiles,
-    clouds,
+    detail,
     ground,
     water,
     ocean,
@@ -579,15 +385,35 @@ export function setupWorld(scene, renderer, quality = {}) {
     /** Resolves when the downloaded ground textures are in. Nothing waits on it. */
     ready: groundReady,
 
+    // --- graphics settings, all live --------------------------------------
+    /** Shadow map size in texels, or 0 for none. */
+    setShadows(size) {
+      // Turning the sun's shadow on or off changes the light hash, and three
+      // recompiles what it has to on its own.
+      sun.castShadow = size > 0;
+      if (size > 0 && sun.shadow.mapSize.x !== size) {
+        sun.shadow.mapSize.set(size, size);
+        // The map is allocated at the old size on first use; drop it and the
+        // next shadow pass allocates one at the new size.
+        if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+      }
+    },
+    setTerrainDetail(name) {
+      detail.setDetail(name);
+      setGroundLowQuality(groundMat, name === "low");
+    },
+    setTrees({ near, far }) { flora.setLod(near, far); },
+    setGrass(on) { flora.setGrass(on); },
+    setReflectionEvery(n) { ocean.setReflectionEvery(n); },
     toggleGrid() { grid.visible = !grid.visible; return grid.visible; },
     toggleWireframe() {
       groundMat.wireframe = !groundMat.wireframe;
       return groundMat.wireframe;
     },
     toggleClouds() {
-      const v = !clouds[0].visible;
-      for (const cl of clouds) cl.visible = v;
-      return v;
+      this._cloudsHidden = !this._cloudsHidden;
+      sky.setWeather(this._cloudsHidden ? "clear" : "fair", { transition: 0 });
+      return !this._cloudsHidden;
     },
     toggleWater() { water.visible = !water.visible; return water.visible; },
     toggleTrees() {
@@ -600,26 +426,8 @@ export function setupWorld(scene, renderer, quality = {}) {
       return surfSpray.mesh.visible;
     },
 
-    setSun(elevationDeg, azimuthDeg = SUN_AZIMUTH) {
-      sunDir.setFromSphericalCoords(
-        1,
-        THREE.MathUtils.degToRad(90 - elevationDeg),
-        THREE.MathUtils.degToRad(azimuthDeg)
-      );
-      sky.material.uniforms.sunPosition.value.copy(sunDir);
-      sun.position.copy(sunDir).multiplyScalar(500);
-      ocean.setSun(sunDir);
-      // The night transition in main.js drives this once per frame for about
-      // three seconds. A PMREM prefilter is six render passes and a mip chain;
-      // doing it 180 times to walk the sun down 62 degrees is the difference
-      // between a fade and a freeze. The uniforms above are cheap and exact, so
-      // only the prefiltered reflection is rate-limited, and two degrees of sun
-      // is not visible in a blurred environment map.
-      if (Math.abs(elevationDeg - envElevation) > 2) {
-        envElevation = elevationDeg;
-        rebuildEnvironment();
-      }
-    },
+    /** Debug console: put the sun at an elevation, in degrees. */
+    setSun(elevationDeg) { return sky.debugSun(elevationDeg); },
 
     update(focus, dt = 0.016) {
       if (focus) {
@@ -627,24 +435,14 @@ export function setupWorld(scene, renderer, quality = {}) {
         sun.position.copy(focus).addScaledVector(sunDir, 500);
       }
 
+      // Ground wetness follows the rain, drying slower than it soaks.
+      const rainNow = sky.state?.rain ?? 0;
+      const wu = groundMat.userData.uniforms.uWet;
+      wu.value += (rainNow - wu.value) * Math.min(1, dt * (rainNow > wu.value ? 0.25 : 0.04));
+      detail.update(focus, dt);
       ocean.update(focus, dt);
       surfSpray.update(focus, dt);
       flora.update(focus, dt);
-
-      for (const cloud of clouds) {
-        const d = CLOUD_DRIFT * dt * cloud.userData.drift;
-        cloud.position.x += windX * d;
-        cloud.position.z += windZ * d;
-        // Wrap around the player rather than around the origin, so he never
-        // flies out from under the weather.
-        if (focus) {
-          const dx = cloud.position.x - focus.x, dz = cloud.position.z - focus.z;
-          if (Math.hypot(dx, dz) > 7000) {
-            cloud.position.x = focus.x - dx * 0.92;
-            cloud.position.z = focus.z - dz * 0.92;
-          }
-        }
-      }
     },
   };
 }
