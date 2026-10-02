@@ -143,10 +143,18 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // The RATE still scales with airspeed, because a dragon hanging on his wings
   // and a dragon doing 400 mph are not going to climb at the same speed. At a
   // hover it is a lift; at full throttle it is a zoom.
-  const VERT_HOVER     = 9;                   // m/s of climb with no airspeed
-  const VERT_PER_SPEED = 0.45;                // ...plus this much of his airspeed
+  //
+  // Sharpened. It was 9 m/s at a hover and about 34 at cruise, eased in over a
+  // third of a second, and next to the double-tap climb and dive it read as the
+  // key barely working — a rise you had to wait for. Now it is roughly twice
+  // that, it bites almost at once, and it stops almost at once when you let go
+  // (VERT_RELEASE), so it can be used to hop a ridge or drop onto a deck in one
+  // decisive press rather than a long lean.
+  const VERT_HOVER     = 20;                  // m/s of climb with no airspeed
+  const VERT_PER_SPEED = 0.62;                // ...plus this much of his airspeed
   const CLIMB_RATE_CAP = 140;                 // m/s, so a burst zoom stays on the map
-  const VERT_LAMBDA    = 3.2;                 // how fast the climb answers the key
+  const VERT_LAMBDA    = 7.5;                 // how fast the climb answers the key
+  const VERT_RELEASE   = 5.5;                 // ...and how fast it levels off after
 
   // --- The vertical manoeuvres: zoom climb, stall, dive ---------------------
   //
@@ -201,7 +209,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // What a trim is worth. Fixed rather than scaled by airspeed, which is the
   // whole point of it: the ordinary lift axis gives 9 + 0.45·airspeed, and at
   // 335 m/s that is a 140 m/s climb — the opposite of a small adjustment.
-  const TRIM_RATE         = 26;               // m/s
+  const TRIM_RATE         = 52;               // m/s — still a fraction of the zoom's
   const CLIMB_DRAG        = 34;               // m/s^2 of airspeed spent climbing
   // ...plus this much per (m/s)^2, because drag is not a constant and a climb
   // that took eleven seconds to bleed 335 m/s off did not read as costing
@@ -398,7 +406,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   const SNARE_SHAKE   = 0.62;  // s off per reversal of the turn input
   // Denominator floor when working out which way his nose points. Without it a
   // climb from a standstill is atan2(9, 0) and he stands on his tail.
-  const PATH_REF_SPEED = 25;
+  // Raised with the faster lift, or a rise from a hover stood him on his tail.
+  const PATH_REF_SPEED = 34;
 
   // --- Turning -----------------------------------------------------------
   // Rate-based: hold to carve a continuous arc, tap for a couple of degrees.
@@ -422,7 +431,7 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   const STRAFE_DAMP   = 4.2;
 
   const PITCH_MAX     = 0.72;                 // visual nose attitude
-  const PITCH_LAMBDA  = 4.5;
+  const PITCH_LAMBDA  = 6.0;                  // quick enough that a sharp rise shows in his body
   const AOA_SLOW      = 0.22;                 // nose held high when he's slow
   const BOB_SPEED     = 0.9;                  // m/s of idle bob
   const BOB_FREQ      = 1.1;                  // Hz
@@ -984,7 +993,12 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     const vertRate = trimming ? TRIM_RATE : Math.min(
       VERT_HOVER + Math.abs(airspeed) * VERT_PER_SPEED, CLIMB_RATE_CAP
     );
-    climbVel += (verticalInput * vertRate - climbVel) * damp(VERT_LAMBDA, dt);
+    // Asymmetric: pressing bites fast, letting go levels off a touch softer, so
+    // a sharp rise does not end in a jolt.
+    const vertTarget = verticalInput * vertRate;
+    const vertK = Math.abs(vertTarget) > Math.abs(climbVel) * 0.98 && verticalInput !== 0
+      ? VERT_LAMBDA : VERT_RELEASE;
+    climbVel += (vertTarget - climbVel) * damp(vertK, dt);
 
     // The drop overrides the lift axis for the same reason the snare below does:
     // it is not a stronger press, it is a different thing the axis is doing.
