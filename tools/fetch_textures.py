@@ -27,12 +27,13 @@ ALBEDO_ALIASES = ["diff", "col"]
 # three.js wants; `nor_dx` would come out with the lighting inverted on every
 # bump and it is genuinely hard to see until you look at a single rock.
 WANTED = {
-    "rock_face_03":     ["diff", "nor_gl", "arm"],   # the cliffs. Stratified grey basalt.
+    "dark_rock_02":     ["diff", "nor_gl", "arm"],   # the cliffs. Dark, stratified — basalt, not sandstone.
     "aerial_rocks_04":  ["diff", "nor_gl"],          # bare ground and scree, seen from above
-    "aerial_grass_rock":["diff", "nor_gl"],          # the green. Authored for aerial views.
-    "forrest_ground_01":["diff", "nor_gl"],          # under the trees
-    "coast_sand_05":    ["diff", "nor_gl"],          # beaches and the wet band below them
+    "sparse_grass":     ["diff", "nor_gl"],          # open turf. Short, wet, North Atlantic green.
+    "forrest_ground_03":["diff", "nor_gl"],          # pine litter under the conifers
+    "coast_sand_01":    ["diff", "nor_gl"],          # beaches and the wet band below them
     "snow_field_aerial":["diff", "nor_gl"],          # summits
+    "aerial_grass_rock":["diff"],                    # heath: thin turf over rock, the uplands
 }
 
 def main():

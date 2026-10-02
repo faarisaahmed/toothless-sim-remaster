@@ -3,45 +3,56 @@ import * as THREE from "three";
 // ---------------------------------------------------------------------------
 // The ground.
 //
-// world.js used to say, correctly, that a tiled texture on this terrain is
-// worse than none: the UVs are planar, so anything mapped through them stretches
-// into vertical smears on exactly the surfaces you most want to look at, which
-// is every sea cliff in the archipelago. The relief was carried by geometry
-// alone and the cliffs read as smooth grey slopes with a colour ramp on them.
+// UVs are useless on this terrain — they are planar, so anything mapped through
+// them smears down every cliff — so the material projects everything in world
+// space: the rock from all three axes, blended by how much the surface faces
+// each one, and the flat-lying layers (turf, heath, forest floor, sand, snow)
+// from straight above, because they only ever lie on ground that is close to
+// level and one tap is a third the price of three.
 //
-// The fix is not to give up on texture, it is to stop using the UVs. This
-// material projects the rock from all three axes in world space and blends by
-// how much the surface faces each one, so a vertical face is textured by the
-// two horizontal projections and never stretches. The flat-lying layers —
-// grass, sand, snow, forest floor — keep a single top-down projection, because
-// they only ever appear on ground that is nearly horizontal and one tap is
-// three times cheaper than three.
+// What the second version of this fixes, all of which was visible from the air:
 //
-// Three things this has to get right or it is not worth the taps:
+//  - THE GRID. One photograph tiled every 9 m is a wallpaper, and from 300 m up
+//    a wallpaper is a lattice of identical dots. Every layer is now read at two
+//    scales — the near tile, and a rotated copy three and a half times larger —
+//    and the mix between them is driven by distance AND by a low-frequency
+//    noise, so there is no distance at which a single repeat is all you see.
 //
-//  - It must not throw away the vertex colours. Those carry the island-scale
-//    design (which coast is sand, which summit is snow) and the cheap curvature
-//    AO, and no amount of detail texture replaces either. The texture supplies
-//    structure and a third of its own colour; the vertex colour supplies the
-//    rest and all of the large-scale variation.
-//  - It must fade out with distance. A 6 m tile at 3 km is far below one pixel
-//    and turns into a boiling shimmer under any camera motion. Past ~2 km this
-//    falls back to the vertex colours, which is both stabler and free.
-//  - It must branch. Nearly every pixel on screen is one or two layers, not
-//    six. The weights are coherent across a quad, so skipping the layers at
-//    zero weight actually skips them.
+//  - THE BROWN SHEET. The photographs were multiplied straight into the vertex
+//    colour, so whatever hue a photo happened to have came through on every
+//    island: the cliff photo was warm sandstone, so every cliff in a basalt
+//    archipelago was chocolate. Each photo is now divided by its own average
+//    colour (measured when it loads) before it is used, which turns it into
+//    pure structure — light and dark around 1.0 — and the island design in the
+//    vertex colour decides the hue. A fraction of the photo's own colour is
+//    mixed back in, per layer, because a little of a real photograph's colour
+//    variation is what stops it looking painted.
+//
+//  - THE DISTANCE. Detail used to stop dead at 2.4 km, which at the heights he
+//    flies is most of the screen. The large-scale read carries on to 6 km.
+//
+// Two things it still has to get right or it is not worth the taps:
+//
+//  - It must not throw away the vertex colours. They carry the island-scale
+//    design and the cheap curvature AO, and no detail texture replaces either.
+//  - It must branch. Nearly every pixel is one or two layers. The weights are
+//    coherent across a quad, so skipping a zero-weight layer actually skips it.
 // ---------------------------------------------------------------------------
 
 const BASE = "./assets/textures/";
 
-/** slug, and how many metres one tile of it covers. */
+/**
+ * slug, how many metres one tile covers, how much of its own colour to keep,
+ * and whether it has a normal map of its own.
+ */
 const LAYERS = {
-  rock:   { slug: "rock_face_03",      tile: 11.0, arm: true },
-  scree:  { slug: "aerial_rocks_04",   tile: 9.0 },
-  grass:  { slug: "aerial_grass_rock", tile: 7.5 },
-  forest: { slug: "forrest_ground_01", tile: 6.0 },
-  sand:   { slug: "coast_sand_05",     tile: 5.5 },
-  snow:   { slug: "snow_field_aerial", tile: 14.0 },
+  rock:   { slug: "dark_rock_02",      tile: 13.0, own: 0.45, nrm: true },
+  scree:  { slug: "aerial_rocks_04",   tile: 10.0, own: 0.30, nrm: true },
+  grass:  { slug: "sparse_grass",      tile: 6.5,  own: 0.40, nrm: true },
+  forest: { slug: "forrest_ground_03", tile: 5.5,  own: 0.35, nrm: true },
+  sand:   { slug: "coast_sand_01",     tile: 6.0,  own: 0.55, nrm: true },
+  snow:   { slug: "snow_field_aerial", tile: 16.0, own: 0.30, nrm: true },
+  heath:  { slug: "aerial_grass_rock", tile: 9.0,  own: 0.35, nrm: false },
 };
 
 function tune(tex, srgb) {
@@ -51,16 +62,37 @@ function tune(tex, srgb) {
   return tex;
 }
 
+/** Average colour of an image, in linear light. One 8x8 downsample. */
+function meanColour(img) {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 8;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 0, 0, 8, 8);
+    const d = g.getImageData(0, 0, 8, 8).data;
+    const lin = (v) => {
+      v /= 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    let r = 0, gg = 0, b = 0;
+    for (let i = 0; i < d.length; i += 4) { r += lin(d[i]); gg += lin(d[i + 1]); b += lin(d[i + 2]); }
+    const n = d.length / 4;
+    return new THREE.Vector3(r / n, gg / n, b / n);
+  } catch {
+    return new THREE.Vector3(0.2, 0.2, 0.2);
+  }
+}
+
 /**
  * Load every ground texture. Resolves even if some are missing — a terrain with
- * five of six layers is a worse terrain, a terrain that never loads is no game.
+ * six of seven layers is a worse terrain, a terrain that never loads is no game.
  */
 export async function loadGround(onProgress = () => {}) {
   const loader = new THREE.TextureLoader();
   const out = {};
   const jobs = [];
   let done = 0;
-  const total = Object.values(LAYERS).reduce((n, l) => n + 2 + (l.arm ? 1 : 0), 0);
+  const total = Object.values(LAYERS).reduce((n, l) => n + 1 + (l.nrm ? 1 : 0), 0);
 
   const get = (file, srgb) =>
     loader.loadAsync(BASE + file)
@@ -70,16 +102,18 @@ export async function loadGround(onProgress = () => {}) {
   for (const [name, l] of Object.entries(LAYERS)) {
     const slot = { tile: l.tile };
     out[name] = slot;
-    jobs.push(get(`${l.slug}_diff.jpg`, true).then((t) => (slot.map = t)));
-    jobs.push(get(`${l.slug}_nor_gl.jpg`, false).then((t) => (slot.normal = t)));
-    if (l.arm) jobs.push(get(`${l.slug}_arm.jpg`, false).then((t) => (slot.arm = t)));
+    jobs.push(get(`${l.slug}_diff.jpg`, true).then((t) => {
+      slot.map = t;
+      if (t) slot.mean = meanColour(t.image);
+    }));
+    if (l.nrm) jobs.push(get(`${l.slug}_nor_gl.jpg`, false).then((t) => (slot.normal = t)));
   }
   await Promise.all(jobs);
   return out;
 }
 
-// A 1x1 mid-grey stands in for anything that failed to download, so a missing
-// file costs one flat layer rather than a black terrain.
+// A 1x1 stand-in for anything that has not downloaded (or never will), so a
+// missing file costs one flat layer rather than a black terrain.
 function fallback(rgb) {
   const t = new THREE.DataTexture(new Uint8Array(rgb), 1, 1);
   t.needsUpdate = true;
@@ -88,6 +122,7 @@ function fallback(rgb) {
 }
 const GREY = fallback([150, 150, 150, 255]);
 const FLAT = fallback([128, 128, 255, 255]);
+const GREY_MEAN = new THREE.Vector3(0.30, 0.30, 0.30);
 
 const VERT_PARS = /* glsl */`
   attribute vec3 aSurf;
@@ -108,44 +143,95 @@ const FRAG_PARS = /* glsl */`
   varying vec3 vWNrm;
   varying vec3 vSurf;
 
-  uniform sampler2D tRockD, tRockN, tRockA;
+  uniform sampler2D tRockD, tRockN;
   uniform sampler2D tScreeD, tScreeN;
   uniform sampler2D tGrassD, tGrassN;
   uniform sampler2D tForestD, tForestN;
   uniform sampler2D tSandD, tSandN;
   uniform sampler2D tSnowD, tSnowN;
-  uniform vec4 uTileA;   // rock, scree, grass, forest
-  uniform vec2 uTileB;   // sand, snow
-  uniform vec2 uDetailFade;
+  uniform sampler2D tHeathD;
+  // 1 / tile, per layer: rock scree grass forest | sand snow heath
+  uniform vec4 uTileA;
+  uniform vec3 uTileB;
+  // 1 / average colour of each photograph, and how much of its own colour to keep.
+  uniform vec3 uInvMean[7];
+  uniform float uOwn[7];
+  uniform vec2 uDetailFade;   // near detail ends, far detail ends
   uniform float uSeaLevel;
+  uniform float uWet;         // rain: 0 dry .. 1 soaked
 
-  // Triplanar. The blend weights are the surface normal raised to a power and
-  // normalised, so a face pointing straight up is pure top-down and a vertical
-  // face is a mix of the two side projections. The power is what keeps the
-  // seam between them narrow enough not to read as a smudge.
+  // The second read of every layer is this much larger and turned by this much,
+  // so its repeat never lines up with the first one's.
+  const float BIG = 0.285;
+  const mat2 TURN = mat2( 0.8253, -0.5646, 0.5646, 0.8253 );
+
+  // How much of the large read to use. Distance does most of it; the noise
+  // breaks up the line where it happens, and keeps some of the large read even
+  // underfoot so the near repeat is never on its own.
+  float gBig;
+
+  // Photo, normalised to its own mean: structure around 1.0, then a share of
+  // its own colour mixed back in.
+  vec3 norm( vec3 c, int i ) {
+    // Mostly luminance: the photo's own hue shifts, divided by its mean, can
+    // swing a channel well away from 1 and paint purple into the shadows.
+    vec3 r = c * uInvMean[ i ];
+    float l = dot( r, vec3( 0.2126, 0.7152, 0.0722 ) );
+    return clamp( mix( vec3( l ), r, 0.45 ), 0.0, 3.0 );
+  }
+
+  vec3 plan( sampler2D t, vec2 uv ) {
+    vec3 a = gBig < 0.98 ? texture2D( t, uv ).rgb : vec3( 0.0 );
+    vec3 b = gBig > 0.02 ? texture2D( t, TURN * uv * BIG + 0.37 ).rgb : vec3( 0.0 );
+    return mix( a, b, gBig );
+  }
+
+  vec3 planN( sampler2D t, vec2 uv, vec3 n ) {
+    vec3 a = gBig < 0.98 ? texture2D( t, uv ).xyz * 2.0 - 1.0 : vec3( 0.0, 0.0, 1.0 );
+    vec3 b = vec3( 0.0, 0.0, 1.0 );
+    if ( gBig > 0.02 ) {
+      b = texture2D( t, TURN * uv * BIG + 0.37 ).xyz * 2.0 - 1.0;
+      // The tangent frame turned with the lookup, so turn the normal back.
+      b.xy = b.xy * TURN;
+    }
+    vec3 m = mix( a, b, gBig );
+    return normalize( vec3( m.x + n.x, m.z + n.y, m.y + n.z ) );
+  }
+
+  // Triplanar. Weights are the normal raised to a power and normalised, so a
+  // face pointing up is pure top-down and a vertical face is a mix of the two
+  // side projections; the power keeps the seam between them narrow.
   vec3 triD( sampler2D t, vec3 p, vec3 bw, float s ) {
-    return texture2D( t, p.zy * s ).rgb * bw.x
-         + texture2D( t, p.xz * s ).rgb * bw.y
-         + texture2D( t, p.xy * s ).rgb * bw.z;
+    vec3 a = vec3( 0.0 ), b = vec3( 0.0 );
+    if ( gBig < 0.98 ) {
+      a = texture2D( t, p.zy * s ).rgb * bw.x
+        + texture2D( t, p.xz * s ).rgb * bw.y
+        + texture2D( t, p.xy * s ).rgb * bw.z;
+    }
+    if ( gBig > 0.02 ) {
+      float S = s * BIG;
+      b = texture2D( t, p.zy * S + 0.37 ).rgb * bw.x
+        + texture2D( t, TURN * p.xz * S + 0.37 ).rgb * bw.y
+        + texture2D( t, p.xy * S + 0.37 ).rgb * bw.z;
+    }
+    return mix( a, b, gBig );
   }
 
   // Whiteout blending for triplanar normal maps: take each projection's tangent
   // normal, swing it into world space by swapping the axes it was authored
-  // against, and add. Cheaper than building a tangent frame and, on a surface
-  // with no meaningful UVs, no less correct.
+  // against, and add. Only the near scale carries normals on the rock — the
+  // large read is there for colour, and a second set of six taps for relief no
+  // one can resolve at that distance is not worth it.
   vec3 triN( sampler2D t, vec3 p, vec3 bw, vec3 n, float s ) {
-    vec3 nx = texture2D( t, p.zy * s ).xyz * 2.0 - 1.0;
-    vec3 ny = texture2D( t, p.xz * s ).xyz * 2.0 - 1.0;
-    vec3 nz = texture2D( t, p.xy * s ).xyz * 2.0 - 1.0;
+    float S = gBig > 0.6 ? s * BIG : s;
+    vec2 o = gBig > 0.6 ? vec2( 0.37 ) : vec2( 0.0 );
+    vec3 nx = texture2D( t, p.zy * S + o ).xyz * 2.0 - 1.0;
+    vec3 ny = texture2D( t, p.xz * S + o ).xyz * 2.0 - 1.0;
+    vec3 nz = texture2D( t, p.xy * S + o ).xyz * 2.0 - 1.0;
     nx = vec3( nx.z + n.x, nx.y + n.y, nx.x + n.z );
     ny = vec3( ny.x + n.x, ny.z + n.y, ny.y + n.z );
     nz = vec3( nz.x + n.x, nz.y + n.y, nz.z + n.z );
     return normalize( nx * bw.x + ny * bw.y + nz * bw.z );
-  }
-
-  vec3 planarN( sampler2D t, vec2 uv, vec3 n ) {
-    vec3 m = texture2D( t, uv ).xyz * 2.0 - 1.0;
-    return normalize( vec3( m.x + n.x, m.z + n.y, m.y + n.z ) );
   }
 `;
 
@@ -156,14 +242,31 @@ const FRAG_MAIN = /* glsl */`
   float slope = clamp( ( 1.0 - gN.y ) * 2.3, 0.0, 1.0 );
   float dist = length( vWPos - cameraPosition );
 
-  // Past a couple of kilometres a 7 m tile is well under a pixel and turns into
-  // a crawling shimmer, so it fades out and the vertex colours carry it. That
-  // this also skips every texture fetch on most of the screen is the reason the
-  // draw stays cheap with six layers in it.
+  // Low-frequency variation, read off the scree photo at a scale where it is
+  // nothing but soft blotches. Two reads at unrelated scales so the blotches
+  // themselves do not tile.
+  float n1 = texture2D( tScreeD, vWPos.xz * 0.00071 ).g;
+  float n2 = texture2D( tRockD, TURN * vWPos.xz * 0.00193 + 0.5 ).g;
+  float blotch = clamp( ( n1 * uInvMean[1].g ) * 0.55 + ( n2 * uInvMean[0].g ) * 0.45, 0.0, 2.0 );
+
+  // A third, finer field — about 90 m blotches — for the patchwork within a
+  // hillside: drier turf, darker hollows, lichen on the rock.
+  float patchy = texture2D( tHeathD, TURN * vWPos.xz * 0.0105 ).g * uInvMean[6].g;
+
+  gBig = clamp( smoothstep( 40.0, 420.0, dist ) + ( blotch - 1.0 ) * 0.6 + 0.18, 0.0, 1.0 );
+  #ifdef TERRAIN_LQ
+    // Low detail: one read per layer, never the blend of two. The switch is
+    // pushed out to where the near tile is already sub-pixel, so it cannot be
+    // seen happening.
+    gBig = step( 0.5, smoothstep( 60.0, 520.0, dist ) );
+  #endif
+
   float detail = 1.0 - smoothstep( uDetailFade.x, uDetailFade.y, dist );
 
   vec3 macro = vColor.rgb;
   vec3 albedo = macro;
+  float ledgeMoss = 0.0, ledgeSnow = 0.0;
+  vec3 mossCol = vec3( 0.0 );
   vec3 wNormal = gN;
   float rough = 0.94;
 
@@ -171,12 +274,15 @@ const FRAG_MAIN = /* glsl */`
     vec3 bw = pow( abs( gN ), vec3( 5.0 ) );
     bw /= max( bw.x + bw.y + bw.z, 1e-4 );
 
-    // Steep ground is rock whatever the vertex data thinks it is; the rest is
-    // whatever grew or washed up on it.
-    float wRock  = smoothstep( 0.20, 0.60, slope );
+    // Steep ground is rock whatever the vertex data thinks it is; the line
+    // where it starts is broken up by the blotch field so it follows no contour.
+    float rockLo = 0.40 + ( blotch - 1.0 ) * 0.12;
+    float wRock  = smoothstep( rockLo, rockLo + 0.34, slope );
+    // Snow holds on steep ground where the paint says it lies thick.
+    wRock *= 1.0 - smoothstep( 0.3, 0.9, vSurf.z ) * 0.75;
     float open   = 1.0 - wRock;
     float wSnow  = vSurf.z * open;
-    float wSand  = vSurf.y * open;
+    float wSand  = vSurf.y * open * ( 1.0 - vSurf.z );
     float wVeg   = vSurf.x * open * ( 1.0 - vSurf.z );
     float wScree = max( 0.0, open - wSnow - wSand - wVeg );
     float sum = wRock + wSnow + wSand + wVeg + wScree;
@@ -184,53 +290,109 @@ const FRAG_MAIN = /* glsl */`
 
     vec3 tex = vec3( 0.0 );
     vec3 nrm = vec3( 0.0 );
+    vec2 uvTop = vWPos.xz;
 
     if ( wRock > 0.004 ) {
-      tex += triD( tRockD, vWPos, bw, uTileA.x ) * wRock;
-      nrm += triN( tRockN, vWPos, bw, gN, uTileA.x ) * wRock;
-      rough = mix( rough, triD( tRockA, vWPos, bw, uTileA.x ).g, wRock );
+      vec3 c = norm( triD( tRockD, vWPos, bw, uTileA.x ), 0 );
+      vec3 rn = triN( tRockN, vWPos, bw, gN, uTileA.x );
+      // Water staining: dark vertical streaks down a cliff face, where runoff
+      // has followed the same line for a thousand years. Read off the scree
+      // photo stretched forty-to-one in height, and only on the vertical faces.
+      float vert = 1.0 - bw.y;
+      #ifdef TERRAIN_LQ
+        vert = 0.0;
+      #endif
+      if ( vert > 0.05 ) {
+        float along = dot( vWPos.xz, normalize( vec2( -gN.z, gN.x ) + 1e-4 ) );
+        float streak = texture2D( tScreeD, vec2( along * 0.035, vWPos.y * 0.0011 ) ).g * uInvMean[1].g;
+        c *= mix( 1.0, 0.62 + 0.38 * smoothstep( 0.55, 1.25, streak ), vert * 0.85 );
+      }
+      // Lichen and weathering: warm grey-ochre in patches, cooler and darker
+      // where it is fresh.
+      c *= mix( vec3( 0.86, 0.9, 0.96 ), vec3( 1.14, 1.06, 0.88 ), smoothstep( 0.7, 1.3, patchy ) );
+      // Moss and turf on whatever part of a cliff faces the sky: ledges, the
+      // tops of the strata, the lip. The test is on the DETAIL normal, so it
+      // lands on the photograph's own ledges rather than on a smooth band, and
+      // it is held back at altitude where nothing grows.
+      float ledge = smoothstep( 0.62, 0.86, rn.y ) * ( 1.0 - smoothstep( 180.0, 320.0, vWPos.y ) )
+                  * smoothstep( 4.0, 14.0, vWPos.y ) * clamp( vSurf.x * 2.0 + 0.35, 0.0, 1.0 );
+      // Absolute colours, applied after the structure pass below: moss is a
+      // colour of its own, not a tint of the rock under it.
+      ledgeMoss = ledge * 0.85 * wRock;
+      #ifdef TERRAIN_LQ
+        ledgeMoss = 0.0;
+      #endif
+      #ifndef TERRAIN_LQ
+      mossCol = plan( tGrassD, uvTop * uTileA.z ) * vec3( 0.62, 0.9, 0.5 );
+      #endif
+      ledgeSnow = smoothstep( 0.55, 0.8, rn.y ) * vSurf.z * wRock;
+      tex += c * wRock;
+      nrm += rn * wRock;
+      rough = mix( rough, mix( 0.82, 0.96, ledge ), wRock );
     }
-    vec2 uvTop = vWPos.xz;
     if ( wScree > 0.004 ) {
-      tex += texture2D( tScreeD, uvTop * uTileA.y ).rgb * wScree;
-      nrm += planarN( tScreeN, uvTop * uTileA.y, gN ) * wScree;
+      // Bare, open ground: scree where it is high and broken, heath — thin turf
+      // over rock — everywhere else. Heath is what most of an Atlantic island
+      // actually is, and it is green-brown, not the colour of a quarry.
+      float heath = ( 1.0 - smoothstep( 200.0, 330.0, vWPos.y ) ) * clamp( 1.3 - slope * 1.6, 0.0, 1.0 );
+      heath = clamp( heath + ( blotch - 1.0 ) * 0.5, 0.0, 1.0 );
+      vec3 c = norm( plan( tScreeD, uvTop * uTileA.y ), 1 );
+      if ( heath > 0.01 ) c = mix( c, norm( plan( tHeathD, uvTop * uTileB.z ), 6 ), heath );
+      tex += c * wScree;
+      nrm += planN( tScreeN, uvTop * uTileA.y, gN ) * wScree;
     }
     if ( wVeg > 0.004 ) {
-      // Grass on the open ground, leaf litter where the forest is thick. The
-      // split is the same fertility number the trees are scattered from, so the
-      // dark ground is under the dark canopy and not next to it.
+      // Turf on the open ground, needle litter where the forest is thick. The
+      // split is the same fertility number the trees are scattered from, so
+      // the dark ground is under the dark canopy and not next to it.
       float shade = smoothstep( 0.45, 0.9, vSurf.x );
-      vec3 g = texture2D( tGrassD, uvTop * uTileA.z ).rgb;
-      vec3 f = texture2D( tForestD, uvTop * uTileA.w ).rgb;
-      tex += mix( g, f, shade ) * wVeg;
-      nrm += mix( planarN( tGrassN, uvTop * uTileA.z, gN ),
-                  planarN( tForestN, uvTop * uTileA.w, gN ), shade ) * wVeg;
+      vec3 c = norm( plan( tGrassD, uvTop * uTileA.z ), 2 );
+      vec3 n = planN( tGrassN, uvTop * uTileA.z, gN );
+      // Turf is never one green: drier, yellower patches on the rises, deep
+      // wet green in the hollows.
+      c *= mix( vec3( 0.82, 0.96, 0.9 ), vec3( 1.2, 1.08, 0.72 ), smoothstep( 0.6, 1.4, patchy ) );
+      if ( shade > 0.01 ) {
+        c = mix( c, norm( plan( tForestD, uvTop * uTileA.w ), 3 ), shade );
+        n = normalize( mix( n, planN( tForestN, uvTop * uTileA.w, gN ), shade ) );
+      }
+      // Turf photographs are low-contrast by nature — a lawn from above — and
+      // at the heights he flies the structure needs pushing to read at all.
+      c = max( vec3( 0.0 ), 1.0 + ( c - 1.0 ) * 1.6 );
+      tex += c * wVeg;
+      nrm += n * wVeg;
       rough = mix( rough, 0.98, wVeg );
     }
     if ( wSand > 0.004 ) {
-      tex += texture2D( tSandD, uvTop * uTileB.x ).rgb * wSand;
-      nrm += planarN( tSandN, uvTop * uTileB.x, gN ) * wSand;
+      tex += norm( plan( tSandD, uvTop * uTileB.x ), 4 ) * wSand;
+      nrm += planN( tSandN, uvTop * uTileB.x, gN ) * wSand;
     }
     if ( wSnow > 0.004 ) {
-      tex += texture2D( tSnowD, uvTop * uTileB.y ).rgb * wSnow;
-      nrm += planarN( tSnowN, uvTop * uTileB.y, gN ) * wSnow;
-      rough = mix( rough, 0.6, wSnow );
+      tex += norm( plan( tSnowD, uvTop * uTileB.y ), 5 ) * wSnow;
+      nrm += planN( tSnowN, uvTop * uTileB.y, gN ) * wSnow;
+      rough = mix( rough, 0.55, wSnow );
     }
 
-    // Kill the tile repeat with a very low frequency read of the rock map used
-    // as nothing but a brightness field. One extra fetch, and it is the
-    // difference between a surface and a wallpaper.
-    float macroVar = texture2D( tRockD, vWPos.xz * 0.0018 ).g;
-    tex *= 0.78 + 0.5 * macroVar;
+    // How much of each photograph's own colour survives. Blended by the same
+    // weights as everything else.
+    float own = uOwn[0] * wRock + uOwn[1] * wScree + uOwn[2] * wVeg
+              + uOwn[4] * wSand + uOwn[5] * wSnow;
 
-    // Vertex colour keeps the design and the AO; the texture brings the grain
-    // and about a third of its own colour, or every layer comes out the same
-    // tinted grey.
-    float lum = dot( macro, vec3( 0.299, 0.587, 0.114 ) );
-    vec3 lit = mix( macro * tex * 1.9, tex * ( 0.5 + 1.0 * lum ), 0.34 );
+    // tex is structure around 1.0. The macro colour supplies the hue, and a
+    // share of the photograph's own colour is put back so it is not a
+    // monochrome emboss of the vertex colour.
+    vec3 structured = macro * tex;
+    float lum = dot( macro, vec3( 0.2126, 0.7152, 0.0722 ) );
+    vec3 photo = tex * lum;
+    vec3 lit = mix( structured, mix( structured, photo, 0.5 ), own );
+    lit = mix( lit, mossCol, ledgeMoss );
+    lit = mix( lit, vec3( 0.78, 0.82, 0.86 ), ledgeSnow );
     albedo = mix( macro, lit, detail );
-    wNormal = normalize( mix( gN, normalize( nrm ), detail * 0.85 ) );
+    wNormal = normalize( mix( gN, normalize( nrm ), detail * mix( 0.9, 0.55, gBig ) * ( 1.0 - smoothstep( 300.0, 1400.0, dist ) * 0.6 ) ) );
   }
+
+  // Far beyond the detail, the blotch field still varies the ground so whole
+  // islands are not one flat wash of vertex colour.
+  albedo *= mix( 1.0, 0.82 + blotch * 0.2, 1.0 - detail * 0.6 );
 
   // The wet band. Everything the tide has been over in the last few hours is
   // darker and much smoother than the dry sand a metre above it, and getting
@@ -239,36 +401,41 @@ const FRAG_MAIN = /* glsl */`
   albedo *= mix( 1.0, 0.52, wet * ( 1.0 - slope * 0.6 ) );
   rough = mix( rough, 0.16, wet * ( 1.0 - slope * 0.6 ) );
 
+  // Rain: everything darkens and goes glossy, rock most of all, because
+  // wet stone is the darkest thing on a wet island.
+  if ( uWet > 0.001 ) {
+    float wetK = uWet * mix( 0.6, 1.0, slope );
+    albedo *= 1.0 - 0.32 * wetK;
+    rough = mix( rough, 0.38, wetK * 0.8 );
+  }
+
   diffuseColor.rgb = albedo;
 `;
 
 /**
- * @param {object} tex        result of loadGround()
+ * @param {object} tex        result of loadGround(), or {} to start with stand-ins
  * @param {number} seaLevel
  */
 export function makeTerrainMaterial(tex, seaLevel = 0) {
-  const pick = (slot, key, dflt) => (slot && slot[key]) || dflt;
   const uniforms = {
-    tRockD:   { value: pick(tex.rock, "map", GREY) },
-    tRockN:   { value: pick(tex.rock, "normal", FLAT) },
-    tRockA:   { value: pick(tex.rock, "arm", GREY) },
-    tScreeD:  { value: pick(tex.scree, "map", GREY) },
-    tScreeN:  { value: pick(tex.scree, "normal", FLAT) },
-    tGrassD:  { value: pick(tex.grass, "map", GREY) },
-    tGrassN:  { value: pick(tex.grass, "normal", FLAT) },
-    tForestD: { value: pick(tex.forest, "map", GREY) },
-    tForestN: { value: pick(tex.forest, "normal", FLAT) },
-    tSandD:   { value: pick(tex.sand, "map", GREY) },
-    tSandN:   { value: pick(tex.sand, "normal", FLAT) },
-    tSnowD:   { value: pick(tex.snow, "map", GREY) },
-    tSnowN:   { value: pick(tex.snow, "normal", FLAT) },
+    tRockD:   { value: GREY }, tRockN:   { value: FLAT },
+    tScreeD:  { value: GREY }, tScreeN:  { value: FLAT },
+    tGrassD:  { value: GREY }, tGrassN:  { value: FLAT },
+    tForestD: { value: GREY }, tForestN: { value: FLAT },
+    tSandD:   { value: GREY }, tSandN:   { value: FLAT },
+    tSnowD:   { value: GREY }, tSnowN:   { value: FLAT },
+    tHeathD:  { value: GREY },
     // Uniforms are 1/tile, so the shader multiplies instead of dividing.
     uTileA: { value: new THREE.Vector4(
       1 / LAYERS.rock.tile, 1 / LAYERS.scree.tile,
       1 / LAYERS.grass.tile, 1 / LAYERS.forest.tile) },
-    uTileB: { value: new THREE.Vector2(1 / LAYERS.sand.tile, 1 / LAYERS.snow.tile) },
-    uDetailFade: { value: new THREE.Vector2(700, 2400) },
+    uTileB: { value: new THREE.Vector3(
+      1 / LAYERS.sand.tile, 1 / LAYERS.snow.tile, 1 / LAYERS.heath.tile) },
+    uInvMean: { value: Array.from({ length: 7 }, () => new THREE.Vector3(1, 1, 1).divide(GREY_MEAN)) },
+    uOwn: { value: Object.values(LAYERS).map((l) => l.own) },
+    uDetailFade: { value: new THREE.Vector2(2600, 6000) },
     uSeaLevel: { value: seaLevel },
+    uWet: { value: 0 },
   };
 
   const mat = new THREE.MeshStandardMaterial({
@@ -299,7 +466,47 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
   };
   // Any two materials whose onBeforeCompile produce different code need
   // different cache keys or three hands the second one the first one's program.
-  mat.customProgramCacheKey = () => "terrain-triplanar-v1";
+  mat.customProgramCacheKey = () => `terrain-triplanar-v3${mat.defines?.TERRAIN_LQ ? "-lq" : ""}`;
   mat.userData.uniforms = uniforms;
+  if (tex && Object.keys(tex).length) applyGround(mat, tex);
   return mat;
+}
+
+const SLOTS = [
+  ["rock", "tRockD", "tRockN"], ["scree", "tScreeD", "tScreeN"],
+  ["grass", "tGrassD", "tGrassN"], ["forest", "tForestD", "tForestN"],
+  ["sand", "tSandD", "tSandN"], ["snow", "tSnowD", "tSnowN"],
+  ["heath", "tHeathD", null],
+];
+
+/** The cheap shader path, for the Low terrain setting. Recompiles once. */
+export function setGroundLowQuality(mat, on) {
+  mat.defines = mat.defines || {};
+  if (!!mat.defines.TERRAIN_LQ === !!on) return;
+  if (on) mat.defines.TERRAIN_LQ = 1;
+  else delete mat.defines.TERRAIN_LQ;
+  mat.needsUpdate = true;
+}
+
+/**
+ * Swap downloaded photographs in for the stand-ins. Uniform values only: the
+ * program was compiled against textures of the same type, so nothing relinks.
+ * @returns the names of the layers that arrived
+ */
+export function applyGround(mat, tex) {
+  const u = mat.userData.uniforms;
+  const have = [];
+  SLOTS.forEach(([name, d, n], i) => {
+    const slot = tex[name];
+    if (!slot) return;
+    if (slot.map) {
+      u[d].value = slot.map;
+      const m = slot.mean || GREY_MEAN;
+      // Clamped so a near-black photo cannot blow its layer up to white.
+      u.uInvMean.value[i].set(1 / Math.max(m.x, 0.02), 1 / Math.max(m.y, 0.02), 1 / Math.max(m.z, 0.02));
+      have.push(name);
+    }
+    if (n && slot.normal) u[n].value = slot.normal;
+  });
+  return have;
 }
