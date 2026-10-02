@@ -43,7 +43,9 @@ const arg = (name, dflt) => {
   const i = argv.indexOf("--" + name);
   return i >= 0 && argv[i + 1] ? argv[i + 1] : dflt;
 };
-const URL_ = arg("url", "http://localhost:8000/");
+// The title screen is the default route now, and nothing past it publishes
+// window.__na until a game starts; the tools want the flight sim.
+const URL_ = arg("url", "http://localhost:8000/?stage=flight");
 const CMD = arg("cmd", "");
 const SHOT = arg("shot", "");
 const SETTLE = Number(arg("watch", 6)) * 1000;
@@ -56,6 +58,11 @@ const READY = arg("ready", "!!(window.__na && window.__na.post)");
 const EVAL = arg("eval", "");
 const DEVICE = arg("device", "");
 const DRAG = arg("drag", "");
+// `--views "berk=cam 0 60 -400 0 20 -1100|peak=cam ..."` with `--shot out.png`:
+// one frame per named viewpoint, written to out-<name>.png. Each view is a
+// debug-console line, usually `cam`, which pins the camera so before and after
+// shots of a change are taken from exactly the same place.
+const VIEWS = arg("views", "");
 
 // Device metrics. Sizes are CSS pixels, which is what the page sees, and the
 // dpr is what a real one of these reports.
@@ -87,7 +94,7 @@ const chrome = spawn(CHROME, [
   "--disable-backgrounding-occluded-windows",
   "--disable-renderer-backgrounding",
   `--remote-debugging-port=${PORT}`, "--user-data-dir=" + profile,
-  "--window-size=960,540", "--hide-scrollbars", URL_,
+  "--window-size=" + arg("size", "960,540"), "--hide-scrollbars", URL_,
 ], { stdio: "ignore" });
 
 let ws, seq = 0;
@@ -234,7 +241,19 @@ try {
     }, null, 1);
   })()`);
 
-  if (SHOT) {
+  if (VIEWS && SHOT) {
+    await send("Page.enable");
+    for (const v of VIEWS.split("|")) {
+      const eq = v.indexOf("=");
+      const name = v.slice(0, eq).trim(), line = v.slice(eq + 1).trim();
+      for (const c of line.split(";")) await runCommand(c.trim());
+      await sleep(Number(arg("viewwait", 4)) * 1000);
+      const shot = await send("Page.captureScreenshot", { format: "png" });
+      const out = SHOT.replace(/\.png$/, "") + "-" + name + ".png";
+      writeFileSync(out, Buffer.from(shot.data, "base64"));
+      console.log(`view ${name} written to ${out}`);
+    }
+  } else if (SHOT) {
     await send("Page.enable");   // idempotent; --device may already have
     const shot = await send("Page.captureScreenshot", { format: "png" });
     if (shot?.data) {
@@ -250,6 +269,9 @@ try {
   if (typeof snapshot === "string" && snapshot.includes('"fatal": "')) bad++;
 } catch (e) {
   console.log("HARNESS ERROR: " + e.message);
+  // The console is most useful exactly when the load never finished.
+  console.log("\n--- console ---");
+  console.log(logs.join("\n") || "(nothing logged)");
   bad++;
 } finally {
   chrome.kill("SIGKILL");

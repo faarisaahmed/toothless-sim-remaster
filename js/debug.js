@@ -796,6 +796,38 @@ export function setupDebugConsole(ctx) {
       },
     },
 
+    time: {
+      help: "time <hour> [seconds] — set the clock, 0-24; 'time flow <h/s>' runs it",
+      run(args) {
+        const sky = ctx.world.sky;
+        if (!args.length) return log(`time ${sky.hour.toFixed(2)}`);
+        if (args[0] === "flow") { sky.setFlow(num(args[1], 0)); return log(`flow ${args[1]} h/s`); }
+        sky.setTime(num(args[0], 12), { transition: num(args[1], 0) });
+        log(`time ${args[0]}`);
+      },
+    },
+
+    weather: {
+      help: "weather <clear|fair|overcast|rain|storm|fog> [seconds]",
+      run(args) {
+        const sky = ctx.world.sky;
+        if (!args.length) return log(`weather ${sky.weather}`);
+        sky.setWeather(args[0], { transition: num(args[1], 0) });
+        log(`weather ${args[0]}`);
+      },
+    },
+
+    cam: {
+      help: "cam <x> <y> <z> <lx> <ly> <lz> | cam off — pin the camera (y is above ground)",
+      run(args) {
+        if (!args.length || args[0] === "off") { window.__na?.pinCamera(null); return log("camera released"); }
+        const [x, y, z, lx, ly, lz] = args.map((a) => num(a, 0));
+        const g = (px, pz) => Math.max(ctx.world.getHeightAt(px, pz), 0);
+        window.__na?.pinCamera([x, g(x, z) + y, z], [lx, g(lx, lz) + ly, lz]);
+        log(`camera pinned at ${x}, ${z}`);
+      },
+    },
+
     pos: {
       help: "print position, altitude and heading",
       run() {

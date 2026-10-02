@@ -7,14 +7,41 @@ sounds: without it Chrome will happily reuse an ES module from earlier in the
 session, so you edit a file, reload, and are shown the old one with nothing to
 tell you.
 
-Loading the page drops you straight into the archipelago. The title screen and
-the prologue are still there, they are just not in the way:
+Loading the page opens the title screen: **Continue**, **Story** (four save
+slots, each with a chapter select for anything it has reached), **Free Flight**
+(no story — find all 33 named islands) and **Settings**.
 
 | URL | |
 | --- | --- |
-| `/` | the flight sim |
-| `/?stage=title` | title, save slots, then the prologue on a new game |
-| `/?stage=prologue` | the prologue on a scratch save |
+| `/` | the title screen |
+| `/?stage=flight` | the flight sim, story from the top, nothing saved (dev route; the tools use it) |
+| `/?stage=free` | free flight |
+| `/?stage=prologue` | the prologue on slot 1 |
+
+Story progress is saved at the start of every beat, every 30 s, and on
+**Save & quit**; Continue resumes on that beat where you were. Esc or P opens
+the pause menu (Journal, Settings, Restart chapter, Save & quit).
+
+## Graphics
+
+Settings → Graphics. A preset (Auto picks one from the GPU, then Low / Medium /
+High / Ultra), plus each setting on its own: frame-rate limit (30 / 60 /
+unlimited), render resolution (auto or fixed), shadows, terrain detail, forest
+draw distance, grass, water reflections, clouds, glow, and an FPS counter.
+Everything applies live. For a weak laptop: **Low**, or Medium with shadows off
+and a 30 fps cap.
+
+Clouds are ray-marched volume (`js/clouds.js`) from Medium up — fly into them,
+through them and out on top; Low paints them on the sky instead. Time of day,
+weather (clear, fair, overcast, rain, storm, fog), the sun and moon, fog and
+lightning live in `js/sky.js`; rain and thunder in `js/rain.js`. The story sets
+the sky beat by beat (`BEAT_SKY` in `js/chapters.js`); free flight follows
+Settings → World (time of day, length of a day, weather). Debug console:
+`time <hour>`, `time flow <h/s>`, `weather <name>`.
+
+Terrain detail above Low streams finer ground chunks around the dragon, built on
+Web Workers (`js/terrainlod.js`, `js/terrainworker.js`); Low keeps the single
+13 m sheet and a cheaper ground shader.
 
 ## Controls
 
