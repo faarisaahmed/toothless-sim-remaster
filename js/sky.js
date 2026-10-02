@@ -58,12 +58,12 @@ const KEYS = [
  *   wind     wave and drift multiplier    bolt   lightning
  */
 export const WEATHER = {
-  clear:    { cover: 0.20, dens: 0.9, cum: 0.75, over: 0.0,  dim: 0.0,  fog: 1.0, rain: 0, wind: 0.9, bolt: 0 },
-  fair:     { cover: 0.44, dens: 1.0, cum: 0.95, over: 0.06, dim: 0.06, fog: 1.1, rain: 0, wind: 1.0, bolt: 0 },
-  overcast: { cover: 0.74, dens: 1.1, cum: 0.45, over: 0.45, dim: 0.6,  fog: 1.8, rain: 0, wind: 1.3, bolt: 0 },
-  rain:     { cover: 0.86, dens: 1.3, cum: 0.6, over: 0.6,  dim: 0.75, fog: 2.6, rain: 0.75, wind: 1.6, bolt: 0 },
-  storm:    { cover: 0.93, dens: 1.7, cum: 1.0, over: 0.75, dim: 0.88, fog: 3.0, rain: 1.0, wind: 2.3, bolt: 1 },
-  fog:      { cover: 0.38, dens: 0.9, cum: 0.4, over: 0.45, dim: 0.35, fog: 9.0, rain: 0, wind: 0.7, bolt: 0 },
+  clear:    { cover: 0.30, dens: 2.6, cum: 0.7,  mist: 0.10, cirrus: 0.9, over: 0.0,  dim: 0.0,  fog: 1.0, rain: 0, wind: 0.9, bolt: 0 },
+  fair:     { cover: 0.47, dens: 2.8, cum: 0.85, mist: 0.30, cirrus: 0.6, over: 0.04, dim: 0.06, fog: 1.1, rain: 0, wind: 1.0, bolt: 0 },
+  overcast: { cover: 0.80, dens: 2.8, cum: 0.45, mist: 0.45, cirrus: 0.0, over: 0.4,  dim: 0.6,  fog: 1.8, rain: 0, wind: 1.3, bolt: 0 },
+  rain:     { cover: 0.88, dens: 3.0, cum: 0.6,  mist: 0.55, cirrus: 0.0, over: 0.55, dim: 0.75, fog: 2.6, rain: 0.75, wind: 1.6, bolt: 0 },
+  storm:    { cover: 0.93, dens: 3.6, cum: 1.0,  mist: 0.35, cirrus: 0.0, over: 0.7,  dim: 0.88, fog: 3.0, rain: 1.0, wind: 2.3, bolt: 1 },
+  fog:      { cover: 0.40, dens: 2.4, cum: 0.4,  mist: 1.00, cirrus: 0.2, over: 0.4,  dim: 0.35, fog: 7.0, rain: 0, wind: 0.7, bolt: 0 },
 };
 export const WEATHER_NAMES = Object.keys(WEATHER);
 
@@ -87,6 +87,7 @@ const DOME_FRAG = /* glsl */`
   uniform float uDeckNear;     // the flat deck only beyond this distance
   uniform vec3 uDeckLit, uDeckShade;
   uniform float uDeckDens;
+  uniform float uCirrus;
   ${WEATHER_GLSL}
 
   void main() {
@@ -117,23 +118,41 @@ const DOME_FRAG = /* glsl */`
     float disc = smoothstep( 0.99992, 0.99996, cs );
     col += uSunCol * disc * 60.0 * uSunVis * ( 1.0 - uOver );
 
-    // The flat deck: the weather map projected on a plane in the middle of
-    // the cloud layer. Only beyond uDeckNear, where the volume stops.
+    // Cirrus: fibres at eight kilometres, read from the map's fourth channel
+    // stretched hard along the wind. Thin, bright on the sun's side.
+    if ( h > 0.01 && uCirrus > 0.0 ) {
+      float tc = ( 8000.0 - cameraPosition.y ) / h;
+      vec3 pc = cameraPosition + dir * tc;
+      vec2 along = uWindDir, across = vec2( -uWindDir.y, uWindDir.x );
+      vec2 cq = vec2( dot( pc.xz + uWeatherOff * 2.0, across ) * 1.0, dot( pc.xz, along ) * 0.18 );
+      float ci = texture2D( tWeather, cq / 26000.0 ).a;
+      ci = smoothstep( 0.35, 0.95, ci ) * uCirrus * smoothstep( 0.01, 0.12, h );
+      vec3 cc = uDeckLit * 1.1 + uSunCol * 0.15 * pow( max( cs, 0.0 ), 4.0 );
+      col = mix( col, cc, ci * 0.55 * ( 1.0 - uOver ) );
+    }
+
+    // The painted deck: the cumulus layer's map projected on a plane in the
+    // middle of the layer. It is the whole cloud field on Low, the far
+    // horizon past the volume's reach otherwise, and what the sea reflects.
     if ( h > 0.004 && uDeckDens > 0.0 ) {
-      float H = ${((CLOUD_BASE + CLOUD_TOP) * 0.5).toFixed(1)};
+      float H = ${((CLOUD_BASE + CLOUD_TOP) * 0.42).toFixed(1)};
       float t = ( H - cameraPosition.y ) / h;
       if ( t > uDeckNear && t > 0.0 ) {
         vec3 p = cameraPosition + dir * t;
-        float tall;
-        float c = coverageAt( p.xz, tall );
-        // A soft second octave so the far deck has texture rather than blobs.
-        float c2 = texture2D( tWeather, ( p.xz + uWeatherOff * 1.3 ) / ${(WEATHER_TILE * 0.27).toFixed(1)} ).b;
-        c = clamp( c * ( 0.75 + 0.5 * c2 ), 0.0, 1.0 );
-        float lit = 0.5 + 0.5 * max( 0.0, dot( normalize( vec2( dir.x, dir.z ) ), normalize( uSunDir.xz + 1e-5 ) ) );
-        vec3 cc = mix( uDeckShade, uDeckLit, mix( 0.35, 1.0, lit ) * ( 1.0 - c * 0.35 ) );
+        vec4 w = weatherAt( p.xz );
+        float c = coverageOf( w );
+        // Break the edges with the map's finer channels so the painted clouds
+        // fray instead of ending on a contour.
+        float fr = texture2D( tWeather, weatherUV( p.xz ) * 7.0 + 0.3 ).r;
+        c = clamp( c * 1.3 - ( 1.0 - fr ) * 0.45, 0.0, 1.0 );
+        float lit = 0.5 + 0.5 * max( 0.0, dot( normalize( dir.xz + 1e-5 ), normalize( uSunDir.xz + 1e-5 ) ) );
+        // Thick in the middle, lit on top and grey underneath — seen from
+        // below, which is how it is nearly always seen.
+        vec3 cc = mix( uDeckShade, uDeckLit, mix( 0.25, 0.85, lit ) * ( 1.0 - c * 0.45 ) );
+        cc += uSunCol * 0.25 * pow( max( cs, 0.0 ), 8.0 ) * ( 1.0 - c );
         cc += vec3( uFlash * 3.0 );
-        float fade = smoothstep( 0.004, 0.06, h ) * uDeckDens;
-        col = mix( col, cc, c * fade * ( 1.0 - uOver * 0.4 ) );
+        float fade = smoothstep( 0.004, 0.05, h ) * uDeckDens;
+        col = mix( col, cc, c * fade );
       }
     }
 
@@ -256,6 +275,8 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     uDeckNear: { value: 0 }, uDeckLit: { value: new THREE.Color() }, uDeckShade: { value: new THREE.Color() },
     uDeckDens: { value: 0 },
     tWeather: { value: null }, uWeatherOff: { value: new THREE.Vector2() }, uCoverage: { value: 0.4 },
+    uWindDir: { value: new THREE.Vector2(Math.sin(WIND_BEARING), Math.cos(WIND_BEARING)) },
+    uMist: { value: 0 }, uCirrus: { value: 0 },
   };
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(42000, 48, 24),
@@ -460,6 +481,7 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     u.uDeckDens.value = 1;
     u.uDeckNear.value = deckOnly ? 0 : VOLUME_FAR * 0.82;
     u.uCoverage.value = wNow.cover;
+    u.uCirrus.value = wNow.cirrus * (1 - night * 0.6);
 
     // Wind: the weather map scrolls, the 3D noise drifts with it and boils up
     // slowly so a cloud changes shape while you watch it.
@@ -481,9 +503,18 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
                               : 0.09 * THREE.MathUtils.smoothstep(moonElev, 0, 12) * (1 - dim));
       cu.uAmbTop.value.copy(k.amb).multiplyScalar(k.ambI * B * 1.1).lerp(u.uOverCol.value, over * 0.5);
       cu.uAmbBot.value.copy(k.gnd).multiplyScalar(B * 0.55).lerp(fogCol, 0.4);
+      // Low sun: the whole horizon is lit, and it lights the clouds from the
+      // side and underneath — the pink and gold bellies of a sunset deck. Sun
+      // light alone cannot do it: a ray toward a sun on the horizon crosses
+      // kilometres of cloud and arrives as nothing.
+      const glowAmt = THREE.MathUtils.smoothstep(sp.elev, -7, 0) * (1 - THREE.MathUtils.smoothstep(sp.elev, 6, 20)) * (1 - over);
+      cu.uAmbBot.value.add(tmpB.copy(k.glow).multiplyScalar(B * 0.55 * glowAmt));
+      cu.uAmbTop.value.add(tmpB.copy(k.glow).multiplyScalar(B * 0.25 * glowAmt));
       cu.uFogCol.value.copy(fogCol);
       cu.uFogDen.value = scene.fog.density;
       cu.uCoverage.value = wNow.cover;
+      cu.uMist.value = wNow.mist;
+      cu.uWindDir.value.copy(windDir);
       cu.uDensity.value = wNow.dens;
       cu.uCumulus.value = wNow.cum;
       cu.uWeatherOff.value.copy(weatherOff);
