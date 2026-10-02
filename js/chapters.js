@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { keyTag } from "./keymap.js";
 import { music } from "./audio.js";
+import { CHAPTER_LIST } from "./storyline.js";
 
 // ---------------------------------------------------------------------------
 // MISSION 1 — "The Metal and the Dark"
@@ -61,6 +62,91 @@ export const SITES = {
   stack: V(1650, 0, 2600),
   fish:  V(2080, 0, 2320),
 };
+
+/** How close a sleepfire burst has to be to burn a cage's lock. */
+const CAGE_BURN_R = 46;
+
+// ---------------------------------------------------------------------------
+// Chapters: how the beats below are grouped for the player.
+//
+// The names and the grouping live in storyline.js, which has no imports so the
+// title screen can read it. What is here is what only the flight sim can know:
+// where a replay of each chapter starts, and what the world has to look like at
+// its start — a replay from the chapter menu starts with whatever an unbroken
+// run would have had by then (the plate, the key, the meal), because the beats
+// test for those and would otherwise wait forever.
+// ---------------------------------------------------------------------------
+const RUNTIME = {
+  peacetime: { start: () => ({ pos: V(0, 300, 900), toward: V(0, 0, -1100) }) },
+  wood: {
+    start: () => ({ pos: V(SITES.camp.x + 900, 260, SITES.camp.z - 1400), toward: SITES.camp }),
+  },
+  edge: {
+    start: () => ({ pos: V(SITES.camp.x, 240, SITES.camp.z), toward: SITES.rig }),
+    prepare: (p) => { p.addSample("alloy", "Hunter's plate"); p.flag("sawTheCamp"); },
+    sites: ["The clearing"],
+  },
+  stack: {
+    start: () => ({ pos: V(SITES.rig.x - 600, 260, SITES.rig.z - 500), toward: SITES.stack }),
+    prepare: (p) => { p.addSample("alloy", "Hunter's plate"); p.flag("sawTheRig"); },
+    sites: ["The clearing", "Dragon Hunter Island"],
+  },
+  hunger: {
+    start: () => ({ pos: V(SITES.stack.x, STACK_Y + 120, SITES.stack.z), toward: SITES.fish }),
+    prepare: (p) => {
+      p.addSample("alloy", "Hunter's plate"); p.learnKey("nightfury");
+      p.flag("canFire"); p.state.food = "thin"; p.state.rested = false;
+    },
+    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack"],
+  },
+  lights: {
+    start: () => ({ pos: V(SITES.fish.x, 160, SITES.fish.z), toward: SITES.stack }),
+    prepare: (p) => {
+      p.addSample("alloy", "Hunter's plate"); p.learnKey("nightfury");
+      p.flag("canFire"); p.state.food = "fed";
+    },
+    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal"],
+  },
+  home: {
+    start: () => ({ pos: V(SITES.rig.x, RIG.y + 200, SITES.rig.z), toward: SITES.stack }),
+    prepare: (p) => {
+      p.addSample("alloy", "Hunter's plate"); p.learnKey("nightfury"); p.flag("raidDone");
+    },
+    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal"],
+  },
+};
+
+export const CHAPTERS = CHAPTER_LIST.map((c) => ({ ...c, ...RUNTIME[c.id] }));
+
+/**
+ * The sky for each beat: the hour it starts at and the weather it is in. The
+ * mission is one long day and a night — a fair morning leaving Berk, fog past
+ * the edge of the chart, the weather closing in over the hunters, rain on the
+ * stack while he works and sleeps, a clean morning after, and a moonlit raid.
+ * session.js rolls the sky round to each of these as the beat begins.
+ * `hold` stops the clock: the raid is night for as long as it takes.
+ */
+export const BEAT_SKY = {
+  "leave":      { time: 9.0,  weather: "fair" },
+  "woods":      { time: 10.8, weather: "fair" },
+  "camp":       { time: 11.6, weather: "fair" },
+  "beyond":     { time: 14.6, weather: "fog" },
+  "rig-find":   { time: 15.8, weather: "overcast" },
+  "rig-recon":  { time: 16.4, weather: "overcast" },
+  "stack-find": { time: 18.2, weather: "rain" },
+  "lab":        { time: 18.8, weather: "rain" },
+  "sleep":      { time: 19.6, weather: "storm" },
+  "fire":       { time: 7.0,  weather: "clear" },
+  "hunt":       { time: 8.2,  weather: "fair" },
+  "dusk":       { time: 19.1, weather: "fair" },
+  "raid":       { time: 23.2, weather: "fair", hold: true },
+  "after":      { time: 5.7,  weather: "clear" },
+};
+
+/** The chapter a beat belongs to. */
+export function chapterOf(beatId) {
+  return CHAPTERS.find((c) => c.beats.includes(beatId)) || null;
+}
 
 export function mission1(ctx) {
   const { game, player, world } = ctx;
@@ -440,6 +526,31 @@ export function mission1(ctx) {
     },
 
     // -----------------------------------------------------------------------
+    // Dusk. The raid is a night beat and he has just spent his fire and filled
+    // his stomach; this is the breath between, and it is where the rest comes
+    // from that the raid will need.
+    {
+      id: "dusk",
+      objective: "Wait for dark.",
+      get sub() { return `Hold ${keyTag("landUse")} at the shelter on Hollow Stack.`; },
+      enter(g, c) {
+        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Hollow Stack");
+        c.setInteract(SITES.stack.clone(), "Rest until dark", 190);
+      },
+      update(dt, g, c) { if (c.tookInteract()) this._rested = true; },
+      done() { return this._rested; },
+      async exit(g, c) {
+        c.setInteract(null);
+        await g.fade(true);
+        player.state.rested = true;
+        c.setNight(true);
+        await new Promise((r) => setTimeout(r, 900));
+        await g.fade(false);
+        g.refreshState();
+      },
+    },
+
+    // -----------------------------------------------------------------------
     {
       id: "raid",
       objective: "Put the lights out. Then open every cage.",
@@ -447,6 +558,9 @@ export function mission1(ctx) {
         `Hold ${keyTag("sleepfire")} to burn a lock.`; },
       enter(g, c) {
         c.setNight(true);
+        player.flag("adrenaline");
+        player.state.rested = true;
+        g.refreshState();
         g.setWaypoint(SITES.rig.clone().setY(RIG.y + 60), "The compound");
         c.rig?.braziers.forEach((b) => b.relight());
         // Said out loud, once, at the top of the raid. The bolas are the only
@@ -476,27 +590,51 @@ export function mission1(ctx) {
 
         // Sleepfire opens a lock, and only in the dark — a lit deck means
         // somebody is standing next to the cage.
+        // One burst burns every lock close enough to feel it. It used to open
+        // the single nearest cage, at a cost of food AND rest per shot, which
+        // made eight cages eight shots on a stomach that holds two — the raid
+        // could not be finished. Now a shot from low over a row takes the row.
         if (player.lastFired > (this._seenFire || -1)) {
           this._seenFire = player.lastFired;
-          const cage = rig.cages
-            .filter((x) => !x.open)
-            .sort((a, b) => p.distanceTo(a.pos) - p.distanceTo(b.pos))[0];
-          if (cage && p.distanceTo(cage.pos) < 150) {
-            cage.release();
-            g.toast("Open.", 900);
+          const near = rig.cages.filter((x) => !x.open && p.distanceTo(x.pos) < CAGE_BURN_R);
+          if (near.length) {
+            for (const c of near) c.release();
+            g.toast(near.length > 1 ? `${near.length} open.` : "Open.", 1100);
+          } else {
+            g.toast("Too far. Get in among the cages.", 1600);
           }
         }
+
+        // Out of fire? The shoal is between here and the stack, and a pass
+        // over it feeds him the same as it did before nightfall.
+        const fd = game.flatDist(SITES.fish);
+        const inRun = fd < 190 && p.y < 15 && c.getSpeedT() > 0.22;
+        if (inRun && !this._fishing && player.food !== "fed") {
+          player.eat(1);
+          g.toast("Fed.", 1000);
+          g.refreshState();
+        }
+        this._fishing = inRun || (this._fishing && fd < 300);
+        const hungry = player.food === "empty";
         g.setObjective(
           "Put the lights out. Then open every cage.",
           `${rig.braziers.filter((b) => !b.lit).length} of ${rig.braziers.length} dark · ` +
-          `${rig.cages.filter((x) => x.open).length} of ${rig.cages.length} open`
+          `${rig.cages.filter((x) => x.open).length} of ${rig.cages.length} open` +
+          (hungry ? " · <b>Empty — fish the shoal</b>" : "")
         );
+        if (hungry && !this._pointedAtFish) {
+          this._pointedAtFish = true;
+          g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
+        } else if (!hungry && this._pointedAtFish) {
+          this._pointedAtFish = false;
+          g.setWaypoint(SITES.rig.clone().setY(RIG.y + 60), "The compound");
+        }
       },
       done(g, c) {
         const rig = c.rig;
         return rig && rig.cages.every((x) => x.open);
       },
-      exit(g) { player.flag("raidDone"); },
+      exit(g) { player.flag("raidDone"); player.flag("adrenaline", false); },
     },
 
     // -----------------------------------------------------------------------
@@ -517,9 +655,10 @@ export function mission1(ctx) {
           to:   V(k.x + 150, STACK_Y + 180, k.z + 240),
           look: V(k.x, STACK_Y, k.z),
           seconds: 8,
-          line: "End of mission one.",
+          line: "He does not go home. Not yet.",
         });
-        await g.fade(true);
+        // The end of the chapter is the game's to show (game.js finish()),
+        // not a fade left on forever over a world still running underneath.
       },
     },
   ];

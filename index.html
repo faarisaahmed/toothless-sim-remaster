@@ -23,7 +23,7 @@
         maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Rajdhani:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,500;1,500&display=swap" rel="stylesheet">
   <!-- Icons. All relative, because Pages serves this from a subpath and an
        absolute /favicon.ico would resolve to the top of the domain. The .ico
        carries 16, 32 and 48 for anything old enough to look for it by name
@@ -38,6 +38,8 @@
   <meta name="theme-color" content="#0a0e18">
   <link rel="stylesheet" href="./css/style.css">
   <link rel="stylesheet" href="./css/story.css">
+  <link rel="stylesheet" href="./css/ui.css">
+  <link rel="stylesheet" href="./css/hud.css">
   <script type="importmap">
   {
     "imports": {
@@ -48,39 +50,44 @@
   </script>
 </head>
 <body>
+  <!-- The in-flight HUD. Instruments bottom-left, a compass tape across the
+       top, and the controls in a panel of their own that folds away — they used
+       to be one 392px card down the left edge of the screen, which is a lot of
+       picture to give to a key list. Ids are what main.js writes to. -->
   <aside id="hud">
-    <header class="hud-head">
-      <div class="hud-eyebrow">Heading</div>
-      <div class="hud-compass">
-        <span id="hud-heading">N</span>
-        <span id="hud-degrees">000&deg;</span>
-      </div>
-      <div class="hud-stat">
-        <span class="hud-stat-label">Airspeed</span>
+    <div class="hud-instr">
+      <div class="hud-big">
         <span id="hud-speed">123</span><span class="hud-unit">mph</span>
       </div>
-      <div class="hud-stat">
-        <span class="hud-stat-label">Plasma</span>
+      <div class="hud-alt">
+        <span class="hud-lbl">Alt</span><span id="hud-alt">0</span><span class="hud-unit">m</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-lbl">Plasma</span>
         <span class="hud-shots" id="hud-shots"></span>
       </div>
-      <div class="hud-stat">
-        <span class="hud-stat-label">Knife Edge</span>
+      <div class="hud-row">
+        <span class="hud-lbl">Edge</span>
+        <div class="hud-meter"><div id="hud-knife"></div></div>
       </div>
-      <div class="hud-meter"><div id="hud-knife"></div></div>
-    </header>
+      <div class="hud-foot">
+        <span id="hud-burst">Flat Out</span>
+        <button id="hud-pad-tag" type="button" hidden>Find controller</button>
+      </div>
+    </div>
+  </aside>
 
-    <!-- One row per action, keyboard binding and pad binding side by side. The
-         pad column dims itself until a controller is actually connected. -->
-    <ul class="hud-keys" id="hud-keys">
-      <!-- Built at runtime from js/keymap.js. The bindings change with the
-           control scheme, so a hand-written list here would be wrong for
-           half of the players and stale for the rest. -->
-    </ul>
+  <div id="hud-compass" aria-hidden="true">
+    <div class="tape"><div class="tape-strip" id="hud-tape"></div></div>
+    <i class="tape-wp" id="hud-tape-wp"></i>
+    <div class="readout"><span id="hud-heading">N</span><span id="hud-degrees">000&deg;</span></div>
+  </div>
 
-    <footer class="hud-foot">
-      <span id="hud-burst">Flat Out</span>
-      <button id="hud-pad-tag" type="button" hidden>Find controller</button>
-    </footer>
+  <!-- One row per action, keyboard binding and pad binding side by side. Built
+       at runtime from js/keymap.js, so it cannot disagree with the bindings. -->
+  <aside id="hud-keys-panel" class="open">
+    <header><span>Controls</span><span class="kp-hint"><kbd>/</kbd> hide</span></header>
+    <ul class="hud-keys" id="hud-keys"></ul>
   </aside>
 
   <pre id="padmon" hidden></pre>

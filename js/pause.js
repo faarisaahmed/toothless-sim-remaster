@@ -1,135 +1,211 @@
-import { optionsFor, optionRowHtml } from "./settings.js";
 import * as keymap from "./keymap.js";
+import { createSettingsPanel } from "./settingspanel.js";
 
 // ---------------------------------------------------------------------------
 // The in-game menu.
 //
-// Opened with - or =, and it does three things: it stops the game, it lets you
-// change any setting without leaving, and it lets you go back to the title.
-// Until now every one of those was impossible mid-flight — the settings lived
-// on the title screen, so changing the control scheme meant reloading, and
-// there was no way out of the flight sim at all short of the browser's back
-// button.
+// Opened with Esc, P, - or =. A column of choices on the left — Resume, the
+// Journal (or the island count in free flight), Settings, Restart chapter,
+// Save & quit — and whatever the selected one shows on the right. It stops the
+// world while it is open; the world keeps rendering behind it, dimmed.
 //
 // Two decisions worth writing down.
 //
 // IT USES THE CAPTURE PHASE. While the menu is open its keys must not also
 // reach the game, and main.js, controls.js and half a dozen other modules all
-// listen for keydown on `window` in the bubble phase. A keydown's target is the
-// focused element rather than the window, so a capture listener on window runs
-// before every one of them, and stopPropagation() there means none of them ever
-// see it. The alternative — a global "am I paused" flag consulted by every
-// listener in the project — is the same thing spelled out in twenty places.
+// listen for keydown on `window` in the bubble phase. A capture listener on
+// window runs before every one of them, and stopPropagation() there means
+// none of them ever see it.
 //
-// QUIT IS A RELOAD. It navigates to ?stage=title rather than tearing the
-// flight scene down and handing control back to boot.js. That is not laziness
-// about the teardown: main.js builds a renderer, a world, 64 terrain tiles and
-// sixteen thousand trees, and unwinding all of it correctly to get back to a
-// menu is a lot of code whose only job is to avoid a reload that takes two
-// seconds. Nothing is lost either way, because the flight sim does not persist
-// run state — the slot is written on the way IN, by boot.js.
+// QUIT IS A RELOAD. It navigates to the title rather than unwinding the flight
+// scene in place — a renderer, a world, 64 terrain tiles and sixteen thousand
+// trees is a lot of teardown whose only job would be to save two seconds. The
+// session writes its checkpoint first (hooks.onQuit), so nothing is lost.
 // ---------------------------------------------------------------------------
 
-const KEYS = ["Minus", "Equal"];   // - and =
+const OPEN_KEYS = ["Minus", "Equal", "Escape", "KeyP"];
 
 /**
  * @param {object} hooks
- * @param {() => void} hooks.onOpen   stop the world
- * @param {() => void} hooks.onClose  start it again
+ *   onOpen, onClose       stop and start the world
+ *   journal()             session.journal() — what the Journal page shows
+ *   onQuit()              save and leave for the title
+ *   onRestart()           restart the current chapter (story only)
+ *   canOpen()             false while something else owns Esc (the chart, a cutscene)
  */
-export function setupPause({ onOpen, onClose } = {}) {
+export function setupPause(hooks = {}) {
+  const { onOpen, onClose } = hooks;
   let open = false;
-  // -1 is Resume, OPTS.length is Quit. The settings sit between them, so
-  // the cursor is one range over one list and there is no special-casing.
-  // Everything except the rows that only mean something before a game
-  // starts. There is exactly one of those and it is the prologue.
-  const OPTS = optionsFor("game");
-  const RESUME = -1, QUIT = OPTS.length;
-  let cursor = 0;
+  let page = 0;           // which item in the left column
+  let focus = "nav";      // "nav" or "page" — where up/down go
+  let confirmQuit = false;
+
+  const settingsPanel = createSettingsPanel("game");
 
   const root = document.createElement("div");
   root.id = "pause";
   root.hidden = true;
   root.innerHTML = `
-    <div class="pause-sheet">
-      <div class="pause-head">
-        <div class="pause-eyebrow">Paused</div>
-        <h2 class="pause-title">Settings</h2>
-      </div>
-      <ul class="slots" id="pause-opts"></ul>
-      <div class="pause-foot">
-        <button type="button" class="pause-btn" data-act="resume">Resume</button>
-        <button type="button" class="pause-btn pause-quit" data-act="quit">Quit to menu</button>
-      </div>
-      <div class="pause-legend"></div>
+    <div class="pz-shade"></div>
+    <div class="pz-wrap">
+      <nav class="pz-nav ui-panel">
+        <div class="ui-eyebrow">Paused</div>
+        <ul class="ui-menu" id="pz-items"></ul>
+        <div class="pz-legend ui-legend"></div>
+      </nav>
+      <section class="pz-page ui-panel" id="pz-page"></section>
     </div>`;
   document.body.appendChild(root);
-  const list = root.querySelector("#pause-opts");
-  const legend = root.querySelector(".pause-legend");
-  const buttons = [...root.querySelectorAll(".pause-btn")];
+  const itemsEl = root.querySelector("#pz-items");
+  const pageEl = root.querySelector("#pz-page");
+  const legend = root.querySelector(".pz-legend");
 
-  function draw() {
-    list.innerHTML = OPTS
-      .map((o, i) => optionRowHtml(o, i === cursor))
-      .join("");
-    // Rebound every draw because the markup is replaced every draw. Cheap, and
-    // it keeps the rows and their handlers from ever disagreeing about order.
-    [...list.children].forEach((li, i) => {
-      li.addEventListener("click", () => { cursor = i; OPTS[i].cycle(1); draw(); });
-    });
-    for (const b of buttons) {
-      const on = (b.dataset.act === "resume" && cursor === RESUME) ||
-                 (b.dataset.act === "quit" && cursor === QUIT);
-      b.classList.toggle("on", on);
+  const ITEMS = () => {
+    const j = hooks.journal?.();
+    const story = j?.mode !== "free";
+    return [
+      { id: "resume", label: "Resume" },
+      { id: "journal", label: story ? "Journal" : "Islands" },
+      { id: "settings", label: "Settings" },
+      ...(story && j?.chapter ? [{ id: "restart", label: "Restart chapter" }] : []),
+      { id: "quit", label: story ? "Save &amp; quit" : "Quit to title" },
+    ];
+  };
+
+  // --- pages ------------------------------------------------------------------
+  function journalHtml() {
+    const j = hooks.journal?.();
+    if (!j) return `<p class="pz-empty">Nothing written yet.</p>`;
+    if (j.mode === "free") {
+      const found = new Set(j.discovered);
+      const n = j.islands.filter((i) => found.has(i)).length;
+      return `
+        <div class="ui-eyebrow">Free flight</div>
+        <h2 class="ui-title">The Archipelago</h2>
+        <div class="pz-count"><b>${n}</b> of ${j.islands.length} islands found</div>
+        <div class="ui-bar"><i style="width:${(n / j.islands.length) * 100}%"></i></div>
+        <ul class="pz-isles ui-scroll">${j.islands.map((name) =>
+          `<li class="${found.has(name) ? "on" : ""}">${found.has(name) ? name : "Unknown"}</li>`).join("")}</ul>`;
     }
-    const k = (a) => keymap.label(keymap.keysFor(a)[0] || "");
-    legend.innerHTML =
-      `<span><b>${k("forward")}</b><b>${k("back")}</b> or <b>&uarr;</b><b>&darr;</b> move</span>` +
-      `<span><b>&larr;</b><b>&rarr;</b> change</span>` +
-      `<span><b>Enter</b> pick</span>` +
-      `<span><b>&minus;</b> or <b>Esc</b> back to the game</span>`;
-    list.children[cursor]?.scrollIntoView({ block: "nearest" });
+    const ch = j.chapter;
+    const food = { fed: "Fed", thin: "Thin", empty: "Empty" }[j.food] || j.food;
+    const results = j.samples.flatMap((s) => s.results.map((r) =>
+      `<li><span>${r.fire}, ${r.condition}</span><b class="r-${r.result.replace(/\s/g, "-")}">${r.result}</b></li>`));
+    return `
+      <div class="ui-eyebrow">${j.finished ? "Mission one — complete" : ch ? `Chapter ${ch.n}` : "Journal"}</div>
+      <h2 class="ui-title">${ch ? ch.title : "The Metal and the Dark"}</h2>
+      ${ch ? `<p class="pz-blurb">${ch.blurb}</p>` : ""}
+      ${j.objective && !j.finished ? `<div class="pz-obj"><span>Now</span>${j.objective}</div>` : ""}
+      <div class="pz-cols">
+        <div>
+          <h3>Chapters</h3>
+          <ol class="pz-chapters">${j.chapters.map((c) => `
+            <li class="${c.state}"><i></i><span class="n">${c.n}</span>${c.title}</li>`).join("")}</ol>
+        </div>
+        <div>
+          <h3>Condition</h3>
+          <dl class="pz-cond">
+            <div><dt>Day</dt><dd>${j.day}</dd></div>
+            <div><dt>Food</dt><dd class="f-${j.food}">${food}</dd></div>
+            <div><dt>Rested</dt><dd>${j.rested ? "Yes" : "No"}</dd></div>
+          </dl>
+          <h3>Charted</h3>
+          <p class="pz-sites">${j.sites.length ? j.sites.join(" &middot; ") : "Nothing past Berk yet."}</p>
+          ${results.length ? `<h3>The lab wall</h3><ul class="pz-lab">${results.join("")}</ul>` : ""}
+        </div>
+      </div>`;
   }
 
-  function move(d) {
-    cursor = Math.max(RESUME, Math.min(QUIT, cursor + d));
+  function draw() {
+    const items = ITEMS();
+    if (page >= items.length) page = items.length - 1;
+    itemsEl.innerHTML = items.map((it, i) =>
+      `<li class="ui-item${i === page ? " on" : ""}${focus === "page" && i === page ? " held" : ""}" data-i="${i}">${it.label}</li>`
+    ).join("");
+    itemsEl.querySelectorAll("[data-i]").forEach((li) => {
+      li.addEventListener("click", () => { page = +li.dataset.i; focus = "nav"; activate(); });
+    });
+
+    const id = items[page].id;
+    root.dataset.page = id;
+    if (id === "settings") {
+      if (!pageEl.contains(settingsPanel.el)) { pageEl.innerHTML = ""; pageEl.appendChild(settingsPanel.el); }
+      settingsPanel.render();
+    } else if (id === "journal") {
+      pageEl.innerHTML = journalHtml();
+    } else if (id === "restart") {
+      pageEl.innerHTML = `<div class="ui-eyebrow">Restart</div><h2 class="ui-title">From the top of this chapter</h2>
+        <p class="pz-blurb">Back to where the chapter started, with what you had then. Progress past it is kept.</p>
+        <button type="button" class="ui-btn${focus === "page" ? " on" : ""}" data-act="restart">Restart chapter</button>`;
+    } else if (id === "quit") {
+      const story = hooks.journal?.()?.mode !== "free";
+      pageEl.innerHTML = `<div class="ui-eyebrow">${story ? "Save &amp; quit" : "Quit"}</div>
+        <h2 class="ui-title">Back to the title?</h2>
+        <p class="pz-blurb">${story
+          ? "Your journey is saved here, where you are. Continue picks it up from this spot."
+          : "The islands you have found stay found."}</p>
+        <button type="button" class="ui-btn${focus === "page" || confirmQuit ? " on" : ""}" data-act="quit">${story ? "Save and quit" : "Quit"}</button>`;
+    } else {
+      const j = hooks.journal?.();
+      pageEl.innerHTML = `<div class="ui-eyebrow">${j?.mode === "free" ? "Free flight" : j?.chapter ? `Chapter ${j.chapter.n} · ${j.chapter.title}` : ""}</div>
+        <h2 class="ui-title">${j?.objective && !j?.finished ? j.objective : "Paused"}</h2>
+        <p class="pz-blurb">The world is holding still. ${keyHelp()}</p>`;
+    }
+    pageEl.querySelector("[data-act=restart]")?.addEventListener("click", () => hooks.onRestart?.());
+    pageEl.querySelector("[data-act=quit]")?.addEventListener("click", () => hooks.onQuit?.());
+
+    legend.innerHTML = id === "settings" && focus === "page"
+      ? `<span><kbd>&uarr;</kbd><kbd>&darr;</kbd> choose</span><span><kbd>&larr;</kbd><kbd>&rarr;</kbd> change</span>
+         <span><kbd>Q</kbd><kbd>E</kbd> tabs</span><span><kbd>Esc</kbd> back</span>`
+      : `<span><kbd>&uarr;</kbd><kbd>&darr;</kbd> choose</span><span><kbd>Enter</kbd> select</span><span><kbd>Esc</kbd> resume</span>`;
+  }
+
+  function keyHelp() {
+    const k = (a) => keymap.label(keymap.keysFor(a)[0] || "");
+    return `<kbd>${k("forward")}</kbd> to fly, <kbd>Tab</kbd> for the chart, <kbd>/</kbd> for the controls.`;
+  }
+
+  function activate() {
+    const id = ITEMS()[page].id;
+    if (id === "resume") return api.close();
+    if (id === "settings") { focus = "page"; settingsPanel.reset(); draw(); return; }
+    if (id === "restart" || id === "quit") {
+      if (focus === "page") return id === "quit" ? hooks.onQuit?.() : hooks.onRestart?.();
+      focus = "page"; draw(); return;
+    }
+    draw();
+  }
+
+  function moveNav(d) {
+    const n = ITEMS().length;
+    page = (page + d + n) % n;
+    focus = "nav";
     draw();
   }
 
   const api = {
     get isOpen() { return open; },
-
     open() {
       if (open) return;
       open = true;
-      cursor = 0;
+      page = 0;
+      focus = "nav";
       root.hidden = false;
-      // Let the mouse go, or the player cannot click anything and the menu is
-      // reading raw pointer deltas it has no use for.
+      // Let the mouse go, or the player cannot click anything.
       if (document.pointerLockElement) document.exitPointerLock();
       draw();
+      requestAnimationFrame(() => root.classList.add("on"));
       onOpen?.();
     },
-
     close() {
       if (!open) return;
       open = false;
+      root.classList.remove("on");
       root.hidden = true;
       onClose?.();
     },
-
     toggle() { open ? api.close() : api.open(); },
   };
-
-  buttons.find((b) => b.dataset.act === "resume")
-    .addEventListener("click", () => api.close());
-  buttons.find((b) => b.dataset.act === "quit")
-    .addEventListener("click", () => {
-      // Keep the stage in the URL so a reload lands on the title rather than
-      // dropping straight back into flight on a dev machine, where the default
-      // route is the flight sim.
-      location.href = `${location.pathname}?stage=title`;
-    });
 
   window.addEventListener("keydown", (e) => {
     // Never while typing into the debug console.
@@ -137,7 +213,9 @@ export function setupPause({ onOpen, onClose } = {}) {
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
 
     if (!open) {
-      if (KEYS.includes(e.code)) { e.preventDefault(); e.stopPropagation(); api.open(); }
+      if (OPEN_KEYS.includes(e.code) && (hooks.canOpen?.() ?? true)) {
+        e.preventDefault(); e.stopPropagation(); api.open();
+      }
       return;
     }
 
@@ -146,17 +224,31 @@ export function setupPause({ onOpen, onClose } = {}) {
     // while somebody reads the settings.
     e.preventDefault();
     e.stopPropagation();
+    const up = e.code === "ArrowUp" || keymap.isAction("forward", e.code);
+    const down = e.code === "ArrowDown" || keymap.isAction("back", e.code);
+    const left = e.code === "ArrowLeft", right = e.code === "ArrowRight";
+    const enter = e.code === "Enter" || e.code === "Space";
+    const id = ITEMS()[page].id;
 
-    if (KEYS.includes(e.code) || e.code === "Escape") { api.close(); return; }
-    if (e.code === "ArrowUp" || keymap.isAction("forward", e.code)) { move(-1); return; }
-    if (e.code === "ArrowDown" || keymap.isAction("back", e.code)) { move(1); return; }
-    if (e.code === "ArrowLeft") { if (cursor >= 0 && cursor < QUIT) { OPTS[cursor].cycle(-1); draw(); } return; }
-    if (e.code === "ArrowRight") { if (cursor >= 0 && cursor < QUIT) { OPTS[cursor].cycle(1); draw(); } return; }
-    if (e.code === "Enter" || e.code === "Space") {
-      if (cursor === RESUME) api.close();
-      else if (cursor === QUIT) location.href = `${location.pathname}?stage=title`;
-      else { OPTS[cursor].cycle(1); draw(); }
+    if (focus === "page") {
+      if (e.code === "Escape" || e.code === "Backspace" || (left && id !== "settings")) { focus = "nav"; draw(); return; }
+      if (id === "settings") {
+        if (up) settingsPanel.move(-1);
+        else if (down) settingsPanel.move(1);
+        else if (left) settingsPanel.change(-1);
+        else if (right || enter) settingsPanel.change(1);
+        else if (e.code === "KeyQ" || e.code === "PageUp") settingsPanel.tab(-1);
+        else if (e.code === "KeyE" || e.code === "PageDown") settingsPanel.tab(1);
+        return;
+      }
+      if (enter) activate();
+      return;
     }
+
+    if (["Minus", "Equal", "Escape", "KeyP"].includes(e.code)) { api.close(); return; }
+    if (up) moveNav(-1);
+    else if (down) moveNav(1);
+    else if (enter || right) activate();
   }, { capture: true });
 
   // The other half of owning the keyboard: a keyUP that the game never saw the
@@ -164,6 +256,8 @@ export function setupPause({ onOpen, onClose } = {}) {
   window.addEventListener("keyup", (e) => {
     if (open) { e.preventDefault(); e.stopPropagation(); }
   }, { capture: true });
+
+  root.querySelector(".pz-shade").addEventListener("click", () => api.close());
 
   return api;
 }

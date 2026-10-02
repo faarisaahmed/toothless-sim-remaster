@@ -13,92 +13,8 @@ import * as THREE from "three";
 // at that, so the same runner drives a flight, a landing, and a night in a lab.
 // ---------------------------------------------------------------------------
 
-const CSS = `
-.na-hud { position:fixed; inset:0; pointer-events:none; z-index:40;
-          font-family:Rajdhani,system-ui,sans-serif; color:#e8e2d4;
-          transition:opacity .4s; }
-
-.na-obj { position:absolute; top:22px; left:50%; transform:translateX(-50%);
-          text-align:center; opacity:0; transition:opacity .5s; max-width:min(620px,72vw); }
-.na-obj.on { opacity:1; }
-.na-obj .eyebrow { font-size:.62rem; letter-spacing:.34em; text-transform:uppercase;
-                   color:#9a9384; margin-bottom:5px; }
-.na-obj .line { font-family:Cinzel,serif; font-size:1.18rem; letter-spacing:.02em;
-                text-shadow:0 2px 14px rgba(0,0,0,.85); }
-.na-obj .sub  { font-size:.82rem; color:#b9b1a0; margin-top:4px; letter-spacing:.04em; }
-.na-obj .way  { font-size:.68rem; color:#ffcf9a; margin-top:6px; letter-spacing:.16em;
-                text-transform:uppercase; }
-.na-obj.done .line { color:#ff8a3d; }
-
-.na-mark { position:absolute; width:0; height:0; }
-.na-mark i { position:absolute; left:-13px; top:-13px; width:26px; height:26px;
-             border:1.5px solid rgba(255,138,61,.85); border-radius:50%;
-             box-shadow:0 0 14px rgba(255,138,61,.45), inset 0 0 8px rgba(255,138,61,.25); }
-.na-mark b { position:absolute; left:50%; top:20px; transform:translateX(-50%);
-             font-size:.68rem; letter-spacing:.16em; color:#ffcf9a; font-weight:600;
-             white-space:nowrap; text-shadow:0 1px 6px #000; }
-
-.na-state { position:absolute; right:24px; bottom:24px; display:flex; gap:18px;
-            align-items:flex-end; opacity:0; transition:opacity .5s; }
-.na-state.on { opacity:1; }
-.na-state .cell { display:flex; flex-direction:column; gap:5px; }
-.na-state .cap { font-size:.58rem; letter-spacing:.24em; text-transform:uppercase; color:#8d8677; }
-.na-state .val { font-size:.86rem; letter-spacing:.1em; font-weight:600; }
-.na-pips { display:flex; gap:4px; }
-.na-pips s { width:16px; height:4px; background:rgba(232,226,212,.18); display:block; }
-.na-pips s.on { background:#e8e2d4; }
-
-.na-fire { position:absolute; left:50%; bottom:70px; transform:translateX(-50%);
-           width:120px; height:3px; background:rgba(232,226,212,.14); opacity:0;
-           transition:opacity .2s; }
-.na-fire.on { opacity:1; }
-.na-fire i { display:block; height:100%; width:0%; background:#ff8a3d;
-             box-shadow:0 0 12px rgba(255,138,61,.8); }
-
-.na-prompt { position:absolute; left:50%; bottom:104px; transform:translateX(-50%);
-             min-width:250px; padding:9px 18px 10px; border-radius:7px;
-             background:rgba(10,13,20,.72); border:1px solid rgba(232,226,212,.14);
-             backdrop-filter:blur(3px); text-align:center;
-             font-size:.86rem; letter-spacing:.12em; text-transform:uppercase; color:#e8e2d4;
-             opacity:0; transition:opacity .25s; text-shadow:0 1px 8px #000; }
-.na-prompt.on { opacity:1; }
-.na-prompt b { color:#ff8a3d; font-weight:700; }
-/* A blocked prompt is telling you why, not telling you to act. Different
-   colour, so you learn the difference without reading it every time. */
-.na-prompt.blocked { border-color:rgba(217,122,99,.34); color:#e6bdb0; }
-.na-prompt.blocked b { color:#d97a63; }
-.na-prompt .hold { display:block; height:3px; margin:8px -18px -10px;
-                   background:rgba(232,226,212,.12); }
-.na-prompt .hold i { display:block; height:100%; width:0%; background:#ff8a3d;
-                     box-shadow:0 0 10px rgba(255,138,61,.9); transition:width .06s linear; }
-
-.na-toast { position:absolute; left:50%; top:58%; transform:translate(-50%,-50%);
-            font-family:Cinzel,serif; font-size:1.15rem; letter-spacing:.06em;
-            text-shadow:0 2px 20px #000; opacity:0; transition:opacity .35s; text-align:center; }
-.na-toast.on { opacity:1; }
-
-.na-bars { position:fixed; left:0; right:0; height:0; background:#05060a; z-index:55;
-            pointer-events:none; transition:height .5s ease; }
-.na-bars.top { top:0; } .na-bars.bot { bottom:0; }
-.na-bars.on { height:11vh; }
-
-.na-cine { position:fixed; left:0; right:0; bottom:14vh; text-align:center; z-index:56;
-           pointer-events:none; font-family:Cinzel,serif; font-size:1.25rem;
-           letter-spacing:.05em; color:#e8e2d4; text-shadow:0 2px 18px #000;
-           opacity:0; transition:opacity .5s; }
-.na-cine.on { opacity:1; }
-
-.na-skip { position:fixed; right:34px; bottom:15vh; z-index:57; pointer-events:none;
-           font-size:.66rem; letter-spacing:.2em; text-transform:uppercase;
-           color:rgba(232,226,212,.66); opacity:0; transition:opacity .4s; }
-.na-skip.on { opacity:1; }
-.na-skip s { display:block; height:2px; margin-top:5px; background:rgba(232,226,212,.16); }
-.na-skip s i { display:block; height:100%; width:0%; background:#e8e2d4; }
-
-.na-fade { position:fixed; inset:0; background:#05060a; opacity:0; z-index:60;
-           pointer-events:none; transition:opacity .55s; }
-.na-fade.on { opacity:1; }
-`;
+// The styles for everything below live in css/hud.css, with the rest of the
+// in-flight UI, so the whole HUD is one design rather than a string per file.
 
 function el(cls, html = "") {
   const d = document.createElement("div");
@@ -109,17 +25,16 @@ function el(cls, html = "") {
 
 export function setupGame(ctx) {
   // ctx: { scene, camera, world, player, getPosition(), getHeading(), pad }
-  const style = document.createElement("style");
-  style.textContent = CSS;
-  document.head.appendChild(style);
-
   const hud = el("na-hud");
   const objEl = el("na-obj", `<div class="eyebrow"></div><div class="line"></div><div class="sub"></div><div class="way"></div>`);
-  const markEl = el("na-mark", `<i></i><b></b>`);
+  const markEl = el("na-mark", `<i></i><em class="arrow"></em><b></b>`);
   const stateEl = el("na-state");
   const fireEl = el("na-fire", `<i></i>`);
   const promptEl = el("na-prompt", `<span class="txt"></span><span class="hold"><i></i></span>`);
   const toastEl = el("na-toast");
+  const cardEl = el("na-card",
+    `<div class="n"></div><div class="t"></div><div class="rule"></div><div class="b"></div>`);
+  const endEl = el("na-end");
   const fadeEl = el("na-fade");
   const barTop = el("na-bars top");
   const barBot = el("na-bars bot");
@@ -128,7 +43,8 @@ export function setupGame(ctx) {
   const skipBar = skipEl.querySelector("s i");
   markEl.style.display = "none";
   hud.append(objEl, markEl, stateEl, fireEl, promptEl, toastEl);
-  document.body.append(hud, fadeEl, barTop, barBot, cineEl, skipEl);
+  document.body.append(hud, fadeEl, barTop, barBot, cineEl, skipEl, cardEl, endEl);
+  const arrowEl = markEl.querySelector(".arrow");
 
   const objEyebrow = objEl.querySelector(".eyebrow");
   const objLine = objEl.querySelector(".line");
@@ -154,6 +70,7 @@ export function setupGame(ctx) {
   let waypoint = null;      // THREE.Vector3 | null
   let waypointLabel = "";
   let holdDone = 0;
+  let stateHidden = false;
 
   const v = new THREE.Vector3();
 
@@ -165,10 +82,42 @@ export function setupGame(ctx) {
     restPips.forEach((s) => s.classList.toggle("on", p.rested));
   }
 
+  // Toasts queue. There used to be one element and the last write won, and an
+  // earlier toast's timer could hide a later one halfway through — so "Dark."
+  // during the raid ate the instruction that came before it. Now each one gets
+  // its turn, a repeat of the one on screen just extends it, and a long queue
+  // speeds itself up rather than lagging a minute behind the play.
+  const toastQueue = [];
+  let toastShowing = null, toastTimer = 0;
   function toast(text, ms = 2600) {
-    toastEl.innerHTML = text;
-    toastEl.classList.add("on");
-    setTimeout(() => toastEl.classList.remove("on"), ms);
+    if (toastShowing && toastShowing.text === text) {
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(nextToast, ms);
+      return;
+    }
+    if (toastQueue.length && toastQueue[toastQueue.length - 1].text === text) return;
+    toastQueue.push({ text, ms });
+    if (!toastShowing) nextToast();
+  }
+  function nextToast() {
+    const t = toastQueue.shift();
+    if (!t) {
+      toastShowing = null;
+      toastEl.classList.remove("on");
+      return;
+    }
+    const wasOn = !!toastShowing;
+    toastShowing = t;
+    const show = () => {
+      toastEl.innerHTML = t.text;
+      toastEl.classList.remove("on");
+      void toastEl.offsetWidth;          // restart the rise-in
+      toastEl.classList.add("on");
+      const ms = toastQueue.length > 2 ? Math.min(t.ms, 900) : t.ms;
+      toastTimer = setTimeout(nextToast, ms);
+    };
+    if (wasOn) { toastEl.classList.remove("on"); toastTimer = setTimeout(show, 220); }
+    else show();
   }
 
   function fade(on) {
@@ -182,7 +131,10 @@ export function setupGame(ctx) {
   // identical thing costs a parse and a layout each time, so remember the last
   // one and do nothing when it has not moved.
   let shownObj = null;
-  function setObjective(line, sub = "", eyebrow = "Objective") {
+  // What the small line over the objective says. Story sets it to the chapter
+  // it is in; free flight to what it is counting.
+  let eyebrowText = "Objective";
+  function setObjective(line, sub = "", eyebrow = eyebrowText) {
     const key = `${eyebrow}\u0000${line}\u0000${sub}`;
     if (key === shownObj) return;
     shownObj = key;
@@ -294,8 +246,79 @@ export function setupGame(ctx) {
     });
   }
 
+  const beatHooks = new Set();
+  const finishHooks = new Set();
+
+  // --- chapter title card ---------------------------------------------------
+  // The one moment the game says out loud where you are in the story. Over the
+  // flying, not instead of it: the controls never leave the player.
+  let cardTimer = 0;
+  function chapterCard({ n, title, blurb = "" }, ms = 4200) {
+    cardEl.querySelector(".n").textContent = n ? `Chapter ${n}` : "";
+    cardEl.querySelector(".t").textContent = title;
+    cardEl.querySelector(".b").textContent = blurb;
+    cardEl.classList.remove("on");
+    void cardEl.offsetWidth;
+    cardEl.classList.add("on");
+    clearTimeout(cardTimer);
+    cardTimer = setTimeout(() => cardEl.classList.remove("on"), ms);
+  }
+
+  // --- end screen -------------------------------------------------------------
+  // A modal list of choices over a stopped scene. Owns the keyboard while it is
+  // up (capture phase, the same trick as the pause menu) and resolves with the
+  // id of whatever was picked.
+  function showEnd({ eyebrow = "", title = "", body = "", stats = [], actions = [] }) {
+    return new Promise((resolve) => {
+      let sel = 0;
+      endEl.innerHTML = `
+        <div class="na-end-card">
+          <div class="eyebrow">${eyebrow}</div>
+          <h2>${title}</h2>
+          <div class="rule"></div>
+          ${body ? `<p>${body}</p>` : ""}
+          ${stats.length ? `<dl>${stats.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>` : ""}
+          <div class="acts">${actions.map((a, i) =>
+            `<button type="button" data-i="${i}">${a.label}</button>`).join("")}</div>
+        </div>`;
+      const btns = [...endEl.querySelectorAll("button")];
+      const draw = () => btns.forEach((b, i) => b.classList.toggle("on", i === sel));
+      const pick = (i) => {
+        window.removeEventListener("keydown", onKey, true);
+        endEl.classList.remove("on");
+        resolve(actions[i]?.id);
+      };
+      const onKey = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (["ArrowUp", "ArrowLeft", "KeyW", "KeyA"].includes(e.code)) sel = (sel + btns.length - 1) % btns.length;
+        else if (["ArrowDown", "ArrowRight", "KeyS", "KeyD", "Tab"].includes(e.code)) sel = (sel + 1) % btns.length;
+        else if (e.code === "Enter" || e.code === "Space") return pick(sel);
+        draw();
+      };
+      btns.forEach((b, i) => {
+        b.addEventListener("click", () => pick(i));
+        b.addEventListener("mouseenter", () => { sel = i; draw(); });
+      });
+      draw();
+      if (document.pointerLockElement) document.exitPointerLock();
+      window.addEventListener("keydown", onKey, true);
+      endEl.classList.add("on");
+    });
+  }
+
   const api = {
     hud, toast, fade, setObjective, setWaypoint, refreshState, setPrompt, playCutscene,
+    chapterCard, showEnd,
+    /** fn(beatId, index) whenever a beat starts. */
+    onBeat(fn) { beatHooks.add(fn); return () => beatHooks.delete(fn); },
+    /** fn() when the last beat is done. */
+    onFinish(fn) { finishHooks.add(fn); return () => finishHooks.delete(fn); },
+    setEyebrow(t) { eyebrowText = t; shownObj = null; },
+    /** Show or hide the food / rest strip — free flight has no use for it. */
+    showState(on) { stateEl.classList.toggle("on", !!on); stateHidden = !on; },
+    get waypoint() { return waypoint; },
+    get waypointLabel() { return waypointLabel; },
+    get beats() { return chapters.map((c) => c.id); },
     get cine() { return cine; },
     get chapter() { return current; },
     get chapterId() { return current?.id || null; },
@@ -309,13 +332,18 @@ export function setupGame(ctx) {
       sinceEnter = 0;
       holdDone = 0;
       setWaypoint(null);
-      if (!current) { objEl.classList.remove("on"); shownObj = null; return; }
+      if (!current) {
+        objEl.classList.remove("on"); shownObj = null;
+        for (const fn of finishHooks) fn();
+        return;
+      }
+      for (const fn of beatHooks) fn(current.id, index);
       // Forget what was on screen, or a chapter whose objective happens to read
       // the same as the last one's inherits its struck-through "done" styling.
       shownObj = null;
       if (current.objective) setObjective(current.objective, current.sub || "");
       if (current.enter) await current.enter(api, ctx);
-      stateEl.classList.toggle("on", current.showState !== false);
+      stateEl.classList.toggle("on", !stateHidden && current.showState !== false);
     },
 
     /** Jump to a chapter by id — for the debug console and for resuming. */
@@ -329,13 +357,14 @@ export function setupGame(ctx) {
 
     update(dt) {
       if (cine) cine.t = Math.min(1, cine.t + dt / cine.seconds);
-      if (!current) return;
       sinceEnter += dt;
 
-      if (current.update) current.update(dt, api, ctx);
+      // No chapter is a real state — free flight, and after the story ends —
+      // and the waypoint below still has to draw in it.
+      if (current?.update) current.update(dt, api, ctx);
 
       // Objective satisfied? Chapters can also just call api.complete().
-      if (current.done && !current._done) {
+      if (current?.done && !current._done) {
         const ok = current.done(api, ctx);
         holdDone = ok ? holdDone + dt : 0;
         // A short hold, so brushing past a waypoint at 80 knots doesn't tick it.
@@ -351,9 +380,30 @@ export function setupGame(ctx) {
         let x = (v.x * 0.5 + 0.5) * window.innerWidth;
         let y = (-v.y * 0.5 + 0.5) * window.innerHeight;
         if (behind) { x = window.innerWidth - x; y = window.innerHeight - y; }
-        const m = 54;
-        const cx = THREE.MathUtils.clamp(x, m, window.innerWidth - m);
-        const cy = THREE.MathUtils.clamp(y, m, window.innerHeight - m);
+        // Keep clear of the furniture: the compass and objective along the
+        // top, the instruments and the condition strip along the bottom.
+        const m = 64, mTop = 150, mBot = 150;
+        const W = window.innerWidth, H = window.innerHeight;
+        // Off screen, or behind: pin it to the edge on the line from the centre
+        // towards it, and point an arrow at where it is. Clamping x and y
+        // separately put it in a corner for anything diagonal and gave no clue
+        // which way to turn.
+        let off = behind || x < m || x > W - m || y < mTop || y > H - mBot;
+        let cx = x, cy = y;
+        if (off) {
+          // From the middle of the safe box, out to its edge.
+          const ox = W / 2, oy = (mTop + H - mBot) / 2;
+          let dx = x - ox, dy = y - oy;
+          if (behind && Math.abs(dx) < 1 && Math.abs(dy) < 1) dy = 1;
+          const k = Math.min((W / 2 - m) / Math.max(Math.abs(dx), 1e-3),
+                             ((H - mTop - mBot) / 2) / Math.max(Math.abs(dy), 1e-3));
+          cx = ox + dx * k; cy = oy + dy * k;
+          arrowEl.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+        }
+        markEl.classList.toggle("off", off);
+        // Hug the label inward at the side edges, or it runs off the screen.
+        markEl.classList.toggle("edge-r", off && cx > W - m - 2);
+        markEl.classList.toggle("edge-l", off && cx < m + 2);
         markEl.style.transform = `translate(${cx}px,${cy}px)`;
         const d = ctx.getPosition().distanceTo(waypoint);
         markLabel.textContent = waypointLabel
@@ -386,7 +436,7 @@ export function setupGame(ctx) {
     },
 
     dispose() {
-      hud.remove(); fadeEl.remove(); style.remove();
+      hud.remove(); fadeEl.remove(); cardEl.remove(); endEl.remove();
     },
   };
 

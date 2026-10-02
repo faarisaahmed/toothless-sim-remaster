@@ -107,7 +107,9 @@ export function makePlayer(state = FRESH(), { onChange = () => {} } = {}) {
           // It costs, and it costs in advance — this is the whole reason the
           // hunger economy exists.
           api.spendFood();
-          s.rested = false;
+          // Except in the raid, where he is running on nerve: the cost there
+          // is food alone, or eight cages would need eight nights' sleep.
+          if (!s.flags.adrenaline) s.rested = false;
           onChange(s);
           return "fired";
         }

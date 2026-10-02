@@ -1,0 +1,198 @@
+/* =========================================================================
+   The design system.
+
+   One palette and one set of parts for every screen in the game: the title,
+   the pause menu, the HUD, the story overlays. It used to be two — the story
+   screens in warm ink and ember, the flight HUD in cool blue glass — and the
+   game looked like two games depending on which screen you were on.
+
+   Warm ink on night. Ember is the one accent and it means "this is the thing":
+   the selected row, the objective, the waypoint. Anything else that needs a
+   colour (plasma, health, food) gets one that does not compete with it.
+   ========================================================================= */
+:root {
+  --ink:      #ece6d8;
+  --ink-2:    #bdb5a5;
+  --ink-3:    #857e71;
+  --ink-4:    #5a554c;
+  --ember:    #ff8a3d;
+  --ember-2:  #ffb47a;
+  --ember-glow: rgba(255, 138, 61, .45);
+  --gold:     #f2c879;
+  --plasma:   #a482ff;
+  --good:     #a4d98f;
+  --warn:     #f0c46e;
+  --bad:      #e4826a;
+
+  --night:    #06080d;
+  --pane:     rgba(9, 11, 17, .74);
+  --pane-2:   rgba(14, 17, 25, .88);
+  --pane-hi:  rgba(255, 138, 61, .09);
+  --edge:     rgba(236, 230, 216, .11);
+  --edge-2:   rgba(236, 230, 216, .22);
+
+  --display:  "Cinzel", "Iowan Old Style", Georgia, serif;
+  --ui:       "Rajdhani", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --prose:    "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+
+  --r:        10px;
+  --r-sm:     6px;
+  --shadow:   0 24px 60px rgba(0, 0, 0, .55);
+  --blur:     blur(14px) saturate(115%);
+  --ease:     cubic-bezier(.2, .8, .2, 1);
+}
+
+/* ---- Keycaps ------------------------------------------------------------ */
+kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box;
+  border: 1px solid var(--edge-2); border-bottom-width: 2px;
+  border-radius: 5px; background: rgba(236, 230, 216, .06);
+  font: 700 11px/1 var(--ui); letter-spacing: .04em; color: var(--ink);
+}
+kbd.pad { min-width: 24px; padding: 0 6px; font-size: 10px; letter-spacing: .05em; }
+kbd.pad.shape { font-size: 12px; letter-spacing: 0; }
+
+/* ---- Panels --------------------------------------------------------------- */
+.ui-panel {
+  position: relative;
+  background: linear-gradient(180deg, rgba(20, 23, 32, .9), rgba(9, 11, 17, .9));
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .05);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+/* A hairline of ember along the top edge, fading out both ways. */
+.ui-panel::before {
+  content: ""; position: absolute; left: 12%; right: 12%; top: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 138, 61, .55), transparent);
+}
+
+.ui-eyebrow {
+  font: 600 11px/1 var(--ui); letter-spacing: .34em; text-transform: uppercase;
+  color: var(--ember-2);
+}
+.ui-title {
+  font: 600 clamp(1.4rem, 2.6vw, 1.9rem)/1.15 var(--display); letter-spacing: .04em;
+  color: var(--ink); margin: 6px 0 0;
+}
+.ui-rule {
+  height: 1px; margin: 16px 0;
+  background: linear-gradient(90deg, var(--edge-2), transparent);
+}
+
+/* ---- Buttons / menu items ------------------------------------------------- */
+.ui-menu { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ui-item {
+  position: relative; display: flex; align-items: center; gap: 14px;
+  padding: 12px 18px 12px 20px; border-radius: var(--r-sm);
+  font: 600 1.05rem/1.1 var(--ui); letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-2); cursor: pointer; user-select: none;
+  border: 1px solid transparent;
+  transition: color .18s, background .18s, border-color .18s, transform .25s var(--ease);
+}
+.ui-item small {
+  display: block; margin-top: 5px; font: 500 .82rem/1.25 var(--ui);
+  letter-spacing: .06em; text-transform: none; color: var(--ink-3);
+}
+.ui-item .go { margin-left: auto; font-size: .7rem; letter-spacing: .24em; color: var(--ink-4); }
+.ui-item::before {
+  content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 2px;
+  background: var(--ember); border-radius: 2px; transform: scaleY(0);
+  transition: transform .22s var(--ease); box-shadow: 0 0 10px var(--ember-glow);
+}
+.ui-item:hover, .ui-item.on {
+  color: var(--ink); background: linear-gradient(90deg, var(--pane-hi), transparent 85%);
+  border-color: rgba(255, 138, 61, .14);
+}
+.ui-item.on { transform: translateX(4px); }
+.ui-item.on::before { transform: scaleY(1); }
+.ui-item.on .go { color: var(--ember-2); }
+.ui-item.disabled { opacity: .38; cursor: default; }
+
+.ui-btn {
+  font: 700 .8rem/1 var(--ui); letter-spacing: .22em; text-transform: uppercase;
+  padding: 11px 20px; border-radius: var(--r-sm); cursor: pointer;
+  color: var(--ink); background: rgba(236, 230, 216, .05);
+  border: 1px solid var(--edge-2); transition: all .18s;
+}
+.ui-btn:hover, .ui-btn.on {
+  color: #120a04; background: var(--ember); border-color: var(--ember);
+  box-shadow: 0 0 22px var(--ember-glow);
+}
+.ui-btn.ghost:hover, .ui-btn.ghost.on { color: var(--ink); background: var(--pane-hi); box-shadow: none; border-color: rgba(255,138,61,.45); }
+.ui-btn.danger:hover, .ui-btn.danger.on { background: var(--bad); border-color: var(--bad); box-shadow: 0 0 22px rgba(228,130,106,.4); }
+
+/* ---- Tabs ---------------------------------------------------------------- */
+.ui-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--edge); margin-bottom: 6px; }
+.ui-tab {
+  position: relative; padding: 10px 16px 12px; cursor: pointer; user-select: none;
+  font: 700 .78rem/1 var(--ui); letter-spacing: .24em; text-transform: uppercase;
+  color: var(--ink-3); transition: color .18s;
+}
+.ui-tab:hover { color: var(--ink-2); }
+.ui-tab.on { color: var(--ink); }
+.ui-tab::after {
+  content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px;
+  background: var(--ember); transform: scaleX(0); transition: transform .22s var(--ease);
+  box-shadow: 0 0 10px var(--ember-glow);
+}
+.ui-tab.on::after { transform: scaleX(1); }
+.ui-tabkeys { margin-left: auto; align-self: center; display: flex; gap: 4px; opacity: .7; }
+
+/* ---- Setting rows ----------------------------------------------------------
+   Label and hint on the left, the value between two arrows on the right. The
+   arrows are real buttons, so a mouse can step either way, and the whole row
+   still takes Enter / click to step forward. */
+.ui-rows { list-style: none; margin: 0; padding: 0; }
+.ui-row {
+  display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 14px;
+  padding: 11px 14px; border-radius: var(--r-sm); cursor: pointer;
+  border: 1px solid transparent; transition: background .15s, border-color .15s;
+}
+.ui-row + .ui-row { margin-top: 2px; }
+.ui-row .glyph { color: var(--ink-4); font-size: 1rem; text-align: center; transition: color .15s; }
+.ui-row .lbl { font: 600 .98rem/1.15 var(--ui); letter-spacing: .06em; color: var(--ink-2); }
+.ui-row .hint { font: 500 .8rem/1.3 var(--ui); letter-spacing: .03em; color: var(--ink-4);
+                margin-top: 3px; max-height: 0; overflow: hidden; opacity: 0;
+                transition: max-height .25s var(--ease), opacity .2s; }
+.ui-row .val {
+  display: flex; align-items: center; gap: 10px;
+  font: 700 .86rem/1 var(--ui); letter-spacing: .16em; text-transform: uppercase; color: var(--ink);
+}
+.ui-row .val span { min-width: 108px; text-align: center; }
+.ui-row .val button {
+  width: 24px; height: 24px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--edge); background: transparent; color: var(--ink-3);
+  font: 700 12px/1 var(--ui); transition: all .15s;
+}
+.ui-row .val button:hover { color: var(--ink); border-color: var(--ember); background: var(--pane-hi); }
+.ui-row:hover { background: rgba(236, 230, 216, .03); }
+.ui-row.on { background: linear-gradient(90deg, var(--pane-hi), rgba(255,138,61,.02)); border-color: rgba(255, 138, 61, .18); }
+.ui-row.on .glyph { color: var(--ember); }
+.ui-row.on .lbl { color: var(--ink); }
+.ui-row.on .hint { max-height: 3em; opacity: 1; color: var(--ink-3); }
+.ui-row.on .val button { color: var(--ember-2); border-color: rgba(255, 138, 61, .4); }
+.ui-row.flash .val span { animation: ui-flash .35s var(--ease); }
+@keyframes ui-flash { 0% { color: var(--ember-2); transform: scale(1.08); } 100% { color: var(--ink); transform: none; } }
+
+/* ---- Legend (the strip of key hints along the foot of a menu) ------------- */
+.ui-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  font: 600 .72rem/1 var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-4);
+}
+.ui-legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---- Bars ----------------------------------------------------------------- */
+.ui-bar { height: 3px; background: rgba(236, 230, 216, .1); border-radius: 2px; overflow: hidden; }
+.ui-bar i { display: block; height: 100%; background: var(--ember); box-shadow: 0 0 10px var(--ember-glow); }
+
+/* Scrollbars inside panels: thin, quiet, and not the OS's. */
+.ui-scroll { overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain;
+             scrollbar-width: thin; scrollbar-color: rgba(236,230,216,.18) transparent; }
+.ui-scroll::-webkit-scrollbar { width: 6px; }
+.ui-scroll::-webkit-scrollbar-thumb { background: rgba(236,230,216,.16); border-radius: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

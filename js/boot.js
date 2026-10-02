@@ -14,28 +14,15 @@ import { settings } from "./settings.js";
 // imported dynamically so its four megabytes of terrain only load on the route
 // that actually needs them.
 //
-// Which route we take depends on WHERE the page is being served from, and that
-// is not magic for its own sake:
+// The route is the title screen, everywhere. It used to drop a localhost
+// straight into flight, which kept the development loop short and meant that
+// anyone playing it locally never saw a save slot, a chapter or a setting —
+// and the story could not be continued, only restarted. The dev route is one
+// query string away:
 //
-//   deployed (GitHub Pages)   the title screen. Somebody arriving at the game
-//                             should arrive at the game, with save slots and a
-//                             prologue, not be dropped mid-flight over open
-//                             water with no idea what they are holding.
-//
-//   localhost                 straight to flight. This is the development
-//                             route and it is the whole reason the default was
-//                             ever "flight": clicking through a title screen
-//                             and a prologue to check a change to the wing rig
-//                             is a tax paid on every single reload, and the
-//                             headless tools in tools/ all drive localhost and
-//                             need window.__na, which only the flight stage
-//                             publishes.
-//
-// Either way `?stage=` overrides it, so any route is one URL away from either
-// machine:
-//
-//   ?stage=flight    the flight sim
-//   ?stage=title     title -> prologue if the save is new -> flight
+//   ?stage=flight    the flight sim, story from the top, nothing saved
+//   ?stage=free      free flight, nothing saved but the islands found
+//   ?stage=title     the default
 //   ?stage=prologue  the prologue on a scratch save -> flight
 //
 // And "Prologue: Skip" on the title screen takes B1 out of the title route,
@@ -59,15 +46,8 @@ input.attachPad(pad);
 // ever polling the pad — which matters, because getGamepads() returns a
 // snapshot and two pollers would each see half the presses.
 
-// Anything that is not a local dev server is "deployed". Written as a list of
-// the local cases rather than a check for github.io, so it keeps working behind
-// a custom domain, on a LAN address, or off the file system.
-const LOCAL_HOST = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|.*\.local)$/i;
-const isLocal = location.protocol === "file:" || LOCAL_HOST.test(location.hostname);
-
-// Which route to take. `?stage=` always wins; otherwise it is where we are.
-const stage = new URLSearchParams(location.search).get("stage")
-  || (isLocal ? "flight" : "title");
+// Which route to take. `?stage=` always wins.
+const stage = new URLSearchParams(location.search).get("stage") || "title";
 
 /**
  * Hand off to the flight sim.
@@ -87,34 +67,53 @@ function toFlight(extra = {}) {
 async function main() {
   document.body.classList.add("pre-flight");
 
-  if (stage === "flight") return toFlight();
+  if (stage === "flight") return toFlight({ mode: "story" });
+  if (stage === "free") return toFlight({ mode: "free" });
+
+  // "Restart chapter" from the pause menu: a reload that skips the menus. The
+  // request rides in sessionStorage and is used once.
+  if (stage === "launch") {
+    let req = null;
+    try {
+      req = JSON.parse(sessionStorage.getItem("nightalone.launch") || "null");
+      sessionStorage.removeItem("nightalone.launch");
+    } catch { /* fall through to the title */ }
+    if (req?.chapter) {
+      const slot = Number.isInteger(req.slot) ? req.slot : null;
+      const save = slot !== null ? saves.get(slot) : null;
+      history.replaceState(null, "", `${location.pathname}?stage=title`);
+      return toFlight({ mode: "story", slot: save ? slot : null, save, chapter: req.chapter });
+    }
+  }
 
   if (stage === "prologue") {
     const save = saves.get(0) || saves.create(0);
     await runPrologue(pad, save);
-    return toFlight({ slot: 0, save });
+    return toFlight({ mode: "story", slot: 0, save });
   }
 
-  const { slot, save, isNew } = await runTitle(pad);
+  const pick = await runTitle(pad);
+  if (pick.mode === "free") return toFlight({ mode: "free" });
 
-  if (isNew || save.scene === "prologue") {
+  const { slot, save, isNew, chapter } = pick;
+  // A chapter replay never goes through the room: it was asked for by name.
+  if (!chapter && (isNew || save.scene === "prologue")) {
     if (settings.skipPrologue()) {
       // Straight past it, but the save still has to come out of this the way
       // it would have: `scene` is what sends a half-finished save back into
-      // B1 next time, so leaving it as "prologue" would replay a scene the
-      // player has just said they do not want. `prologueSeen` records that
-      // they did not see it, because that is the true thing to record.
-      save.scene = "morning";
+      // the room next time. `prologueSeen` records that they did not see it,
+      // because that is the true thing to record.
+      save.scene = "flight";
       save.prologueSeen = false;
     } else {
       const result = await runPrologue(pad, save);
-      save.scene = "morning";
+      save.scene = "flight";
       save.prologueSeen = result.seen;
     }
     saves.write(slot, save);
   }
 
-  return toFlight({ slot, save });
+  return toFlight({ mode: "story", slot, save, chapter: chapter || null });
 }
 
 main().catch((e) => {

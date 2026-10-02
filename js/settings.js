@@ -2,6 +2,7 @@ import * as keymap from "./keymap.js";
 import { MODES as AIM_MODES, getMode as getAimMode, setMode as setAimMode } from "./aim.js";
 import { isEnabled as touchOn, setEnabled as setTouch } from "./touch.js";
 import { music } from "./audio.js";
+import { GRAPHICS_OPTIONS } from "./graphics.js";
 
 // ---------------------------------------------------------------------------
 // Settings.
@@ -40,6 +41,10 @@ const DEFAULTS = {
   lookSpeed: 1,         // mouse sensitivity multiplier
   padSpeed: 1,          // right stick multiplier
   skipPrologue: false,  // start a new game in the air, not in the room
+  // Free flight's sky. The story sets its own, chapter by chapter.
+  timeOfDay: "cycle",
+  dayLength: 24,        // real minutes for a full day and night
+  weather: "changing",
 };
 
 let state = { ...DEFAULTS };
@@ -68,6 +73,9 @@ export const settings = {
   padSpeed: () => state.padSpeed,
   /** Read by boot.js when it is deciding whether to play B1. */
   skipPrologue: () => !!state.skipPrologue,
+  timeOfDay: () => state.timeOfDay,
+  dayLength: () => state.dayLength,
+  weather: () => state.weather,
   get raw() { return { ...state }; },
   set(key, value) { state[key] = value; save(); },
 };
@@ -100,15 +108,41 @@ const VOLUME_NAMES = ["Off", "Quiet", "Half", "Loud", "Full"];
  * the control scheme's hint is "steer left hand, act right hand", which is
  * only true of one of the two schemes.
  */
-export const OPTIONS = [
+const TIMES = ["cycle", "dawn", "morning", "noon", "evening", "sunset", "night"];
+const TIME_NAMES = ["Cycle", "Dawn", "Morning", "Noon", "Evening", "Sunset", "Night"];
+const DAY_LENGTHS = [10, 24, 48, 96];
+const WEATHERS = ["changing", "clear", "fair", "overcast", "rain", "storm", "fog"];
+const WEATHER_LABELS = ["Changing", "Clear", "Fair", "Overcast", "Rain", "Storm", "Fog"];
+
+const BASE_OPTIONS = [
   {
-    id: "scheme", glyph: "&#8646;", label: "Controls",
+    id: "timeOfDay", section: "World", glyph: "&#9788;", label: "Time of day",
+    hint: () => state.timeOfDay === "cycle"
+      ? "Free flight runs a full day and night. The story sets its own hours"
+      : "Free flight holds this hour. The story sets its own",
+    ...stepper(TIMES, () => state.timeOfDay, (v) => settings.set("timeOfDay", v), TIME_NAMES),
+  },
+  {
+    id: "dayLength", section: "World", glyph: "&#8986;", label: "Length of a day",
+    hint: () => "Real minutes for one full day and night, when the time cycles",
+    ...stepper(DAY_LENGTHS, () => state.dayLength, (v) => settings.set("dayLength", v),
+      DAY_LENGTHS.map((m) => `${m} min`)),
+  },
+  {
+    id: "weather", section: "World", glyph: "&#9730;", label: "Weather",
+    hint: () => state.weather === "changing"
+      ? "Free flight's weather drifts on its own — fair to overcast, rain, the odd storm"
+      : "Free flight holds this weather. The story sets its own",
+    ...stepper(WEATHERS, () => state.weather, (v) => settings.set("weather", v), WEATHER_LABELS),
+  },
+  {
+    id: "scheme", section: "Controls", glyph: "&#8646;", label: "Controls",
     hint: () => keymap.SCHEMES[keymap.getScheme()].hint,
     value: () => keymap.SCHEMES[keymap.getScheme()].label,
     cycle: () => keymap.toggleScheme(),
   },
   {
-    id: "aim", glyph: "&#8853;", label: "Aiming",
+    id: "aim", section: "Controls", glyph: "&#8853;", label: "Aiming",
     hint: () => AIM_MODES[getAimMode()].hint,
     value: () => AIM_MODES[getAimMode()].label,
     cycle: (dir = 1) => {
@@ -118,7 +152,7 @@ export const OPTIONS = [
     },
   },
   {
-    id: "invertY", glyph: "&#8597;", label: "Invert look &mdash; up / down",
+    id: "invertY", section: "Controls", glyph: "&#8597;", label: "Invert look &mdash; up / down",
     hint: () => "Mouse and right stick. Push forward to look down",
     ...onOff("invertLookY"),
     // The pad follows the mouse here on purpose. Somebody who wants an
@@ -130,7 +164,7 @@ export const OPTIONS = [
     },
   },
   {
-    id: "invertX", glyph: "&#8596;", label: "Invert look &mdash; left / right",
+    id: "invertX", section: "Controls", glyph: "&#8596;", label: "Invert look &mdash; left / right",
     hint: () => "Rare, and some people cannot play without it",
     ...onOff("invertLookX"),
     cycle: () => {
@@ -140,19 +174,19 @@ export const OPTIONS = [
     },
   },
   {
-    id: "lookSpeed", glyph: "&#8599;", label: "Mouse look speed",
+    id: "lookSpeed", section: "Controls", glyph: "&#8599;", label: "Mouse look speed",
     hint: () => "How far the camera swings per inch of mouse",
     ...stepper(SPEEDS, () => state.lookSpeed,
       (v) => settings.set("lookSpeed", v), SPEED_NAMES),
   },
   {
-    id: "padSpeed", glyph: "&#9678;", label: "Stick look speed",
+    id: "padSpeed", section: "Controls", glyph: "&#9678;", label: "Stick look speed",
     hint: () => "The right stick only. Separate from the mouse on purpose",
     ...stepper(SPEEDS, () => state.padSpeed,
       (v) => settings.set("padSpeed", v), SPEED_NAMES),
   },
   {
-    id: "touch", glyph: "&#9744;", label: "On-screen controls",
+    id: "touch", section: "Controls", glyph: "&#9744;", label: "On-screen controls",
     hint: () => (touchOn()
       ? "Every control a keyboard has, on screen. Hide them from the corner"
       : "For a phone or a tablet. Everything a keyboard can do"),
@@ -166,7 +200,7 @@ export const OPTIONS = [
     // Title screen only: it decides what happens on the way IN to a game, so
     // in the pause menu it would be a row that cannot do anything to the
     // session you are already in.
-    id: "prologue", glyph: "&#9750;", label: "Prologue",
+    id: "prologue", section: "Game", glyph: "&#9750;", label: "Prologue",
     where: "title",
     hint: () => (state.skipPrologue
       ? "Skipped. New games start in the air. `?stage=prologue` still plays it"
@@ -175,7 +209,7 @@ export const OPTIONS = [
     cycle: () => settings.set("skipPrologue", !state.skipPrologue),
   },
   {
-    id: "music", glyph: "&#9834;", label: "Music",
+    id: "music", section: "Audio", glyph: "&#9834;", label: "Music",
     hint: () => "The score, if it is on this machine; the licensed set if not",
     ...stepper(VOLUMES, () => {
       // Snap the stored float to the nearest step, so a volume set from the
@@ -186,6 +220,14 @@ export const OPTIONS = [
       VOLUME_NAMES),
   },
 ];
+
+/**
+ * Every row, grouped by `section` in the order the menus show the tabs. The
+ * graphics rows live in graphics.js, which owns that state, and are only
+ * listed here.
+ */
+export const SECTIONS = ["Graphics", "Controls", "World", "Audio", "Game"];
+export const OPTIONS = [...GRAPHICS_OPTIONS, ...BASE_OPTIONS];
 
 /**
  * The rows that belong on one screen.

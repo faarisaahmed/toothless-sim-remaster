@@ -3,7 +3,8 @@ import { loadDragon, normalizeDragon } from "./assets.js";
 import * as input from "./input.js";
 import { music } from "./audio.js";
 import * as saves from "./saves.js";
-import { optionsFor, optionRowHtml } from "./settings.js";
+import { createSettingsPanel } from "./settingspanel.js";
+import { CHAPTER_LIST, STORY_TITLE } from "./storyline.js";
 import { addNightSky } from "./nightsky.js";
 
 // ---------------------------------------------------------------------------
@@ -26,7 +27,10 @@ import { addNightSky } from "./nightsky.js";
 // squarely behind the save-slot list — the one bright object in the frame,
 // hidden by the furniture. Raising it also lifts the sea's glint lane and the
 // dragon's orbit, both of which are derived from this.
-const MOON_DIR = new THREE.Vector3(-0.72, 0.42, -1).normalize();
+// And now RIGHT: the menu moved to a left-hand column, and the moon — the one
+// bright thing in the frame — belongs in the half of the screen that is
+// picture rather than behind the furniture.
+const MOON_DIR = new THREE.Vector3(0.62, 0.40, -1).normalize();
 
 // --- Sea --------------------------------------------------------------------
 // A plane and a shader. Cheap, and a real water sim would be louder than the
@@ -87,6 +91,9 @@ export function runTitle(pad = null) {
   music.play("title");
   return new Promise((resolve) => {
     // --- DOM ----------------------------------------------------------------
+    // One stage, one panel. The panel's contents swap between screens — the
+    // main menu, the save slots, a slot's actions, its chapters, the settings —
+    // and the breadcrumb over it says where you are.
     const root = document.createElement("div");
     root.id = "title";
     root.innerHTML = `
@@ -97,28 +104,27 @@ export function runTitle(pad = null) {
           <div class="title-over">A dragon alone, in the year before</div>
           <h1 class="title-name"><span>Night</span><span>Alone</span></h1>
           <div class="title-rule"></div>
-          <div class="title-sub">Chapter One &mdash; The Metal and the Dark</div>
+          <div class="title-sub">Mission One &mdash; ${STORY_TITLE}</div>
         </header>
 
-        <ul class="slots" id="slots"></ul>
-        <ul class="slots opts" id="opts"></ul>
+        <section class="title-panel ui-panel" id="title-panel">
+          <div class="tp-head">
+            <div class="ui-eyebrow" id="tp-crumb"></div>
+            <h2 class="ui-title" id="tp-title"></h2>
+          </div>
+          <div class="tp-body" id="tp-body"></div>
+        </section>
 
-        <footer class="title-foot">
-          <span class="title-hint"><kbd>&#8593;</kbd><kbd>&#8595;</kbd> choose</span>
-          <span class="title-hint"><kbd>&#8592;</kbd><kbd>&#8594;</kbd> change</span>
-          <span class="title-hint"><kbd>Enter</kbd> begin</span>
-          <span class="title-hint"><kbd>X</kbd> erase</span>
-          <span class="title-hint pad-only"><kbd class="pad shape">&#10005;</kbd> begin
-            <kbd class="pad shape">&#9633;</kbd> erase</span>
-        </footer>
+        <footer class="title-foot ui-legend" id="title-legend"></footer>
       </div>
       <div class="title-confirm" id="title-confirm" hidden>
-        <div class="confirm-card">
+        <div class="confirm-card ui-panel">
+          <div class="ui-eyebrow">Erase</div>
           <div class="confirm-head">Erase this journey?</div>
           <div class="confirm-body" id="confirm-body"></div>
           <div class="confirm-actions">
-            <span class="confirm-no">&#9711; / Esc &mdash; keep it</span>
-            <span class="confirm-yes">&#10005; / Enter &mdash; erase</span>
+            <button type="button" class="ui-btn ghost" data-c="no">Keep it</button>
+            <button type="button" class="ui-btn danger" data-c="yes">Erase</button>
           </div>
         </div>
       </div>
@@ -126,8 +132,11 @@ export function runTitle(pad = null) {
     document.body.appendChild(root);
     document.body.classList.add("in-title");
 
-    const slotList = root.querySelector("#slots");
-    const optList = root.querySelector("#opts");
+    const panel = root.querySelector("#title-panel");
+    const crumbEl = root.querySelector("#tp-crumb");
+    const titleEl = root.querySelector("#tp-title");
+    const bodyEl = root.querySelector("#tp-body");
+    const legendEl = root.querySelector("#title-legend");
     const confirmEl = root.querySelector("#title-confirm");
     const confirmBody = root.querySelector("#confirm-body");
 
@@ -223,7 +232,9 @@ export function runTitle(pad = null) {
     halo.renderOrder = 1;
     moonGroup.add(halo);
 
-    moonGroup.lookAt(0, 0, 0);
+    // Face the camera, not the origin: off to the side of the frame, a disc
+    // turned towards the middle of the world reads as an egg.
+    moonGroup.lookAt(0, 34, 190);
     scene.add(moonGroup);
 
     // Sea
@@ -323,142 +334,216 @@ export function runTitle(pad = null) {
       dragonReady = true;
     }).catch((e) => console.warn("title: no dragon model", e));
 
-    // --- Slots --------------------------------------------------------------
+    // --- Menu -----------------------------------------------------------------
     let slots = saves.list();
-    // One row past the last slot is the controls option. Keeping it in the same
-    // cursor space as the slots is what makes it reachable with the same up and
-    // down that everything else on this screen uses, on pad as well as keys.
-    // The settings rows come from js/settings.js now, so this screen and the
-    // in-game menu on - cannot disagree about what the options are. FIRST_OPT
-    // is where the save slots stop and the settings begin; everything below
-    // indexes one continuous list.
-    const FIRST_OPT = saves.SLOT_COUNT;
-    // The title-side rows. One row -- the prologue -- only exists here,
-    // because it decides what happens on the way into a game.
-    const OPTS = optionsFor("title");
-    const ROWS = saves.SLOT_COUNT + OPTS.length;
-    // findIndex returns -1 when every slot is empty, which on a fresh install
-    // left the list with nothing highlighted until you pressed a direction.
-    let cursor = Math.max(0, slots.findIndex(Boolean));
-    if (cursor < 0) cursor = 0;
+    let screen = "main";
+    let cursor = 0;
+    let slotSel = 0;          // which slot the slot / chapter screens are about
     let confirming = false;
+    let confirmSel = 0;
+    let done = false;
+    const settingsPanel = createSettingsPanel("title");
 
-    function renderSlots() {
-      slotList.innerHTML = "";
-      slots.forEach((save, i) => {
-        const li = document.createElement("li");
-        li.className = "slot" + (i === cursor ? " on" : "") + (save ? "" : " empty");
+    const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
-        if (save) {
-          const pct = Math.round(saves.progress(save) * 100);
-          li.innerHTML = `
-            <div class="slot-index">${i + 1}</div>
-            <div class="slot-main">
-              <div class="slot-title">${saves.sceneTitle(save)}</div>
-              <div class="slot-meta">
-                <span>Day ${save.day}</span>
-                <span class="dot">&middot;</span>
-                <span>${saves.playtime(save)}</span>
-                <span class="dot">&middot;</span>
-                <span>${saves.lastPlayed(save)}</span>
-              </div>
-              <div class="slot-bar"><i style="width:${pct}%"></i></div>
-            </div>
-            <div class="slot-go">Continue</div>
-          `;
-        } else {
-          li.innerHTML = `
-            <div class="slot-index">${i + 1}</div>
-            <div class="slot-main">
-              <div class="slot-title empty">Empty</div>
-              <div class="slot-meta"><span>No journey here yet</span></div>
-            </div>
-            <div class="slot-go">Begin</div>
-          `;
+    /** The items on the current screen: { html, act, disabled? }. */
+    function items() {
+      if (screen === "main") {
+        const out = [];
+        const last = saves.latest();
+        if (last >= 0) {
+          const sv = slots[last];
+          out.push({
+            label: "Continue",
+            sub: `${esc(saves.sceneTitle(sv))} &nbsp;·&nbsp; Journey ${last + 1} &nbsp;·&nbsp; ${saves.playtime(sv)}`,
+            act: () => begin({ mode: "story", slot: last, save: sv, isNew: false }),
+          });
         }
+        out.push({ label: "Story", sub: "Four journeys. Begin one, continue one, or replay a chapter.",
+                   act: () => go("story") });
+        out.push({ label: "Free Flight", sub: "The whole archipelago, and no story. Find every island.",
+                   act: () => begin({ mode: "free" }) });
+        out.push({ label: "Settings", sub: "Graphics, controls and sound.", act: () => go("settings") });
+        return out;
+      }
+      if (screen === "story") {
+        return [
+          ...slots.map((sv, i) => sv ? {
+            slot: i, sv,
+            label: `Journey ${i + 1}`,
+            sub: `${esc(saves.sceneTitle(sv))} &nbsp;·&nbsp; Day ${sv.day} &nbsp;·&nbsp; ${saves.playtime(sv)} &nbsp;·&nbsp; ${saves.lastPlayed(sv)}`,
+            pct: Math.round(saves.progress(sv) * 100),
+            act: () => { slotSel = i; go("slot"); },
+          } : {
+            slot: i, label: `Journey ${i + 1}`, sub: "Empty &mdash; begin a new story here", empty: true,
+            act: () => begin({ mode: "story", slot: i, save: saves.create(i), isNew: true }),
+          }),
+          { label: "Back", back: true, act: () => go("main") },
+        ];
+      }
+      if (screen === "slot") {
+        const sv = slots[slotSel];
+        return [
+          { label: sv?.finished ? "Fly on" : "Continue",
+            sub: sv?.finished ? "The story is done. Pick up where it ended." : `From ${esc(saves.sceneTitle(sv))}`,
+            act: () => begin({ mode: "story", slot: slotSel, save: sv, isNew: false }) },
+          { label: "Chapters", sub: "Replay any chapter this journey has reached.", act: () => go("chapters") },
+          { label: "Erase", sub: "Start this slot over. Cannot be undone.", danger: true, act: () => askErase() },
+          { label: "Back", back: true, act: () => go("story") },
+        ];
+      }
+      if (screen === "chapters") {
+        const sv = slots[slotSel];
+        const open = new Set(saves.unlockedChapters(sv));
+        const doneSet = new Set(sv?.chapters || []);
+        return [
+          ...CHAPTER_LIST.map((c) => ({
+            label: `<span class="ch-n">${c.n}</span>${c.title}`,
+            sub: open.has(c.id) ? esc(c.blurb) : "Not reached yet",
+            disabled: !open.has(c.id),
+            tag: doneSet.has(c.id) ? "Done" : open.has(c.id) ? "Play" : "&#128274;",
+            act: () => begin({ mode: "story", slot: slotSel, save: sv, isNew: false, chapter: c.id }),
+          })),
+          { label: "Back", back: true, act: () => go("slot") },
+        ];
+      }
+      return [];
+    }
 
-        li.addEventListener("click", () => {
-          if (confirming) return;
-          cursor = i;
-          renderSlots();
-          choose();
+    const HEADS = {
+      main:     ["", "Begin"],
+      story:    ["Story", "Choose a journey"],
+      slot:     ["Story", ""],
+      chapters: ["Story", "Chapters"],
+      settings: ["", "Settings"],
+    };
+
+    function render() {
+      const [crumb, title] = HEADS[screen];
+      crumbEl.textContent = screen === "slot" || screen === "chapters"
+        ? `Story · Journey ${slotSel + 1}` : crumb;
+      titleEl.textContent = screen === "slot" ? saves.sceneTitle(slots[slotSel]) : title;
+      panel.dataset.screen = screen;
+      // Past the main menu the name steps back, so the panel has the room.
+      root.querySelector(".title-stage").classList.toggle("compact", screen !== "main");
+
+      if (screen === "settings") {
+        if (!bodyEl.contains(settingsPanel.el)) {
+          bodyEl.innerHTML = "";
+          bodyEl.appendChild(settingsPanel.el);
+        }
+        settingsPanel.render();
+      } else {
+        const list = items();
+        bodyEl.innerHTML = `<ul class="ui-menu tp-menu">${list.map((it, i) => `
+          <li class="ui-item${i === cursor ? " on" : ""}${it.disabled ? " disabled" : ""}${it.back ? " back" : ""}${it.empty ? " empty" : ""}${it.danger ? " danger" : ""}" data-i="${i}">
+            <div class="it-main">
+              <div class="it-label">${it.label}</div>
+              ${it.sub ? `<small>${it.sub}</small>` : ""}
+              ${it.pct !== undefined ? `<div class="ui-bar it-bar"><i style="width:${it.pct}%"></i></div>` : ""}
+            </div>
+            <span class="go">${it.tag ?? (it.back ? "" : it.empty ? "Begin" : "&rsaquo;")}</span>
+          </li>`).join("")}</ul>`;
+        bodyEl.querySelectorAll("[data-i]").forEach((li) => {
+          const i = +li.dataset.i;
+          li.addEventListener("click", () => { cursor = i; activate(); });
+          li.addEventListener("mouseenter", () => {
+            if (cursor === i) return;
+            cursor = i;
+            bodyEl.querySelectorAll("[data-i]").forEach((x) => x.classList.toggle("on", +x.dataset.i === i));
+          });
         });
-        slotList.appendChild(li);
-      });
+        bodyEl.querySelector(".ui-item.on")?.scrollIntoView({ block: "nearest" });
+      }
 
-      optList.innerHTML = OPTS
-        .map((o, i) => optionRowHtml(o, cursor === FIRST_OPT + i))
-        .join("");
-      [...optList.children].forEach((li, i) => {
-        li.addEventListener("click", () => { cursor = FIRST_OPT + i; cycleOpt(1); });
-      });
+      const padLive = document.body.classList.contains("pad-live");
+      const k = (key, padKey) => padLive ? `<kbd class="pad shape">${padKey}</kbd>` : `<kbd>${key}</kbd>`;
+      legendEl.innerHTML = screen === "settings"
+        ? `<span>${k("&uarr;", "&#8597;")}${padLive ? "" : "<kbd>&darr;</kbd>"} choose</span>
+           <span>${k("&larr;", "&#8596;")}${padLive ? "" : "<kbd>&rarr;</kbd>"} change</span>
+           <span>${k("Q", "L1")}${k("E", "R1")} tabs</span>
+           <span>${k("Esc", "&#9711;")} back</span>`
+        : `<span>${k("&uarr;", "&#8597;")}${padLive ? "" : "<kbd>&darr;</kbd>"} choose</span>
+           <span>${k("Enter", "&#10005;")} select</span>
+           ${screen !== "main" ? `<span>${k("Esc", "&#9711;")} back</span>` : ""}`;
+    }
+
+    function go(next) {
+      screen = next;
+      cursor = 0;
+      if (next === "settings") settingsPanel.reset();
+      panel.classList.remove("swap");
+      void panel.offsetWidth;
+      panel.classList.add("swap");
+      render();
+      pad?.rumble.pulse(0.3, 0.12, 0.06);
+    }
+
+    function back() {
+      const up = { story: "main", slot: "story", chapters: "slot", settings: "main" }[screen];
+      if (up) {
+        go(up);
+        // Land back on the thing you came from rather than the top.
+        if (up === "story") { cursor = slotSel; render(); }
+      }
     }
 
     function move(d) {
-      cursor = (cursor + d + ROWS) % ROWS;
-      renderSlots();
-      // The stage scrolls now, so moving the cursor has to bring the row with
-      // it. Without this the keyboard and the pad can select a row that is off
-      // the bottom of the screen — which is worse than not being able to
-      // scroll at all, because the highlight is somewhere you cannot see.
-      revealCursor();
+      if (screen === "settings") { settingsPanel.move(d); pad?.rumble.pulse(0.18, 0.04, 0.04); return; }
+      const list = items();
+      let i = cursor;
+      for (let n = 0; n < list.length; n++) {
+        i = (i + d + list.length) % list.length;
+        if (!list[i].disabled) break;
+      }
+      cursor = i;
+      render();
       pad?.rumble.pulse(0.22, 0.05, 0.05);
     }
 
-    /** Scroll whichever row the cursor is on into view. */
-    function revealCursor() {
-      const all = [...slotList.children, ...optList.children];
-      const el = all[cursor];
-      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-
-    /**
-     * Change whichever setting the cursor is on.
-     *
-     * Every one of them persists itself in its own module — the scheme in
-     * keymap.js, the aim mode in aim.js, the on-screen controls in touch.js,
-     * the rest in settings.js — which is why this screen does not have to save
-     * anything and why the same change made from the in-game menu sticks too.
-     */
-    function cycleOpt(dir) {
-      OPTS[cursor - FIRST_OPT]?.cycle(dir);
-      renderSlots();
-      pad?.rumble.pulse(0.3, 0.12, 0.08);
-    }
-
-
-    let done = false;
-
-    function choose() {
+    function activate() {
       if (done) return;
-      if (cursor >= FIRST_OPT) { cycleOpt(1); return; }
+      if (screen === "settings") { settingsPanel.change(1); return; }
+      const it = items()[cursor];
+      if (!it || it.disabled) return;
+      it.act();
+    }
+
+    function begin(pick) {
+      if (done) return;
       done = true;
-      const existing = slots[cursor];
-      const save = existing || saves.create(cursor);
       pad?.rumble.pulse(0.6, 0.9, 0.35);
       teardown();
-      resolve({ slot: cursor, save, isNew: !existing });
+      resolve(pick);
     }
 
     function askErase() {
-      if (cursor >= FIRST_OPT || !slots[cursor]) return;
+      if (!slots[slotSel]) return;
       confirming = true;
+      confirmSel = 0;
       confirmBody.textContent =
-        `Slot ${cursor + 1} — ${saves.sceneTitle(slots[cursor])}, day ${slots[cursor].day}. This cannot be undone.`;
+        `Journey ${slotSel + 1} — ${saves.sceneTitle(slots[slotSel])}, day ${slots[slotSel].day}. This cannot be undone.`;
       confirmEl.hidden = false;
+      drawConfirm();
       pad?.rumble.pulse(0.4, 0.3, 0.16);
     }
-
-    function doErase() {
-      saves.erase(cursor);
-      slots = saves.list();
+    const confirmBtns = [...confirmEl.querySelectorAll("[data-c]")];
+    function drawConfirm() { confirmBtns.forEach((b, i) => b.classList.toggle("on", i === confirmSel)); }
+    function closeConfirm(erase) {
       confirming = false;
       confirmEl.hidden = true;
-      renderSlots();
-      pad?.rumble.pulse(0.7, 0.2, 0.3);
+      if (erase) {
+        saves.erase(slotSel);
+        slots = saves.list();
+        pad?.rumble.pulse(0.7, 0.2, 0.3);
+        go("story");
+        cursor = slotSel;
+        render();
+      }
     }
+    confirmBtns.forEach((b) => b.addEventListener("click", () => closeConfirm(b.dataset.c === "yes")));
 
-    renderSlots();
+    render();
 
     // --- Loop ---------------------------------------------------------------
     const clock = new THREE.Clock();
@@ -475,16 +560,23 @@ export function runTitle(pad = null) {
 
       // Input
       if (confirming) {
-        if (input.pressed("confirm")) doErase();
-        else if (input.pressed("back")) { confirming = false; confirmEl.hidden = true; }
-      } else {
+        if (input.tapped("left") || input.tapped("right")) { confirmSel ^= 1; drawConfirm(); }
+        if (input.pressed("confirm")) closeConfirm(confirmSel === 1);
+        else if (input.pressed("back")) closeConfirm(false);
+      } else if (!done) {
         if (input.tapped("up")) move(-1);
         if (input.tapped("down")) move(1);
-        if (input.tapped("left") || input.tapped("right")) {
-          if (cursor >= FIRST_OPT) cycleOpt(input.tapped("left") ? -1 : 1);
+        if (screen === "settings") {
+          if (input.tapped("left")) settingsPanel.change(-1);
+          if (input.tapped("right")) settingsPanel.change(1);
+          if (input.pressed("tabPrev")) settingsPanel.tab(-1);
+          if (input.pressed("tabNext")) settingsPanel.tab(1);
+        } else if (input.tapped("right")) {
+          activate();
         }
-        if (input.pressed("confirm")) choose();
-        if (input.pressed("del")) askErase();
+        if (input.pressed("confirm")) activate();
+        if (input.pressed("back") || (screen !== "settings" && input.tapped("left"))) back();
+        if (input.pressed("del") && screen === "slot") askErase();
       }
 
       // Sea, sky and clouds
@@ -525,6 +617,10 @@ export function runTitle(pad = null) {
       camera.position.x = Math.sin(t * 0.07) * 26;
       camera.position.y = 34 + Math.sin(t * 0.05) * 5;
       camera.lookAt(Math.sin(t * 0.04) * 40, 60, -700);
+      // Parallel to the image plane, so it projects as a circle wherever it is
+      // in the frame. Turned to face the camera it is still a flat disc seen
+      // off-axis, and on the right-hand side of a wide frame that is an egg.
+      moonGroup.quaternion.copy(camera.quaternion);
 
       renderer.render(scene, camera);
       input.finishFrame(dt);

@@ -10,8 +10,11 @@ import { setupFlightRig } from "./flightrig.js";
 import { setupGame } from "./game.js";
 import { bindDragon } from "./dragonrig.js";
 import { makePlayer, createState } from "./player.js";
-import { mission1, SITES, RIG } from "./chapters.js";
-import { setMapSites } from "./map.js";
+import { SITES, RIG } from "./chapters.js";
+import { createSession } from "./session.js";
+import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
+import { chapterOfBeat, chapterById } from "./storyline.js";
+import { setMapSites, setMapObjective } from "./map.js";
 import { buildRig, buildHollowStack, buildSnareCamp } from "./places.js";
 import { setupPost } from "./postfx.js";
 import { setupFlights } from "./flights.js";
@@ -28,7 +31,8 @@ import { setupTouch } from "./touch.js";
 import { settings } from "./settings.js";
 import { setupPause } from "./pause.js";
 import { showLoading, warmUp } from "./loading.js";
-import { detectTier, tierSettings, createGovernor } from "./quality.js";
+import { tierSettings, createGovernor } from "./quality.js";
+import { graphics, LEVELS } from "./graphics.js";
 import * as keymap from "./keymap.js";
 import { createAim } from "./aim.js";
 
@@ -52,6 +56,15 @@ const SPAWN = new THREE.Vector3(0, 300, 900);
 // a black frame that says what it is doing.
 const loading = showLoading({
   title: "Night Alone",
+  // What is about to start, read straight off the handoff — this runs before
+  // the session (or anything else) exists.
+  sub: (() => {
+    const h = window.__nightAlone;
+    if (h?.mode === "free") return "Free flight";
+    const beat = h?.chapter ? chapterById(h.chapter)?.beats[0] : h?.save?.beat;
+    const c = chapterOfBeat(beat || "leave");
+    return c ? `Chapter ${c.n} · ${c.title}` : "";
+  })(),
   tip: keymap.tipLine(),
 });
 
@@ -107,8 +120,25 @@ camera.updateProjectionMatrix();
 // What this machine is, decided once. Everything downstream that cannot change
 // at runtime — shadow map size, cloud count, whether bloom is even in the post
 // stack — comes from here; the frame rate itself is held by the governor below.
-const TIER = detectTier();
-const QUALITY = tierSettings(TIER);
+// The tier is still what the machine is guessed to be; what is actually used
+// is whatever the graphics menu says, which starts from that guess and is
+// remembered from then on (js/graphics.js).
+const TIER = graphics.tier;
+const GFX = graphics.state;
+const QUALITY = {
+  ...tierSettings(TIER),
+  maxDpr: GFX.maxDpr,
+  shadowMap: LEVELS.shadows[GFX.shadows] ?? 1024,
+  // Built at the full count and thinned live, so the menu can bring them back.
+  clouds: 105,
+  reflectEvery: LEVELS.reflections[GFX.reflections] ?? 2,
+  treeNear: LEVELS.trees[GFX.trees]?.near,
+  treeFar: LEVELS.trees[GFX.trees]?.far,
+  grass: !!GFX.grass,
+  terrainDetail: GFX.terrain,
+  minScale: graphics.scaleBounds()[0],
+  maxScale: graphics.scaleBounds()[1],
+};
 
 const renderer = new THREE.WebGLRenderer({
   // MSAA off, and not as a compromise: the whole frame is rendered into the
@@ -256,6 +286,21 @@ const pause = setupPause({
     pad?.rumble.stop?.();
   },
   onClose() { paused = false; },
+  // Esc belongs to whatever else is up first: the chart, the console, a
+  // cutscene's skip, the end-of-story card.
+  // (`game` and `session` are declared further down; a key pressed while the
+  // world is still loading would otherwise land in their temporal dead zone.)
+  canOpen: () => {
+    try {
+      return !document.getElementById("map")?.classList.contains("open") &&
+        !document.getElementById("console")?.classList.contains("open") &&
+        !document.querySelector(".na-end.on") &&
+        !game.cine;
+    } catch { return false; }
+  },
+  journal: () => { try { return session.journal(); } catch { return null; } },
+  onQuit: () => session.toTitle(),
+  onRestart: () => session.restartChapter(),
 });
 
 // Aiming. Owns his head, the crosshair, the stamina bar and — in scoped mode —
@@ -508,6 +553,24 @@ const hudRoot    = document.getElementById("hud");
 const hudPadTag  = document.getElementById("hud-pad-tag");
 
 const COMPASS_POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const hudAlt = document.getElementById("hud-alt");
+const hudTape = document.getElementById("hud-tape");
+const hudTapeWp = document.getElementById("hud-tape-wp");
+// The compass tape: three turns of the dial laid end to end, slid under a fixed
+// window so north never has to wrap. 3 px a degree; ticks every 15, a letter
+// every 45.
+const TAPE_PX = 3;
+if (hudTape) {
+  let html = "";
+  for (let d = -360; d <= 720; d += 15) {
+    const n = ((d % 360) + 360) % 360;
+    const major = n % 45 === 0;
+    html += `<span class="t${major ? " m" : ""}" style="left:${(d + 360) * TAPE_PX}px">` +
+      (major ? `<b>${COMPASS_POINTS[n / 45]}</b>` : "") + `</span>`;
+  }
+  hudTape.innerHTML = html;
+}
+let shownAlt = null, shownTape = null, shownWp = null;
 let shownDegrees = null;
 let shownSpeed = null;
 let shownBurst = null;   // last state the Flat Out readout was drawn in
@@ -525,6 +588,38 @@ function updateHud() {
     hudHeading.textContent = COMPASS_POINTS[Math.round(deg / 45) % 8];
     hudDegrees.textContent = `${String(deg).padStart(3, "0")}°`;
     shownDegrees = deg;
+  }
+
+  // The tape moves continuously, not per whole degree, or it ticks.
+  const exact = (THREE.MathUtils.radToDeg(Math.atan2(Math.sin(h), -Math.cos(h))) + 360) % 360;
+  if (hudTape && Math.abs(exact - (shownTape ?? -99)) > 0.05) {
+    hudTape.style.transform = `translateX(${-(exact + 360) * TAPE_PX}px)`;
+    shownTape = exact;
+  }
+  // Where the objective is, on the same tape: a diamond at its bearing, pinned
+  // to the end of the window when it is outside it, so "which way" is answered
+  // without looking for the marker.
+  const wp = game.waypoint;
+  if (hudTapeWp) {
+    let key = "none";
+    if (wp && dragon) {
+      const dx = wp.x - dragon.position.x, dz = wp.z - dragon.position.z;
+      const b = (THREE.MathUtils.radToDeg(Math.atan2(dx, -dz)) + 360) % 360;
+      let rel = ((b - exact + 540) % 360) - 180;
+      const edge = Math.abs(rel) > 52;
+      rel = THREE.MathUtils.clamp(rel, -52, 52);
+      key = `${Math.round(rel * 4)}${edge}`;
+      if (key !== shownWp) {
+        hudTapeWp.style.transform = `translateX(${rel * TAPE_PX}px) rotate(45deg)`;
+        hudTapeWp.classList.toggle("edge", edge);
+      }
+    }
+    if (key !== shownWp) { hudTapeWp.classList.toggle("on", key !== "none"); shownWp = key; }
+  }
+
+  if (hudAlt && dragon) {
+    const alt = Math.max(0, Math.round(dragon.position.y - Math.max(world.seaLevel, 0)));
+    if (alt !== shownAlt) { hudAlt.textContent = alt; shownAlt = alt; }
   }
 
   const speed = Math.round(controls.getSpeedMph());
@@ -778,6 +873,7 @@ function updatePadView(dt) {
     // column forward and lets the keyboard one recede. The footer tag looks
     // after itself in updatePadTag.
     hudRoot.classList.toggle("pad-live", on);
+    keysPanel?.classList.toggle("pad-live", on);
     // The pre-flight surfaces key off the body instead, since they exist
     // before the HUD does.
     document.body.classList.toggle("pad-live", on);
@@ -878,7 +974,12 @@ const debugConsole = setupDebugConsole({
 // know about the flight sim is handed over in `storyCtx` below, so the chapters
 // never reach into this file's internals.
 // ---------------------------------------------------------------------------
-const player = makePlayer(handoff?.save?.run || createState());
+// A chapter replay or free flight starts clean; a slot resumes with whatever
+// it was carrying. Cloned, so the live state and the save never share objects.
+const player = makePlayer(
+  !handoff?.chapter && handoff?.mode !== "free" && handoff?.save?.run
+    ? JSON.parse(JSON.stringify(handoff.save.run))
+    : createState());
 let rig = null, stack = null, camp = null;
 let interactAt = null, interactLabel = "", interactRange = 0, interactTaken = false;
 let interactHold = 0;
@@ -985,7 +1086,7 @@ let settling = false;          // dropping onto the ground, not walking yet
 // the hillside says it should end up, and how far through we are.
 let settleFrom = null, settleTo = null, settleT = 0;
 let slopePitch = 0, slopeRoll = 0, slopeLift = 0;
-let nightAmount = 0, nightTarget = 0;
+
 
 window.addEventListener("keydown", (e) => {
   if (document.activeElement?.tagName === "INPUT") return;
@@ -1278,13 +1379,16 @@ const storyCtx = {
     interactTaken = false; interactHold = 0;
   },
   tookInteract() { const t = interactTaken; interactTaken = false; return t; },
-  setNight(on) { nightTarget = on ? 1 : 0; },
+  // Night is a time on the clock now: late enough to be properly dark, and
+  // morning is first light. The sky rolls round to it over a few seconds.
+  setNight(on) { world.sky.setTime(on ? 23.2 : 5.7, { transition: 6 }); },
 };
 
 // The key legend is a wall of text and it is in the way of the game. Fold it
 // away once, a few seconds in, so a first-time player still sees it.
 const keysEl = document.getElementById("hud-keys");
-if (keysEl) {
+const keysPanel = document.getElementById("hud-keys-panel");
+if (keysEl && keysPanel) {
   // Built from the keymap rather than written into index.html, so it cannot
   // disagree with what the keys actually do — and so switching scheme redraws
   // it instead of lying about half the bindings.
@@ -1292,17 +1396,13 @@ if (keysEl) {
   drawLegend();
   keymap.onSchemeChange(drawLegend);
 
-  setTimeout(() => {
-    keysEl.style.transition = "opacity .8s, max-height .8s";
-    keysEl.style.overflow = "hidden";
-    keysEl.style.opacity = "0";
-    keysEl.style.maxHeight = "0";
-  }, 9000);
+  // Up for the first few seconds of a session, then folded to its header; `/`
+  // brings it back. A key list that never goes away is a key list nobody
+  // reads after the first minute, and it costs a quarter of the screen.
+  setTimeout(() => keysPanel.classList.remove("open"), 9000);
   window.addEventListener("keydown", (e) => {
     if (e.code !== "Slash") return;
-    const off = keysEl.style.opacity === "0";
-    keysEl.style.opacity = off ? "1" : "0";
-    keysEl.style.maxHeight = off ? "1200px" : "0";
+    keysPanel.classList.toggle("open");
   });
 }
 
@@ -1312,12 +1412,29 @@ if (keysEl) {
 // of 0.42 the entire sky passes the test and the whole frame goes milky. Out
 // here it has to clear daylight and catch only fire.
 const post = setupPost(renderer, scene, camera, {
-  bloom: QUALITY.bloom ? { strength: 0.7, radius: 0.6, threshold: 2.4 } : false,
+  // Always built, so the graphics menu can switch it on and off live.
+  bloom: { strength: 0.7, radius: 0.6, threshold: 2.4 },
   vignette: 0.55,
   grain: 0.010,
   tint: { cool: 0x16233c, warm: 0x241608, mix: 0.42 },
   basePixelRatio: BASE_DPR,
 });
+
+// Volumetric clouds, between the scene and the bloom. The noise they are made
+// of builds on a worker; until it lands the sky dome's flat deck stands in.
+const cloudPass = new CloudPass(camera);
+cloudPass.enabled = false;
+post.composer.insertPass(cloudPass, 1);
+world.sky.setCloudPass(cloudPass);
+let cloudsWanted = false;
+loadCloudNoise((weather) => {
+  world.sky.setWeatherTexture(weather);
+  cloudPass.setTextures({ weather });
+}).then((tex) => {
+  cloudPass.setTextures(tex);
+  cloudPass.enabled = cloudsWanted && cloudPass.ready;
+  world.sky.setDeckOnly(!cloudPass.enabled);
+}).catch((e) => console.warn("clouds: noise failed, flat deck only", e));
 
 // The one dial that runs the whole time. See js/quality.js for why it is this
 // dial and not "turn the trees off".
@@ -1328,7 +1445,60 @@ const governor = createGovernor({
   onScale: (s) => post.setScale(s),
 });
 post.setScale(QUALITY.maxScale);
-console.info(`quality: tier ${TIER}, dpr cap ${BASE_DPR}, render scale ${QUALITY.maxScale}`);
+console.info(`quality: tier ${TIER}, preset ${GFX.preset}, dpr cap ${BASE_DPR}, render scale ${QUALITY.maxScale}`);
+
+// ---------------------------------------------------------------------------
+// Graphics settings, applied live. Everything the menu can change has a setter
+// on the system that owns it, so this is one switch and no reload.
+// ---------------------------------------------------------------------------
+const fpsEl = document.createElement("div");
+fpsEl.id = "fps-meter";
+document.body.appendChild(fpsEl);
+let fpsCapMs = 0;
+
+function applyGraphics(g, changed = null) {
+  const all = !changed;
+  const has = (k) => all || changed.includes(k);
+  if (has("fpsCap")) {
+    fpsCapMs = g.fpsCap ? 1000 / g.fpsCap : 0;
+    governor.setTarget(g.fpsCap || 60);
+  }
+  if (has("maxDpr")) post.setBasePixelRatio(Math.min(window.devicePixelRatio, g.maxDpr || 1));
+  if (has("resScale") || has("preset")) {
+    if (g.resScale === "auto") {
+      const [lo, hi] = graphics.scaleBounds();
+      governor.setBounds(lo, hi);
+      governor.setEnabled(true);
+    } else {
+      governor.setEnabled(false, Number(g.resScale));
+    }
+  }
+  if (has("shadows")) world.setShadows(LEVELS.shadows[g.shadows] ?? 0);
+  if (has("terrain")) world.setTerrainDetail(g.terrain);
+  if (has("trees")) world.setTrees(LEVELS.trees[g.trees] ?? LEVELS.trees.medium);
+  if (has("grass")) world.setGrass(g.grass);
+  if (has("reflections")) world.setReflectionEvery(LEVELS.reflections[g.reflections] ?? 2);
+  if (has("clouds")) {
+    const q = CLOUD_QUALITY[g.clouds] ?? null;
+    cloudsWanted = !!q;
+    if (q) cloudPass.setQuality(q);
+    cloudPass.enabled = cloudsWanted && cloudPass.ready;
+    world.sky.setDeckOnly(!cloudPass.enabled);
+  }
+  if (has("bloom")) post.setBloom(g.bloom);
+  if (has("showFps")) fpsEl.classList.toggle("on", !!g.showFps);
+}
+applyGraphics(graphics.state);
+graphics.onChange((g, changed) => applyGraphics(g, changed));
+
+let fpsShownAt = 0;
+function updateFpsMeter(now) {
+  if (!fpsEl.classList.contains("on") || now - fpsShownAt < 500) return;
+  fpsShownAt = now;
+  const fps = governor.fps;
+  fpsEl.textContent = `${Math.round(fps)} fps · ${Math.round(post.scale * 100)}%`;
+  fpsEl.dataset.band = fps >= 55 ? "good" : fps >= 28 ? "ok" : "bad";
+}
 
 // ---------------------------------------------------------------------------
 // The sleepfire flash.
@@ -1354,9 +1524,20 @@ let sleepFlashLife = 0;
 
 const game = setupGame(storyCtx);
 storyCtx.game = game;
+setMapObjective(() => game.waypoint ? { x: game.waypoint.x, z: game.waypoint.z, label: game.waypointLabel } : null);
+const session = createSession({
+  handoff, game, player, storyCtx, setMapSites,
+  getDragon: () => dragon, getControls: () => controls,
+  sky: world.sky,
+});
 // For the debug console and for jumping to a beat while building.
 window.__na = {
+  /** Debug: pin the camera at `from` looking at `look`; null releases it. */
+  pinCamera(from, look) {
+    camPin = from ? { from: new THREE.Vector3(...from), look: new THREE.Vector3(...look) } : null;
+  },
   game, player, storyCtx,
+  get session() { return session; },
   get dragon() { return dragon; },
   get groundRig() { return groundRig; },
   get plasma() { return plasma; },
@@ -1452,21 +1633,8 @@ const placesBuilt = (async () => {
   // mirror pass changes the scene's light count twice a frame, which makes
   // three recompile every shader in the game. See excludeFromReflection() in
   // ocean.js — it will now refuse them out loud if anyone tries again.
-  game.load(mission1(storyCtx));
-  // The chart learns a place once he has been to it. Nothing is marked in
-  // advance — the whole premise is that the edges are blank.
-  const mapSites = [
-    { x: SITES.camp.x,  z: SITES.camp.z,  label: "The clearing", found: false },
-    { x: SITES.rig.x,   z: SITES.rig.z,   label: "Dragon Hunter Island", found: false },
-    { x: SITES.stack.x, z: SITES.stack.z, label: "Hollow Stack", found: false },
-    { x: SITES.fish.x,  z: SITES.fish.z,  label: "Shoal",   found: false },
-  ];
-  setMapSites(mapSites);
-  storyCtx.findSite = (label) => {
-    const m = mapSites.find((x) => x.label === label);
-    if (m) m.found = true;
-  };
-  game.advance();
+  // Which story, from where — or no story at all. See js/session.js.
+  session.start();
 })();
 
 // ---------------------------------------------------------------------------
@@ -1482,6 +1650,7 @@ const placesBuilt = (async () => {
   await dragonLoaded;
   loading.step(0.45, "Building the archipelago");
   await placesBuilt;
+  session.placeDragon();
   await warmUp(renderer, scene, camera, (t, label) => loading.step(0.45 + t * 0.55, label));
   loading.done();
   clock.getDelta();       // swallow the whole load as one dt, or frame one lurches
@@ -1654,8 +1823,16 @@ renderer.domElement.addEventListener("webglcontextrestored", () => {
   console.warn("WebGL context restored");
 });
 
-function animate() {
+let lastFrameAt = 0;
+function animate(now = performance.now()) {
   requestAnimationFrame(animate);
+  // Frame-rate cap. Skipping a whole rAF tick rather than sleeping inside one:
+  // 30 on a 60 Hz panel is exactly every other swap, which is the only way a
+  // capped frame rate is also an even one. The small tolerance stops a frame
+  // that arrives a hair early being dropped and turning 60 into 30.
+  if (fpsCapMs && now - lastFrameAt < fpsCapMs - 2.5) return;
+  lastFrameAt = now;
+  updateFpsMeter(now);
   try {
     frame();
   } catch (e) {
@@ -1663,6 +1840,7 @@ function animate() {
   }
 }
 
+let camPin = null;
 function frame() {
   tick++;
 
@@ -2136,13 +2314,11 @@ function frame() {
     }
   }
 
-  // Night. The rig is workable at night and the sky is his (§2.5).
-  if (nightAmount !== nightTarget) {
-    nightAmount += Math.sign(nightTarget - nightAmount) * Math.min(dt * 0.35, Math.abs(nightTarget - nightAmount));
-    world.setSun(48 - nightAmount * 62);
-  }
+  // Time of day, weather, clouds, rain — see js/sky.js.
+  world.sky.update(sdt, camera);
 
   game.update(dt);
+  session.update(dt);
   if (flights) flights.update(sdt);
 
   world.update(dragon ? dragon.position : null, sdt);
@@ -2348,6 +2524,12 @@ function frame() {
   // down into one effect and send it.
   pad.flush(dt);
 
+  // `cam` in the debug console: a fixed viewpoint for comparing the scene
+  // before and after a change. Applied last so nothing above can move it.
+  if (camPin) {
+    camera.position.copy(camPin.from);
+    camera.lookAt(camPin.look);
+  }
   post.render(dt);
 }
 

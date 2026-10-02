@@ -110,6 +110,14 @@ let SITES = [];
  */
 export function setMapSites(list) { SITES = list || []; }
 
+let OBJECTIVE = () => null;
+/**
+ * Where the current objective is, as a getter returning { x, z, label } or
+ * null. The HUD has always pointed at it; the chart now does too, so "where
+ * am I going" and "where am I" can be answered on the same piece of paper.
+ */
+export function setMapObjective(get) { OBJECTIVE = get || (() => null); }
+
 export function setupMap(getPlayer) {
   const root   = document.getElementById("map");
   const canvas = document.getElementById("map-canvas");
@@ -805,6 +813,7 @@ export function setupMap(getPlayer) {
 
     paintTrail(ctx, toPx);
     paintSites(ctx, toPx);
+    paintObjective(ctx, toPx);
 
     const player = getPlayer();
     if (player) {
@@ -814,6 +823,30 @@ export function setupMap(getPlayer) {
       paintDragon(ctx, px, py, Math.atan2(Math.cos(player.heading), Math.sin(player.heading)), clock);
       paintReadout(ctx, player, size);
     }
+  }
+
+  /** The objective: a ring that breathes, in the HUD's ember, not in ink. */
+  function paintObjective(g, toPx) {
+    const o = OBJECTIVE();
+    if (!o) return;
+    const [x, y] = toPx(o.x, o.z);
+    const r = size * (0.016 + 0.003 * Math.sin(clock * 3));
+    g.save();
+    g.strokeStyle = "rgba(255, 120, 40, 0.95)";
+    g.lineWidth = Math.max(1.6, size * 0.003);
+    g.shadowColor = "rgba(255, 120, 40, 0.6)";
+    g.shadowBlur = 8;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(x, y, r * 0.25, 0, Math.PI * 2);
+    g.fillStyle = "rgba(255, 120, 40, 0.95)"; g.fill();
+    if (o.label) {
+      g.shadowBlur = 0;
+      g.font = `700 ${Math.round(size * 0.018)}px Rajdhani, system-ui, sans-serif`;
+      g.textAlign = "center";
+      g.fillStyle = "rgba(120, 40, 10, 0.95)";
+      g.fillText(o.label.toUpperCase(), x, y - r * 1.6);
+    }
+    g.restore();
   }
 
   /** Mission sites, inked in the same hand as the rest of the chart. */

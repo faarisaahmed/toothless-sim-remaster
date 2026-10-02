@@ -44,6 +44,9 @@ const MENU = {
   back:    { keys: ["Escape", "Backspace"], pads: [BTN.CIRCLE] },
   del:     { keys: ["Delete", "KeyX"],      pads: [BTN.SQUARE] },
   start:   { keys: ["Enter", "Space"],      pads: [BTN.OPTIONS, BTN.CROSS] },
+  // Settings tabs, and the bumpers that step through them on a pad.
+  tabPrev: { keys: ["KeyQ", "PageUp"],     pads: [BTN.L1] },
+  tabNext: { keys: ["KeyE", "PageDown"],   pads: [BTN.R1] },
 };
 
 const ROOM = {

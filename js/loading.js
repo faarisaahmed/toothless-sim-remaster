@@ -25,20 +25,23 @@ import * as THREE from "three";
 // ---------------------------------------------------------------------------
 
 const CSS = `
-.na-load { position:fixed; inset:0; z-index:120; background:#05060a;
+.na-load { position:fixed; inset:0; z-index:120;
+           background: radial-gradient(ellipse at 50% 40%, #121722 0%, #07090e 62%, #040509 100%);
            display:flex; flex-direction:column; align-items:center; justify-content:center;
-           gap:20px; font-family:Inter,system-ui,sans-serif; color:#e8e2d4;
+           gap:18px; font-family:var(--ui, Rajdhani, system-ui, sans-serif); color:var(--ink, #ece6d8);
            transition:opacity .7s ease; }
 .na-load.out { opacity:0; pointer-events:none; }
-.na-load h1 { font-family:Cinzel,serif; font-size:clamp(1.6rem,4vw,2.6rem);
-              letter-spacing:.16em; font-weight:600; margin:0; opacity:.92; }
-.na-load .bar { width:min(340px,54vw); height:2px; background:rgba(232,226,212,.14);
-                overflow:hidden; }
-.na-load .bar i { display:block; height:100%; width:0%; background:#ff8a3d;
+.na-load .eyebrow { font-size:.7rem; font-weight:700; letter-spacing:.42em; text-transform:uppercase;
+                    color:var(--ember-2, #ffb47a); min-height:1em; }
+.na-load h1 { font-family:var(--display, Cinzel, serif); font-size:clamp(1.8rem,4.4vw,3rem);
+              letter-spacing:.14em; font-weight:600; margin:0; text-shadow:0 0 40px rgba(255,138,61,.15); }
+.na-load .bar { width:min(360px,58vw); height:2px; margin-top:8px; background:rgba(236,230,216,.12);
+                overflow:hidden; border-radius:2px; }
+.na-load .bar i { display:block; height:100%; width:0%; background:var(--ember, #ff8a3d);
                   box-shadow:0 0 12px rgba(255,138,61,.8); transition:width .3s ease; }
-.na-load .what { font-size:.66rem; letter-spacing:.26em; text-transform:uppercase;
-                 color:#8d8677; min-height:1em; }
-.na-load .tip { position:absolute; bottom:8vh; font-size:.76rem; color:#6f6a5f;
+.na-load .what { font-size:.68rem; font-weight:600; letter-spacing:.28em; text-transform:uppercase;
+                 color:var(--ink-3, #857e71); min-height:1em; }
+.na-load .tip { position:absolute; bottom:8vh; font-size:.82rem; font-weight:500; color:var(--ink-3, #857e71);
                 letter-spacing:.06em; max-width:min(560px,80vw); text-align:center; }
 `;
 
@@ -48,7 +51,7 @@ const CSS = `
  *   tip       one line of something to read
  * @returns {{ step, done, fail }}
  */
-export function showLoading({ title = "Night Alone", tip = "" } = {}) {
+export function showLoading({ title = "Night Alone", sub = "", tip = "" } = {}) {
   const style = document.createElement("style");
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -56,6 +59,7 @@ export function showLoading({ title = "Night Alone", tip = "" } = {}) {
   const el = document.createElement("div");
   el.className = "na-load";
   el.innerHTML =
+    `<div class="eyebrow">${sub}</div>` +
     `<h1>${title}</h1>` +
     `<div class="bar"><i></i></div>` +
     `<div class="what">Loading</div>` +

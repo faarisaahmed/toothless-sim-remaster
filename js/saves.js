@@ -1,3 +1,5 @@
+import { CHAPTER_LIST, BEAT_ORDER, chapterOfBeat, beatProgress } from "./storyline.js";
+
 // ---------------------------------------------------------------------------
 // Save slots
 //
@@ -13,69 +15,47 @@
 const KEY = "nightalone.saves.v1";
 export const SLOT_COUNT = 4;
 
-// Ordered, so a slot's position in the list is also its story position and the
-// title screen can show progress without being told how.
-export const SCENES = [
-  "prologue",     // B1  the room
-  "morning",      // B1  he takes the fin
-  "firstsolo",    // B2
-  "beyond",       // B3
-  "rig",          // B4
-  "island",       // B5
-  "lab",          // B6
-  "dream",        // B7
-  "wake",         // B8
-  "hunt",         // B9
-  "sigrun",       // B10
-  "plan",         // B11
-  "raid",         // B12
-  "after",        // B13
-];
-
-export const SCENE_TITLES = {
-  prologue:  "The Room",
-  morning:   "Morning",
-  firstsolo: "First Solo",
-  beyond:    "Beyond the Chart",
-  rig:       "The Rig",
-  island:    "Hollow Stack",
-  lab:       "The Lab",
-  dream:     "The Dream",
-  wake:      "The Wake",
-  hunt:      "The Hunt",
-  sigrun:    "The Lonely Stack",
-  plan:      "The Plan",
-  raid:      "The Raid",
-  after:     "After",
-};
-
+// What a slot holds. Version 2 is the first one the flight sim actually writes:
+// version 1 was created on the title screen and never touched again, so every
+// "Continue" started the story over. See main.js's checkpoint().
+//
+//   scene      "prologue" until the room is done, then "flight"
+//   beat       the beat to resume on (storyline.js BEAT_ORDER)
+//   chapters   ids of chapters finished, for the chapter menu
+//   finished   the last beat is done
+//   run        the player's state — food, rest, keys, the lab wall, flags
+//   sites      chart marks he has found
+//   pos        where he was at the checkpoint, so Continue puts him back there
 function blank() {
   return {
-    version: 1,
+    version: 2,
     created: null,
     updated: null,
     playSeconds: 0,
-
     scene: "prologue",
+    beat: BEAT_ORDER[0],
+    chapters: [],
+    finished: false,
     day: 1,
+    run: null,
+    sites: [],
+    pos: null,
+  };
+}
 
-    // Stores, per §2.5. Coarse on purpose.
-    stores: "fed",          // fed | thin | empty
-    rested: true,
-
-    // What he's worked out. The lab wall lives here; keys are `fire:material:cond`.
-    lab: {},
-    knowsSleepfire: false,
-
-    // Who he's met, and how big Eyvi has got (§11.6 — she grows).
-    met: {},
-    eyviScale: 1,
-
-    // Where home is, once he picks it in B5.
-    hub: null,
-
-    // Raid planning board from B11.
-    plan: null,
+/** Bring an older save up to date, keeping anything it already knew. */
+function migrate(save) {
+  if (!save) return null;
+  if (save.version >= 2) return save;
+  const b = blank();
+  return {
+    ...b,
+    created: save.created ?? b.created,
+    updated: save.updated ?? b.updated,
+    playSeconds: save.playSeconds || 0,
+    scene: save.scene === "prologue" ? "prologue" : "flight",
+    prologueSeen: save.prologueSeen,
+    day: save.day || 1,
   };
 }
 
@@ -92,7 +72,7 @@ function readAll() {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return new Array(SLOT_COUNT).fill(null);
     const out = new Array(SLOT_COUNT).fill(null);
-    for (let i = 0; i < SLOT_COUNT; i++) out[i] = parsed[i] || null;
+    for (let i = 0; i < SLOT_COUNT; i++) out[i] = migrate(parsed[i] || null);
     return out;
   } catch {
     // A corrupt blob is worse than no blob — but don't destroy it, in case the
@@ -146,15 +126,36 @@ export function erase(index) {
 
 // --- Display helpers --------------------------------------------------------
 
+/** "Chapter III · Past the Edge", or where a fresh slot will start. */
 export function sceneTitle(save) {
   if (!save) return "";
-  return SCENE_TITLES[save.scene] || save.scene;
+  if (save.finished) return "Complete";
+  if (save.scene === "prologue") return "The Room";
+  const c = chapterOfBeat(save.beat) || CHAPTER_LIST[0];
+  return `${c.n} · ${c.title}`;
 }
 
 export function progress(save) {
   if (!save) return 0;
-  const i = SCENES.indexOf(save.scene);
-  return i < 0 ? 0 : i / (SCENES.length - 1);
+  return beatProgress(save.beat, save.finished);
+}
+
+/** Chapters this save may replay from the chapter menu: every one it has
+ *  reached, which is everything up to and including the current one. */
+export function unlockedChapters(save) {
+  if (!save) return [];
+  if (save.finished) return CHAPTER_LIST.map((c) => c.id);
+  const cur = chapterOfBeat(save.beat);
+  const i = cur ? CHAPTER_LIST.indexOf(cur) : 0;
+  return CHAPTER_LIST.slice(0, i + 1).map((c) => c.id);
+}
+
+/** The most recently played slot, or -1. */
+export function latest() {
+  const all = readAll();
+  let best = -1;
+  all.forEach((s, i) => { if (s && (best < 0 || (s.updated || 0) > (all[best].updated || 0))) best = i; });
+  return best;
 }
 
 export function playtime(save) {

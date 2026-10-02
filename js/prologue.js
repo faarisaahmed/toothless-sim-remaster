@@ -85,7 +85,7 @@ export function runPrologue(pad = null, save = null) {
 
       <div class="pro-objective" id="pro-objective">
         <div class="pro-obj-line">Look around the room</div>
-        <div class="pro-obj-count"><b id="pro-seen">0</b> <i>of</i> <b>5</b></div>
+        <div class="pro-obj-count"><b id="pro-seen">0</b> <i>of</i> <b>3</b></div>
       </div>
 
       <div class="pro-hint" id="pro-hint">
