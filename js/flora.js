@@ -291,8 +291,9 @@ export function createFlora(scene, opts = {}) {
   // that only exists inside 55 m and below 140 m, which in a flying game is a
   // place you are for a second and a half at a time.
   const useGrass = opts.grass === true;
-  const NEAR = opts.nearLod ?? NEAR_LOD;
-  const FAR = opts.farLod ?? FAR_LOD;
+  // Live, not fixed: the graphics settings move these while you fly.
+  let NEAR = opts.nearLod ?? NEAR_LOD;
+  let FAR = opts.farLod ?? FAR_LOD;
 
   // One node the whole scatter hangs off, so callers that need to do something
   // to all of it — keep it out of the water's reflection, most of all — have
@@ -503,7 +504,10 @@ export function createFlora(scene, opts = {}) {
 
   // --- Grass ---------------------------------------------------------------
   let grass = null;
-  if (useGrass) {
+  // Built on demand, so the graphics menu can turn it on mid-flight without a
+  // reload; costs nothing until then.
+  function buildGrass() {
+    if (grass) return;
     const tuft = new THREE.PlaneGeometry(1.5, 1.0);
     tuft.translate(0, 0.5, 0);
     const tuftB = tuft.clone();
@@ -518,6 +522,8 @@ export function createFlora(scene, opts = {}) {
     grass.count = 0;
     root.add(grass);
   }
+  let grassOn = useGrass;
+  if (useGrass) buildGrass();
 
   const grassAt = new THREE.Vector3(1e9, 0, 1e9);
   let grassCursor = 0, grassPending = false, grassWritten = 0;
@@ -589,7 +595,7 @@ export function createFlora(scene, opts = {}) {
         if (tile.far.visible !== wantFar) tile.far.visible = wantFar;
       }
 
-      if (!grass) return;
+      if (!grass || !grassOn) return;
 
       // Grass, only when he is low enough for it to be more than one pixel.
       const ground = terrainHeight(focus.x, focus.z);
@@ -609,6 +615,16 @@ export function createFlora(scene, opts = {}) {
     },
 
     setGust(v) { uniforms.uGust.value = v; },
+
+    /** Where trees turn into cards, and where cards stop being drawn. */
+    setLod(near, far) { NEAR = near; FAR = far; },
+
+    setGrass(on) {
+      grassOn = !!on;
+      if (grassOn) { buildGrass(); grassAt.set(1e9, 0, 1e9); }
+      else if (grass) grass.visible = false;
+      this.hasGrass = grassOn;
+    },
 
     enabled: true,
     /** Debug console switch. Hides everything scattered without unbuilding it. */

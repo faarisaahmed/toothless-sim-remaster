@@ -93,11 +93,17 @@ const GradeShader = {
 export function setupPost(renderer, scene, camera, opts = {}) {
   const size = renderer.getSize(new THREE.Vector2());
   const composer = new EffectComposer(renderer);
+  // Depth on both ping-pong targets, so a pass after the scene can read how
+  // far away each pixel is. The clouds need it to stop at the terrain.
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+    rt.depthTexture = new THREE.DepthTexture(rt.width, rt.height);
+    rt.depthTexture.type = THREE.UnsignedIntType;
+  }
   composer.addPass(new RenderPass(scene, camera));
 
   // The resolution the composer treats as 1.0. Render scale is applied on top
   // of this, so the governor can never push past what the display asked for.
-  const basePixelRatio = opts.basePixelRatio ?? renderer.getPixelRatio();
+  let basePixelRatio = opts.basePixelRatio ?? renderer.getPixelRatio();
 
   // `bloom: false` drops the pass entirely rather than setting its strength to
   // zero. UnrealBloomPass is a five-target mip chain and it costs the same to
@@ -162,6 +168,14 @@ export function setupPost(renderer, scene, camera, opts = {}) {
       scale = s;
       applyScale();
     },
+    /** The resolution that counts as 1.0 — the graphics menu's pixel-ratio cap. */
+    setBasePixelRatio(r) {
+      if (Math.abs(r - basePixelRatio) < 1e-3) return;
+      basePixelRatio = r;
+      applyScale();
+    },
+    /** Bloom costs a five-target mip chain whether or not anything is bright. */
+    setBloom(on) { if (bloom) bloom.enabled = !!on; },
     setSize(w, h) {
       cssW = w; cssH = h;
       applyScale();

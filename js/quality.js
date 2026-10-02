@@ -94,7 +94,8 @@ export function tierSettings(tier) {
  *   maxScale    ceiling
  *   onScale     called with the new scale, only when it actually changes
  */
-export function createGovernor({ targetFps = 60, minScale = 0.6, maxScale = 1.0, onScale } = {}) {
+export function createGovernor({ targetFps = 60, minScale: min0 = 0.6, maxScale: max0 = 1.0, onScale } = {}) {
+  let minScale = min0, maxScale = max0;
   const WINDOW = 48;          // frames in the median — a bit under a second
   const COOLDOWN = 40;        // frames to wait after acting, so it cannot oscillate
   const samples = new Float32Array(WINDOW);
@@ -108,7 +109,7 @@ export function createGovernor({ targetFps = 60, minScale = 0.6, maxScale = 1.0,
   const CLIMB_BLOCK = 240;    // ~4 s of no climbing after a retreat
   const FLOOR_MS = 6;         // sanity floor — nothing here runs at 165 Hz
 
-  const budget = 1000 / targetFps;   // the frame time we are asking for
+  let budget = 1000 / targetFps;     // the frame time we are asking for
 
   let filled = 0, cursor = 0, cooldown = 0, climbBlock = 0;
   let scale = maxScale;
@@ -122,6 +123,22 @@ export function createGovernor({ targetFps = 60, minScale = 0.6, maxScale = 1.0,
     get frameMs() { return lastMedian; },
     get vsyncMs() { return fastest; },
     get enabled() { return enabled; },
+
+    /** A new frame-rate target — the player's cap, or 60. */
+    setTarget(fps) {
+      budget = 1000 / Math.max(10, fps);
+      // The swap interval measured so far was measured against the old cap; a
+      // 30 fps cap would otherwise teach it that this display is a 30 Hz one.
+      fastest = budget;
+      filled = 0;
+    },
+
+    /** New limits for the scale; the current scale is pulled inside them. */
+    setBounds(min, max) {
+      minScale = min; maxScale = max;
+      const s = Math.min(maxScale, Math.max(minScale, scale));
+      if (s !== scale) { scale = s; onScale?.(scale); }
+    },
 
     /** Turn the governor off and pin the scale — for screenshots and profiling. */
     setEnabled(v, pinned = maxScale) {
