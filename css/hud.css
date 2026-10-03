@@ -302,3 +302,16 @@ body:has(.na-bars.on) #hud-keys-panel { opacity: 0; }
   #hud-keys-panel { display: none; }
   .na-end-card dl { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* "?" and "!" over hunters who have noticed him (main.js updateHunterMarkers). */
+#hunter-marks { position: fixed; inset: 0; pointer-events: none; z-index: 38; }
+#hunter-marks i {
+  position: absolute; left: -9px; top: -22px; width: 18px; text-align: center;
+  font: 800 20px/1 var(--display); font-style: normal;
+  text-shadow: 0 0 8px rgba(0,0,0,.9), 0 1px 2px #000;
+  transition: color .2s;
+}
+#hunter-marks i.sus { color: rgba(242, 200, 121, calc(0.35 + var(--a) * 0.65)); }
+#hunter-marks i.alert { color: #ff5a3a; animation: mark-pop .5s var(--ease) both; }
+@keyframes mark-pop { 0% { transform-origin: center; scale: 1.8; } 100% { scale: 1; } }
+body:has(.na-bars.on) #hunter-marks { display: none; }

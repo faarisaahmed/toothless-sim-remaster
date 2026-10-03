@@ -83,9 +83,12 @@ SLOT_LOOK = {
     "cloth":     ((0.78, 0.74, 0.63, 1), 0.90),
     "hide":      ((0.40, 0.29, 0.20, 1), 0.85),
     "ember":     ((1.00, 0.33, 0.07, 1), 0.70),
+    "skin":      ((0.72, 0.52, 0.40, 1), 0.70),
+    "leather":   ((0.24, 0.16, 0.10, 1), 0.65),
 }
 
-SLOT_ORDER = ["wood", "wood_dark", "stone", "iron", "rope", "cloth", "hide", "ember"]
+SLOT_ORDER = ["wood", "wood_dark", "stone", "iron", "rope", "cloth", "hide", "ember",
+              "skin", "leather"]
 
 # --------------------------------------------------------------------------
 # Arris widths, per slot, in metres.
@@ -108,6 +111,8 @@ BEVEL = {
     "cloth":     0.0,
     "hide":      0.0,
     "ember":     0.0,
+    "skin":      0.0,
+    "leather":   0.002,
 }
 
 # Segments across the arris. One is a flat chamfer, which is exactly what a
@@ -177,7 +182,8 @@ def get_material(slot):
     # viewer that is not this game. The engine still replaces these wholesale.
     for name, value in (("IOR", {"wood": 1.42, "wood_dark": 1.42, "stone": 1.50,
                                  "rope": 1.46, "cloth": 1.46, "hide": 1.48,
-                                 "iron": 2.9, "ember": 1.45}[slot]),
+                                 "iron": 2.9, "ember": 1.45, "skin": 1.40,
+                                 "leather": 1.45}[slot]),
                         ("Sheen Weight", 0.35 if slot in ("cloth", "rope") else 0.0)):
         if name in bsdf.inputs:
             bsdf.inputs[name].default_value = value

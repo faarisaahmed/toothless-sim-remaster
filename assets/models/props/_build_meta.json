@@ -269,6 +269,237 @@
   ],
   "tris": 1786
  },
+ "dh_archer.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "scatter",
+  "detail": 1.2,
+  "min": [
+   -0.33,
+   0.0,
+   -0.255
+  ],
+  "nodes": [
+   "torso",
+   "arm_l",
+   "arm_r",
+   "leg_l",
+   "leg_r"
+  ],
+  "note": "an archer: bow in the left hand, quiver on the back. Same parts as the hunter",
+  "size": [
+   0.66,
+   1.87,
+   0.54
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron",
+   "rope",
+   "cloth",
+   "hide",
+   "skin",
+   "leather"
+  ],
+  "tris": 1860
+ },
+ "dh_ballista.glb": {
+  "anchor": "ground",
+  "budget": 16000,
+  "cls": "medium",
+  "detail": 1.6,
+  "min": [
+   -1.66,
+   0.0,
+   -1.8
+  ],
+  "nodes": [
+   "dh_ballista",
+   "bolt"
+  ],
+  "note": "a dragon ballista on a pivot. Bolt node `bolt` ships loaded",
+  "size": [
+   3.32,
+   1.511,
+   3.906
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron",
+   "rope"
+  ],
+  "tris": 1280
+ },
+ "dh_forge.glb": {
+  "anchor": "ground",
+  "budget": 110000,
+  "cls": "hero",
+  "detail": 2.1,
+  "min": [
+   -8.1,
+   -0.04,
+   -7.569
+  ],
+  "nodes": [
+   "dh_forge",
+   "mouth"
+  ],
+  "note": "Bellows' smelter: a round furnace with a glowing mouth (`mouth`) and two chimneys",
+  "size": [
+   16.2,
+   19.04,
+   15.137
+  ],
+  "slots": [
+   "wood_dark",
+   "stone",
+   "iron",
+   "hide",
+   "ember"
+  ],
+  "tris": 20426
+ },
+ "dh_hunter.glb": {
+  "anchor": "ground",
+  "budget": 3000,
+  "cls": "scatter",
+  "detail": 1.2,
+  "min": [
+   -0.33,
+   0.0,
+   -0.23
+  ],
+  "nodes": [
+   "torso",
+   "arm_l",
+   "arm_r",
+   "leg_l",
+   "leg_r"
+  ],
+  "note": "a hunter with a spear and bolas. Parts: torso, arm_l, arm_r, leg_l, leg_r",
+  "size": [
+   0.66,
+   2.55,
+   0.46
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron",
+   "rope",
+   "cloth",
+   "hide",
+   "skin",
+   "leather"
+  ],
+  "tris": 1794
+ },
+ "dh_palisade.glb": {
+  "anchor": "ground",
+  "budget": 16000,
+  "cls": "medium",
+  "detail": 1.6,
+  "min": [
+   -3.12,
+   -0.4,
+   -0.162
+  ],
+  "nodes": [
+   "dh_palisade"
+  ],
+  "note": "6 m of sharpened stake wall, 3.6 m tall, footprint along X",
+  "size": [
+   6.239,
+   4.53,
+   0.432
+  ],
+  "slots": [
+   "wood",
+   "wood_dark"
+  ],
+  "tris": 1276
+ },
+ "dh_tent.glb": {
+  "anchor": "ground",
+  "budget": 16000,
+  "cls": "medium",
+  "detail": 1.6,
+  "min": [
+   -1.632,
+   -0.019,
+   -2.4
+  ],
+  "nodes": [
+   "dh_tent"
+  ],
+  "note": "a hunters' A-frame tent of hides, 4.4 x 2.6 m",
+  "size": [
+   3.263,
+   2.576,
+   4.8
+  ],
+  "slots": [
+   "wood",
+   "hide"
+  ],
+  "tris": 257
+ },
+ "dh_torch.glb": {
+  "anchor": "ground",
+  "budget": 9000,
+  "cls": "small",
+  "detail": 1.5,
+  "min": [
+   -0.238,
+   0.0,
+   -0.214
+  ],
+  "nodes": [
+   "dh_torch",
+   "flame"
+  ],
+  "note": "a torch post for the spiral road. The flame ships as its own node, `flame`",
+  "size": [
+   0.475,
+   3.72,
+   0.429
+  ],
+  "slots": [
+   "wood_dark",
+   "iron",
+   "ember"
+  ],
+  "tris": 650
+ },
+ "dh_watchtower.glb": {
+  "anchor": "ground",
+  "budget": 40000,
+  "cls": "structure",
+  "detail": 1.7,
+  "min": [
+   -2.3,
+   -0.011,
+   -2.3
+  ],
+  "nodes": [
+   "dh_watchtower"
+  ],
+  "note": "a log watchtower for the rim: deck at 8 m, roof, ladder. Archers stand at y=8.25",
+  "size": [
+   4.6,
+   12.261,
+   4.935
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "cloth",
+   "hide"
+  ],
+  "tris": 3248
+ },
  "fish.glb": {
   "anchor": "ground",
   "budget": 3000,

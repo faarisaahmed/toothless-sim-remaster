@@ -16,7 +16,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import propkit                       # noqa: E402
-import build_rig, build_stack, build_berk, build_sea   # noqa: E402,F401
+import build_rig, build_stack, build_berk, build_sea, build_hunters   # noqa: E402,F401
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 propkit.build_all(only=set(argv) or None)

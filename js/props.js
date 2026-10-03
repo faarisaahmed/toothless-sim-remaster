@@ -37,6 +37,10 @@ function slots() {
     hide:      M(tex.fur({ tint: [70, 52, 40] }), { repeat: 1.0, roughness: 1.0, bumpScale: 0.10 }),
     cloth:     M(tex.fur({ tint: [128, 118, 96] }), { repeat: 1.4, roughness: 0.95, bumpScale: 0.05 }),
     rope:      M(tex.fur({ tint: [96, 80, 54] }), { repeat: 3.0, roughness: 1.0, bumpScale: 0.14 }),
+    // The hunters. Weathered skin, and the dark oiled leather the crews wear
+    // over everything — it is what makes them read as a crew and not a village.
+    skin:      new THREE.MeshStandardMaterial({ color: 0xb98a6e, roughness: 0.72, metalness: 0 }),
+    leather:   M(tex.fur({ tint: [52, 36, 26] }), { repeat: 1.6, roughness: 0.62, bumpScale: 0.04 }),
 
     // Iron is the one surface that wants to be smooth and a little metallic —
     // it is the thing the whole story is about and it should read as machined

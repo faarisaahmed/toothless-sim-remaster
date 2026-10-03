@@ -51,6 +51,9 @@ const SNOW       = lin(0xe6edf2);
 // the air, and finding it is what the beat is for.
 const ASH        = lin(0x7d7462);
 const CHAR       = lin(0x2b2620);
+// The hunters' pit: packed road and the cut rock between its terraces.
+const PIT_ROAD   = lin(0x6a5c4a);
+const PIT_ROCK   = lin(0x2e2b28);
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 function smoothstep(x, a, b) {
@@ -148,6 +151,20 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
     // The shader reads vegetation as "how green is the texture", so turf has
     // to count, a bit, or the heath shows the scree photograph.
     veg = Math.max(veg, turf * 0.62);
+
+    // The hunters' pit: the terraces are a road, trodden to bare earth and
+    // gravel, and the risers between them are cut rock. Painted here so the
+    // spiral reads from the air as rings of pale road on dark stone.
+    if (isl && isl.crater && isl.crater.spiral) {
+      const dp = Math.hypot(x - isl.x, z - isl.z) / isl.r;
+      const inPit = 1 - smoothstep(dp, isl.crater.inner - 0.05, isl.crater.inner + 0.02);
+      if (inPit > 0.001) {
+        const tread = 1 - smoothstep(slope, 0.25, 0.55);
+        mix(PIT_ROCK, inPit * (1 - tread));
+        mix(PIT_ROAD, inPit * tread * (0.8 + 0.2 * patch));
+        veg *= 1 - inPit;
+      }
+    }
 
     if (CLEARING) {
       const cd = Math.hypot(x - CLEARING.x, z - CLEARING.z);

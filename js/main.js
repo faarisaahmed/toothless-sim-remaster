@@ -12,6 +12,8 @@ import { bindDragon } from "./dragonrig.js";
 import { makePlayer, createState } from "./player.js";
 import { SITES, RIG } from "./chapters.js";
 import { createSession } from "./session.js";
+import { buildHunterBase } from "./hunterbase.js";
+import { pitLayout } from "./terrain.js";
 import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
 import { chapterOfBeat, chapterById } from "./storyline.js";
 import { setMapSites, setMapObjective } from "./map.js";
@@ -1278,6 +1280,39 @@ const HUNT_STAGGER = 0.55;  // s
 const HUNT_SEEN_MIN = 0.14;
 
 let huntStagger = 0;
+let alarmToasted = false;
+// What the hunters are looking at: him. Filled in each frame.
+const huntTarget = { pos: null, vel: new THREE.Vector3(), loud: false, hidden: false, speedT: 0 };
+
+// "?" and "!" over the heads of the men who have noticed him — the stealth is
+// unplayable if you cannot see who is about to see you.
+const markerLayer = document.createElement("div");
+markerLayer.id = "hunter-marks";
+document.body.appendChild(markerLayer);
+const markerEls = [];
+const _mk = new THREE.Vector3();
+function updateHunterMarkers() {
+  let n = 0;
+  if (!game.cine) {
+    for (const m of rig.hunters.men) {
+      if (m.ko > 0 || m.awareness < 0.25 || !dragon) continue;
+      if (m.pos.distanceTo(dragon.position) > 480) continue;
+      _mk.copy(m.pos); _mk.y += 2.6;
+      _mk.project(camera);
+      if (_mk.z > 1 || Math.abs(_mk.x) > 1 || Math.abs(_mk.y) > 1) continue;
+      let el = markerEls[n];
+      if (!el) { el = document.createElement("i"); markerLayer.appendChild(el); markerEls.push(el); }
+      el.style.display = "";
+      el.textContent = m.state === "alert" ? "!" : "?";
+      el.className = m.state === "alert" ? "alert" : "sus";
+      // The ? fills as he gets closer to certain.
+      el.style.setProperty("--a", Math.min(1, m.awareness).toFixed(2));
+      el.style.transform = `translate(${(_mk.x * 0.5 + 0.5) * innerWidth}px,${(-_mk.y * 0.5 + 0.5) * innerHeight}px)`;
+      if (++n >= 24) break;
+    }
+  }
+  for (let i = n; i < markerEls.length; i++) markerEls[i].style.display = "none";
+}
 const _hv = new THREE.Vector3();
 const _hfrom = new THREE.Vector3();
 
@@ -1289,7 +1324,7 @@ function updateHunters(dt) {
   // noise on top of it, using the same test the recon beat is scored on so
   // "loud" means one thing everywhere in the game.
   const loud = controls.getClimb() > 0.15 || controls.getSpeedT() > 0.30;
-  const seen = Math.min(1, rig.litFraction * 1.3 + (loud ? 0.45 : 0));
+  const seen = rig.hunters ? 0.8 : Math.min(1, rig.litFraction * 1.3 + (loud ? 0.45 : 0));
   if (seen < HUNT_SEEN_MIN) return;
 
   // Nobody throws at a dragon who is already coming down. Without this the deck
@@ -1307,6 +1342,8 @@ function updateHunters(dt) {
   _hv.set(Math.sin(h) * sp, controls.getVerticalSpeed(), Math.cos(h) * sp);
 
   for (const g of rig.guards) {
+    // A man throws at what HE has seen, not at what the deck in general can.
+    if (g.ko > 0 || (g.state !== undefined && g.state !== "alert")) continue;
     g.reload = (g.reload ?? Math.random() * HUNT_RELOAD) - dt;
     if (g.reload > 0 || huntStagger > 0) continue;
 
@@ -1609,10 +1646,15 @@ function findCraterFloor() {
 }
 
 const placesBuilt = (async () => {
-  const floor = findCraterFloor();
+  // The base stands in the pit, which terrain.js lays out exactly — the floor
+  // is the centre of the pit, and every waypoint over the compound reads it.
+  const pit = pitLayout();
+  const floor = pit
+    ? { x: pit.x, z: pit.z, deckY: world.getHeightAt(pit.x, pit.z) }
+    : findCraterFloor();
   if (floor) {
     SITES.rig.set(floor.x, 0, floor.z);
-    RIG.y = floor.deckY;   // every waypoint over the compound reads this
+    RIG.y = floor.deckY;
   }
 
   // The clearing comes out of terrain.js, which found it by sweeping the
@@ -1622,11 +1664,16 @@ const placesBuilt = (async () => {
   if (CLEARING) SITES.camp.set(CLEARING.x, 0, CLEARING.z);
 
   [rig, stack, camp] = await Promise.all([
-    buildRig(scene, SITES.rig, {
-      seaLevel: world.seaLevel,
-      deckY: floor ? floor.deckY : null,
-      groundAt: (x, z) => world.getHeightAt(x, z),
-    }),
+    pit
+      ? buildHunterBase(scene, {
+          seaLevel: world.seaLevel,
+          groundAt: (x, z) => world.getHeightAt(x, z),
+        })
+      : buildRig(scene, SITES.rig, {
+          seaLevel: world.seaLevel,
+          deckY: floor ? floor.deckY : null,
+          groundAt: (x, z) => world.getHeightAt(x, z),
+        }),
     buildHollowStack(scene, SITES.stack, {
       ground: Math.max(world.getHeightAt(SITES.stack.x, SITES.stack.z), world.seaLevel + 4),
     }),
@@ -1642,6 +1689,14 @@ const placesBuilt = (async () => {
   // mirror pass changes the scene's light count twice a frame, which makes
   // three recompile every shader in the game. See excludeFromReflection() in
   // ocean.js — it will now refuse them out loud if anyone tries again.
+  // Arrows hurt, and say so.
+  if (rig?.hunters) {
+    rig.onArrowHit = () => {
+      health.damage(7, "Arrow");
+      pad.rumble.pulse(0.7, 0.6, 0.18);
+    };
+  }
+
   // Which story, from where — or no story at all. See js/session.js.
   session.start();
 })();
@@ -2265,6 +2320,23 @@ function frame() {
 
   // --- Story ----------------------------------------------------------------
   rig?.update(sdt, camera);
+  rig?.setNight?.(world.sky.state?.night ?? 0);
+  if (rig?.hunters && dragon && controls) {
+    const h = controls.getHeading(), sp = controls.getSpeed();
+    huntTarget.pos = dragon.position;
+    huntTarget.vel.set(Math.sin(h) * sp, controls.getVerticalSpeed(), Math.cos(h) * sp);
+    huntTarget.loud = controls.getClimb() > 0.15 || controls.getSpeedT() > 0.30;
+    huntTarget.speedT = controls.getSpeedT();
+    huntTarget.hidden = !!game.cine;
+    const spotted = rig.hunters.update(sdt, huntTarget, world.sky.state?.night ?? 0);
+    if (spotted.length && !game.cine) {
+      if (!alarmToasted) game.toast("Seen.", 1100);
+      alarmToasted = true;
+      pad.rumble.pulse(0.4, 0.2, 0.15);
+    }
+    if (rig.hunters.alarm <= 0) alarmToasted = false;
+    updateHunterMarkers();
+  }
   stack?.update(sdt, camera);
   updateHunters(sdt);
   // A cutscene takes the camera somewhere he cannot fly, so anything already

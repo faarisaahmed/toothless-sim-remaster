@@ -223,10 +223,22 @@ const RAW_ISLANDS = [
   // AND the story waypoint on the flattest patch it finds. If the sweep comes
   // back empty the fort floats and mission 1 is unplayable, so tools/probe.mjs
   // runs the same sweep — check it, do not assume it.
-  { name: "Dragon Hunter Island", x: 2900, z: 3800, r: 980, h: 640, cliff: 0.28,
-    elong: 0.9, rot: -0.35, lobe: 0.15, lobeK: 1.4, dome: 0,
-    relief: 1.2, terrace: 0.55, scree: 1.2, shelfW: 0.34, beach: 0.3, bare: 0.75,
-    crater: { inner: 0.46, floor: 0.42, gate: 0.85, mouth: 0.26 } },
+  //
+  // Rebuilt after the hunters' island in the films: not a mountain with a hole
+  // in it, but a PIT. A round flat floor in the middle where the cages and the
+  // smelter stand, a road that spirals up the pit wall in terraces, a jagged
+  // rim, and the land beyond it thrown out in three forested arms that swirl
+  // into the sea — the whole thing reads as a vortex from the air.
+  //
+  //   spiral  {pit, turns}  pit: radius of the flat floor, as a fraction of r;
+  //                         turns: terraces between the floor and the rim
+  //   arms    {n, twist, amp}  spiral arms in the coastline
+  { name: "Dragon Hunter Island", x: 2900, z: 3800, r: 1000, h: 470, cliff: 0.24,
+    elong: 0.92, rot: -0.35, lobe: 0.12, lobeK: 1.6, dome: 0,
+    relief: 1.25, terrace: 0.3, scree: 1.35, shelfW: 0.36, beach: 0.2, bare: 0.32,
+    crater: { inner: 0.42, floor: 0.55, gate: 0.85, mouth: 0.17,
+              spiral: { pit: 0.115, turns: 4 } },
+    arms: { n: 3, twist: 5.0, amp: 0.22 } },
 
   // Hollow Stack. `flat` turns off the relief and the crags so this comes out
   // as a plateau rather than a spire — the story lives on it, and you have to
@@ -490,6 +502,8 @@ const IROT = new Uint8Array(N);
 const ICR = new Uint8Array(N);
 const ICR_IN = new Float64Array(N), ICR_FL = new Float64Array(N);
 const ICR_GA = new Float64Array(N), ICR_MO = new Float64Array(N);
+const ISP = new Uint8Array(N), ISP_PF = new Float64Array(N), ISP_T = new Float64Array(N);
+const IARM = new Uint8Array(N), IARM_TW = new Float64Array(N), IARM_AMP = new Float64Array(N);
 
 function flattenIslands() {
 for (let i = 0; i < N; i++) {
@@ -537,11 +551,17 @@ for (let i = 0; i < N; i++) {
     ICR[i] = 1;
     ICR_IN[i] = isl.crater.inner; ICR_FL[i] = isl.crater.floor;
     ICR_GA[i] = isl.crater.gate;  ICR_MO[i] = isl.crater.mouth;
+    if (isl.crater.spiral) {
+      ISP[i] = 1; ISP_PF[i] = isl.crater.spiral.pit; ISP_T[i] = isl.crater.spiral.turns;
+    }
+  }
+  if (isl.arms) {
+    IARM[i] = isl.arms.n; IARM_TW[i] = isl.arms.twist; IARM_AMP[i] = isl.arms.amp;
   }
   // Worst case the lobe noise pulls the coast out by 1/(1 - lobe), and the
   // shelf reaches shelfW beyond that. Outside this box the island cannot
   // contribute at all, which is what the grid below is built on.
-  IREACH[i] = isl.r * (1 + isl.shelfW) / (1 - isl.lobe) + 40;   // +40 for `rim`
+  IREACH[i] = isl.r * (1 + isl.shelfW) / (1 - isl.lobe - (isl.arms ? isl.arms.amp : 0)) + 40;   // +40 for `rim`
   isl._reach = IREACH[i];
 }
 }
@@ -664,6 +684,18 @@ export function terrainHeight(x, z) {
       const lob = noise2(ux * kk + ISX[i], uz * kk + ISZ[i]) * 0.72
                 + noise2(ux * kk * 2.9 + ISZ[i], uz * kk * 2.9 + ISX[i]) * 0.28;
       d *= 1 + lob * ILOBE[i];
+
+      // Spiral arms: the coast pushed out along a few logarithmic-ish spirals
+      // and pulled in between them, only in the outer half, so the middle of
+      // the island is round and the edge is a pinwheel of headlands and
+      // sounds. The phase runs with distance, which is what twists them.
+      if (IARM[i]) {
+        const th = Math.atan2(uz, ux);
+        const phase = IARM[i] * th - IARM_TW[i] * d
+                    + noise2(ux * 1.7 + ISX[i], uz * 1.7 - ISZ[i]) * 0.9;
+        const arm = Math.cos(phase);
+        d *= 1 - IARM_AMP[i] * arm * smoothstep(d, 0.42, 0.95);
+      }
     }
 
     // The drowned foot. This is what the ocean shoals and breaks waves on, and
@@ -685,8 +717,44 @@ export function terrainHeight(x, z) {
       // reaches the inside face of the rim, so multiplying by it turns the
       // island's dome into a ring without touching the outer cliff at all.
       const inner = ICR_IN[i];
-      const bowl = smoothstep(d, inner - 0.2, inner + 0.06);
-      f *= lerp(ICR_FL[i], 1, bowl);
+      let bowl;
+      if (ISP[i]) {
+        // The pit: a flat floor, then terraces climbing the wall in a spiral.
+        // u counts terraces outward and backs off by the bearing, so each
+        // tread rises one level per turn and the road climbs continuously;
+        // p is how far across the current tread we are, and its last fifth
+        // is the riser — a short cliff up to the next turn of the road.
+        //
+        // Measured in WORLD space from the island's own centre, not in the
+        // warped, lobed space the rest of the island is shaped in. The warp is
+        // hundreds of metres at this scale, which is right for a coastline and
+        // wrong for something cut by people: it bent the spiral into a jumble.
+        const pf = ISP_PF[i], T = ISP_T[i];
+        const top = inner - 0.035;
+        const wx = x - IWX[i], wz = z - IWZ[i];
+        const dl = Math.sqrt(wx * wx + wz * wz);
+        // A little waviness in the radius, slow around the bearing, so it is
+        // a pit someone dug into a mountain and not a target on a map.
+        const wob = dl > 1 ? noise2(wx / dl * 1.3 + ISX[i], wz / dl * 1.3 + ISZ[i]) * 0.035 : 0;
+        const dp = dl / IR[i] * (1 + wob);
+        const sR = (dp - pf) / (top - pf);
+        let g;
+        if (sR <= 0) g = 0;
+        else if (sR >= 1) g = 1;
+        else {
+          const th = Math.atan2(wz, wx) / (Math.PI * 2) + 0.5;
+          const u = sR * T - th;
+          const kk = Math.floor(u), pp = u - kk;
+          g = clamp((kk + th + smoothstep(pp, 0.8, 0.97)) / T, 0, 1);
+        }
+        bowl = smoothstep(dp, top, inner + 0.08);
+        // Terraces from the floor to about seven-eighths of the rim, then the
+        // inside face of the rim itself, sheer.
+        f *= lerp(lerp(ICR_FL[i], 0.86, g), 1, bowl);
+      } else {
+        bowl = smoothstep(d, inner - 0.2, inner + 0.06);
+        f *= lerp(ICR_FL[i], 1, bowl);
+      }
 
       // The channel: one wedge of bearings where the rim is cut below the
       // waterline, so there is a way in at sea level as well as over the top,
@@ -1021,6 +1089,12 @@ export function fertility(x, z, h, slope) {
   // scoured lava, where the old linear `1 - bare * 0.9` left the forested
   // islands at 0.87 of a number that was already halved.
   let f = Math.pow(1 - bare, 1.15) * patch;
+  // Nothing grows in a working pit: the floor and the terraces are trodden,
+  // burnt and built on. The forest starts at the rim.
+  if (isl && isl.crater) {
+    const dd = Math.hypot(x - isl.x, z - isl.z) / isl.r;
+    f *= smoothstep(dd, isl.crater.inner + 0.03, isl.crater.inner + 0.13);
+  }
   // Conifers root on ground you would need hands to climb. The old cutoff put
   // the tree line at about 42 degrees, which on a relief-1.0 island is most of
   // it, so the wood was pushed off the hills and onto the valley floors.
@@ -1036,4 +1110,40 @@ export function fertility(x, z, h, slope) {
     f *= 0.04 + 0.96 * smoothstep(d, CLEARING_R, CLEARING_EDGE);
   }
   return clamp(f * 1.25, 0, 1);
+}
+
+/**
+ * Where the hunters' pit is, for whoever builds on it (hunterbase.js).
+ *
+ *   x, z        world centre        floorR   radius of the flat floor, metres
+ *   topR        where the terraces end and the rim wall begins
+ *   rimR        roughly where the rim crest is
+ *   turns       terraces, one per turn of the spiral
+ *   roadAt(k, a) world {x, z} on the middle of terrace k (0 = lowest) at
+ *               bearing a — measured the same way terrainHeight measures it,
+ *               so it lands on the tread and not on the riser
+ */
+export function pitLayout(name = "Dragon Hunter Island") {
+  const isl = ISLANDS.find((i) => i.name === name);
+  if (!isl || !isl.crater?.spiral) return null;
+  const c = isl.crater, sp = c.spiral;
+  const top = c.inner - 0.035;
+  return {
+    isl, x: isl.x, z: isl.z, r: isl.r,
+    floorR: sp.pit * isl.r,
+    topR: top * isl.r,
+    rimR: (c.inner + 0.12) * isl.r,
+    turns: sp.turns,
+    roadAt(k, a) {
+      // th is the bearing as terrainHeight measures it, 0..1 from atan2+0.5.
+      const th = a / (Math.PI * 2) + 0.5;
+      const sR = (k + ((th % 1) + 1) % 1 + 0.4) / sp.turns;
+      const dp = sp.pit + sR * (top - sp.pit);
+      const ux = Math.cos(a), uz = Math.sin(a);
+      // The pit's radius wobbles a few percent with bearing; measure it.
+      const wob = noise2(ux * 1.3 + ISX[ISLANDS.indexOf(isl)], uz * 1.3 + ISZ[ISLANDS.indexOf(isl)]) * 0.035;
+      const rr = dp * isl.r / (1 + wob);
+      return { x: isl.x + ux * rr, z: isl.z + uz * rr, r: rr };
+    },
+  };
 }
