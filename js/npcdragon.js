@@ -45,7 +45,8 @@ function tinted(template, scale, tint, mix) {
  *   scale, tint, mix   size and colour
  *   tuning    the wing-beat tuning main.js uses
  */
-export function createNpcDragon(scene, { template, scale = 1, tint = 0xffffff, mix = 0.5, tuning, name = "npc" }) {
+export function createNpcDragon(scene, { template, actor = null, scale = 1, tint = 0xffffff, mix = 0.5, tuning, name = "npc" }) {
+  if (actor) return actorDragon(scene, actor, name);
   const perched = tinted(template, scale, tint, mix);
   perched.name = name + "-perched";
   const rig = bindDragon(perched);
@@ -153,6 +154,69 @@ export function createNpcDragon(scene, { template, scale = 1, tint = 0xffffff, m
     },
 
     dispose() { scene.remove(perched); scene.remove(flying); },
+  };
+  return api;
+}
+
+// The same api over a dragonkit.js actor — a real model of the species, when
+// one is on disk. One body does both: it folds to perch and beats to fly.
+function actorDragon(scene, actor, name) {
+  const body = actor.root;
+  body.name = name;
+  body.rotation.order = "YXZ";
+  scene.add(body);
+  const state = {
+    mode: "perched", pos: new THREE.Vector3(), heading: 0, target: null,
+    speed: 0, onArrive: null, hidden: false, droop: 0,
+  };
+  let t = 0;
+  const _d = new THREE.Vector3();
+  const api = {
+    perched: body, flying: body, state, actor,
+    get pos() { return state.pos; },
+    perch(pos, heading = 0) {
+      state.mode = "perched";
+      state.pos.copy(pos);
+      state.heading = heading;
+      state.target = null;
+      actor.setMode("idle");
+      body.visible = !state.hidden;
+    },
+    flyTo(pos, speed = 45, onArrive = null) {
+      state.mode = "flying";
+      state.target = pos.clone();
+      state.speed = speed;
+      state.onArrive = onArrive;
+      actor.setMode("fly");
+      body.visible = !state.hidden;
+    },
+    setVisible(v) { state.hidden = !v; body.visible = v; },
+    setDroop(v) { state.droop = v; actor.setDroop(v); },
+    update(dt) {
+      t += dt;
+      if (state.mode === "perched") {
+        body.position.copy(state.pos);
+        body.rotation.set(0, state.heading + Math.sin(t * 0.21) * 0.12, state.droop * 0.1);
+      } else if (state.target) {
+        const to = state.target;
+        _d.subVectors(to, state.pos);
+        const d = _d.length();
+        const want = Math.atan2(_d.x, _d.z);
+        const dh = Math.atan2(Math.sin(want - state.heading), Math.cos(want - state.heading));
+        state.heading += dh * Math.min(1, dt * 2.2);
+        if (d > 0.01) state.pos.addScaledVector(_d.normalize(), Math.min(d, state.speed * dt));
+        body.position.copy(state.pos);
+        body.rotation.set(-Math.atan2(to.y - state.pos.y, Math.hypot(to.x - state.pos.x, to.z - state.pos.z)) * 0.5,
+          state.heading, -dh * 0.8);
+        if (d < 3) {
+          const cb = state.onArrive;
+          state.onArrive = null;
+          if (cb) cb();
+        }
+      }
+      if (body.visible) actor.update(dt);
+    },
+    dispose() { scene.remove(body); },
   };
   return api;
 }

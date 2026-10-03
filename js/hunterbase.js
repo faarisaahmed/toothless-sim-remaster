@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { prop } from "./props.js";
 import { mergeStatic, makeLightPool } from "./places.js";
 import { makeOrb } from "./placeholder.js";
+import { loadKit, createActor } from "./dragonkit.js";
 import { pitLayout } from "./terrain.js";
 import { createHunters } from "./hunters.js";
 
@@ -33,6 +34,56 @@ import { createHunters } from "./hunters.js";
 // ---------------------------------------------------------------------------
 
 const TAU = Math.PI * 2;
+
+// ---------------------------------------------------------------------------
+// What is in the cages. A glowing orb until the stand-in models load (they are
+// local-only, see tools/dragons/); then a dragon of a real species, folded up
+// and shifting about, which beats its way up and out when the cage breaks.
+// ---------------------------------------------------------------------------
+const SPECIES = ["nadder", "gronckle", "nightmare", "thunderdrum", "zippleback"];
+
+async function fillCages(list, group) {
+  const kits = (await Promise.all(SPECIES.map(loadKit))).filter(Boolean);
+  if (!kits.length) return;
+  list.forEach((cage, i) => {
+    // The hatchling is a Nadder chick, always; the rest go round the species.
+    const kit = cage.hatch ? (kits.find((k) => k.name === "nadder") || kits[0]) : kits[i % kits.length];
+    const actor = createActor(kit, { length: cage.fit });
+    actor.root.rotation.order = "YXZ";
+    // Corner to corner: the longest thing that fits in a square box.
+    actor.root.position.set(cage.pos.x, cage.gy + 0.25, cage.pos.z);
+    actor.root.rotation.y = cage.yaw + Math.PI / 4 + (i % 2 ? Math.PI : 0);
+    actor.update(Math.random() * 3);
+    group.add(actor.root);
+    cage.actor = actor;
+    cage.orb.group.visible = false;
+  });
+}
+
+function updateCage(cage, dt, camera) {
+  const a = cage.actor;
+  if (!a) {
+    cage.orb.update(dt, camera);
+    if (cage.open && cage.orb.group.visible) {
+      cage.orb.group.position.y += dt * 40;
+      cage.orb.group.scale.multiplyScalar(1 - dt * 0.3);
+      if (cage.orb.group.position.y > cage.gy + 500) cage.orb.group.visible = false;
+    }
+    return;
+  }
+  if (!a.root.visible) return;
+  if (cage.open) {
+    if (a.mode !== "fly") { a.setMode("fly"); cage.flyT = 0; }
+    cage.flyT += dt;
+    // Up out of the pit, then away, gathering speed.
+    const r = a.root;
+    r.position.y += dt * Math.min(30, 6 + cage.flyT * 10);
+    r.rotation.x = -0.35;
+    r.translateZ(dt * Math.min(40, cage.flyT * 8));
+    if (r.position.y > cage.gy + 500) r.visible = false;
+  }
+  a.update(dt);
+}
 
 export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   const L = pitLayout();
@@ -110,16 +161,9 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     orb.group.scale.setScalar(2.0);
     group.add(orb.group);
     cages.push({
-      obj: c, orb, open: false, pos: V(x, gy + 4.0, z),
+      obj: c, orb, open: false, pos: V(x, gy + 4.0, z), yaw: -a - Math.PI / 2, gy, fit: 11,
       release() { if (this.open) return false; this.open = true; return true; },
-      update(dt, camera) {
-        this.orb.update(dt, camera);
-        if (this.open) {
-          this.orb.group.position.y += dt * 40;
-          this.orb.group.scale.multiplyScalar(1 - dt * 0.3);
-          if (this.orb.group.position.y > gy + 500) this.orb.group.visible = false;
-        }
-      },
+      update(dt, camera) { updateCage(this, dt, camera); },
     });
   }
   // Smaller cages waiting on the second terrace — the last ones, in the
@@ -135,16 +179,9 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     orb.state.bob = 0.14; orb.state.pulse = 0.3; orb.state.pulseRate = 1.2;
     group.add(orb.group);
     const cage = {
-      obj: c, orb, open: false, pos: V(x, gy + 2.2, z),
+      obj: c, orb, open: false, pos: V(x, gy + 2.2, z), yaw, gy, fit: 3.8,
       release() { if (this.open) return false; this.open = true; return true; },
-      update(dt, camera) {
-        this.orb.update(dt, camera);
-        if (this.open) {
-          this.orb.group.position.y += dt * 40;
-          this.orb.group.scale.multiplyScalar(1 - dt * 0.3);
-          if (this.orb.group.position.y > gy + 500) this.orb.group.visible = false;
-        }
-      },
+      update(dt, camera) { updateCage(this, dt, camera); },
     };
     list.push(cage);
     return cage;
@@ -162,7 +199,10 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     hatchCage = makeCage(p.x, p.z, -a, "rig_cage_small", 0xffb0d8, []);
     hatchCage.orb.state.pulseRate = 3.0;     // it is frightened
     hatchCage.orb.group.scale.setScalar(0.7);
+    hatchCage.fit = 2.2;
+    hatchCage.hatch = true;
   }
+  fillCages([...cages, ...terraceCages, hatchCage].filter(Boolean), group);
   // The cage they put HIM in: the biggest, next to the smelter.
   const [pxw, pzw] = polar(gateA + Math.PI * 0.5, L.floorR * 0.2);
   const prisonAt = V(pxw, groundAt(pxw, pzw), pzw);
