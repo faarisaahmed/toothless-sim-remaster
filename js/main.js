@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { createNpcDragon, createPuffs } from "./npcdragon.js";
+import { loadKit, createActor } from "./dragonkit.js";
 import { setupDragonControls, angleDelta } from "./controls.js";
 import { setupWorld, ISLANDS } from "./world.js";
 import { CLEARING } from "./terrain.js";
@@ -1757,8 +1758,11 @@ const placesBuilt = (async () => {
 // her hatchling Eyvi. Hidden until chapter V finds them.
 // ---------------------------------------------------------------------------
 let puffs = null;
-function setupStoryDragons() {
+async function setupStoryDragons() {
   if (!npcTemplate) return;
+  // A real Stormcutter when one is on disk (tools/dragons/); otherwise the
+  // re-coloured Night Fury.
+  const storm = await loadKit("stormcutter");
   // The flat top of her stack: the highest gentle spot near its middle.
   let best = null;
   for (let a = 0; a < Math.PI * 2; a += 0.3) {
@@ -1772,8 +1776,10 @@ function setupStoryDragons() {
     }
   }
   if (best) { SITES.sigrun.set(best.x, 0, best.z); storyCtx.sigrunY = best.h; }
-  const sigrun = createNpcDragon(scene, { template: npcTemplate, scale: 1.45, tint: 0xb4672e, mix: 0.6, tuning, name: "sigrun" });
-  const eyvi = createNpcDragon(scene, { template: npcTemplate, scale: 0.4, tint: 0xa9c0d4, mix: 0.55, tuning, name: "eyvi" });
+  const sigrun = createNpcDragon(scene, { template: npcTemplate, scale: 1.45, tint: 0xb4672e, mix: 0.6, tuning, name: "sigrun",
+    actor: storm && createActor(storm, { length: 13 }) });
+  const eyvi = createNpcDragon(scene, { template: npcTemplate, scale: 0.4, tint: 0xa9c0d4, mix: 0.55, tuning, name: "eyvi",
+    actor: storm && createActor(storm, { length: 3.6, tint: 0xd8c8b0, mix: 0.3 }) });
   puffs = createPuffs(scene);
   sigrun.setVisible(false); eyvi.setVisible(false);
   const perchAt = (x, z, lift = 0.4) => new THREE.Vector3(x, world.getHeightAt(x, z) + lift, z);
@@ -1825,7 +1831,7 @@ function setupStoryDragons() {
   await dragonLoaded;
   loading.step(0.45, "Building the archipelago");
   await placesBuilt;
-  setupStoryDragons();
+  await setupStoryDragons();
   session.placeDragon();
   await warmUp(renderer, scene, camera, (t, label) => loading.step(0.45 + t * 0.55, label));
   loading.done();
