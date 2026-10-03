@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
+import { createNpcDragon, createPuffs } from "./npcdragon.js";
 import { setupDragonControls, angleDelta } from "./controls.js";
 import { setupWorld, ISLANDS } from "./world.js";
 import { CLEARING } from "./terrain.js";
@@ -286,6 +288,7 @@ const touch = setupTouch();
 // go; closing it drops any key that was held when it opened, so coming back
 // from the menu never resumes into a carve nobody asked for.
 let paused = false;
+let caged = false;
 const pause = setupPause({
   onOpen() {
     paused = true;
@@ -483,6 +486,12 @@ const plasma = setupPlasma(scene, {
   getHeightAt: (x, z) => world.getHeightAt(x, z),
   seaLevel: world.seaLevel,
 });
+// A near miss on a cage counts too: a blast landing in the cage ring during
+// the strike splashes off the bars, and the point of the beat is the bars.
+plasma.onImpact((at, hit) => {
+  if (!storyCtx.cagesShootable || !hit?.ground) return;
+  if ((rig?.cages ?? []).some((c) => c.pos.distanceTo(at) < 16)) storyCtx.cageHits++;
+});
 // What the hunters throw back. Same two hooks as the plasma — a height field
 // so a miss lands on the deck instead of falling through it, and the sea.
 const bolas = setupBolas(scene, {
@@ -498,6 +507,7 @@ let flights = null;
 let tick = 0;
 
 let dragonReady = null;
+let npcTemplate = null;
 const loader = new GLTFLoader();
 loader.load(
   "./assets/models/dragon_rigged_hd.glb",
@@ -535,6 +545,9 @@ loader.load(
     // Clone the wild flights BEFORE anything poses the player's bones — the
     // wing rig captures whatever rotation the bones are in as its rest pose.
     flights = setupFlights(scene, gltf.scene, tuning, world, 7, SPAWN);
+    // An untouched copy for the story's other dragons, taken for the same
+    // reason as the flights: before anything has posed a bone.
+    npcTemplate = cloneSkinned(gltf.scene);
 
     controls = setupDragonControls(dragon, () => camYaw, pad);
     dragonReady?.();
@@ -1243,6 +1256,23 @@ function blastTargets() {
   // rather than a free answer — and it is the only thing in the game that
   // rewards firing at something other than a brazier.
   for (const t of bolas.targets()) _blastTargets.push(t);
+  // The failed strike: a cage takes the blast and nothing happens.
+  if (storyCtx.cagesShootable) {
+    for (const c of rig?.cages ?? []) {
+      c._shot ??= { pos: c.pos, hit: () => { storyCtx.cageHits++; } };
+      _blastTargets.push(c._shot);
+    }
+  }
+  // A blast knocks a hunter flat. Nobody dies in this story (STORY.md §0.5):
+  // he gets up a minute later wondering what hit him.
+  if (rig?.hunters && dragon) {
+    for (const m of rig.hunters.men) {
+      if (m.ko > 0 || m.pos.distanceTo(dragon.position) > 450) continue;
+      m._shot ??= { pos: new THREE.Vector3(), hit: () => rig.hunters.knockOut(m, 60) };
+      m._shot.pos.copy(m.pos).y += 1.2;
+      _blastTargets.push(m._shot);
+    }
+  }
   return _blastTargets;
 }
 
@@ -1428,6 +1458,27 @@ const storyCtx = {
   // Night is a time on the clock now: late enough to be properly dark, and
   // morning is first light. The sky rolls round to it over a few seconds.
   setNight(on) { world.sky.setTime(on ? 23.2 : 5.7, { transition: 6 }); },
+  get sky() { return world.sky; },
+  get hunters() { return rig?.hunters ?? null; },
+  get rig() { return rig; },
+  isGrounded: () => grounded,
+  /** Put him somewhere, in the air, facing a bearing. */
+  teleport(pos, heading = null) {
+    if (!dragon) return;
+    if (grounded) takeOff();
+    dragon.position.copy(pos);
+    if (heading !== null) controls?.setHeading(heading);
+  },
+  /** In the cage, or out of it. */
+  setCaged(on) {
+    caged = !!on;
+    if (!on && dragon && rig?.prisonAt) dragon.position.set(rig.prisonAt.x, rig.prisonAt.y + 30, rig.prisonAt.z);
+    if (on) { bolas.clear(); controls?.clearSnare(); controls?.clearKeys(); }
+  },
+  cageHits: 0,
+  cagesShootable: false,
+  npc: null,
+  sigrunY: 80,
 };
 
 // The key legend is a wall of text and it is in the way of the game. Fold it
@@ -1702,6 +1753,66 @@ const placesBuilt = (async () => {
 })();
 
 // ---------------------------------------------------------------------------
+// The story's other dragons: Sigrún, the Stormcutter with the broken wing, and
+// her hatchling Eyvi. Hidden until chapter V finds them.
+// ---------------------------------------------------------------------------
+let puffs = null;
+function setupStoryDragons() {
+  if (!npcTemplate) return;
+  // The flat top of her stack: the highest gentle spot near its middle.
+  let best = null;
+  for (let a = 0; a < Math.PI * 2; a += 0.3) {
+    for (let r = 0; r < 110; r += 12) {
+      const x = SITES.sigrun.x + Math.cos(a) * r, z = SITES.sigrun.z + Math.sin(a) * r;
+      const h = world.getHeightAt(x, z);
+      const rough = Math.abs(world.getHeightAt(x + 6, z) - world.getHeightAt(x - 6, z))
+                  + Math.abs(world.getHeightAt(x, z + 6) - world.getHeightAt(x, z - 6));
+      const score = rough * 6 - h;
+      if (h > world.seaLevel + 8 && (!best || score < best.score)) best = { x, z, h, score };
+    }
+  }
+  if (best) { SITES.sigrun.set(best.x, 0, best.z); storyCtx.sigrunY = best.h; }
+  const sigrun = createNpcDragon(scene, { template: npcTemplate, scale: 1.45, tint: 0xb4672e, mix: 0.6, tuning, name: "sigrun" });
+  const eyvi = createNpcDragon(scene, { template: npcTemplate, scale: 0.4, tint: 0xa9c0d4, mix: 0.55, tuning, name: "eyvi" });
+  puffs = createPuffs(scene);
+  sigrun.setVisible(false); eyvi.setVisible(false);
+  const perchAt = (x, z, lift = 0.4) => new THREE.Vector3(x, world.getHeightAt(x, z) + lift, z);
+  let placed = false;
+  storyCtx.npc = {
+    sigrun, eyvi,
+    atStack() {
+      placed = true;
+      const s = SITES.sigrun;
+      sigrun.perch(perchAt(s.x, s.z, 0.6), 0.6);
+      sigrun.setDroop(1);
+      eyvi.perch(perchAt(s.x + 9, s.z + 6, 0.2), -0.4);
+      sigrun.setVisible(true); eyvi.setVisible(true);
+    },
+    atHollow() {
+      placed = true;
+      const k = SITES.stack;
+      sigrun.perch(perchAt(k.x + 28, k.z + 18, 0.6), 2.4);
+      eyvi.perch(perchAt(k.x + 36, k.z + 22, 0.2), 2.0);
+      sigrun.setVisible(true); eyvi.setVisible(true);
+    },
+    /** She flies to a point and hangs there (or lands, if it is a stack). */
+    flyIn(pos, onArrive = null) {
+      if (!placed) this.atStack();
+      sigrun.setVisible(true);
+      sigrun.flyTo(pos, 52, onArrive);
+    },
+    /** The hatchling's sleepfire: a puff from her mouth. */
+    puff() {
+      const p = eyvi.pos.clone();
+      p.y += 0.9;
+      p.x += Math.sin(eyvi.state.heading) * 1.2;
+      p.z += Math.cos(eyvi.state.heading) * 1.2;
+      puffs.puff(p, 1.4);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Start.
 //
 // Nothing is rendered to the player until the dragon is in, the places are
@@ -1714,6 +1825,7 @@ const placesBuilt = (async () => {
   await dragonLoaded;
   loading.step(0.45, "Building the archipelago");
   await placesBuilt;
+  setupStoryDragons();
   session.placeDragon();
   await warmUp(renderer, scene, camera, (t, label) => loading.step(0.45 + t * 0.55, label));
   loading.done();
@@ -1992,7 +2104,11 @@ function frame() {
   // statement about the fiction, not about the machine.
   const sdt = dt * aim.timeScale();
 
-  if (controls && !grounded && !game.cine) controls.update(sdt);
+  if (controls && !grounded && !game.cine && !caged) controls.update(sdt);
+  // Caught: held in the cage by the floor of the pit, whatever the keys say.
+  if (caged && dragon && rig?.prisonAt) {
+    dragon.position.set(rig.prisonAt.x, rig.prisonAt.y + 3.2, rig.prisonAt.z);
+  }
 
   if (dragon) {
     // Keep him out of both the rock and the water.
@@ -2397,6 +2513,9 @@ function frame() {
 
   // Time of day, weather, clouds, rain — see js/sky.js.
   world.sky.update(sdt, camera);
+  storyCtx.npc?.sigrun.update(sdt);
+  storyCtx.npc?.eyvi.update(sdt);
+  puffs?.update(sdt);
 
   game.update(dt);
   session.update(dt);

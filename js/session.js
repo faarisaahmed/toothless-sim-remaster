@@ -2,7 +2,7 @@ import * as THREE from "three";
 import * as saves from "./saves.js";
 import { CHAPTERS, mission1, SITES, BEAT_SKY } from "./chapters.js";
 import { settings, onChange as onSettingsChange } from "./settings.js";
-import { CHAPTER_LIST, BEAT_ORDER, chapterOfBeat, STORY_TITLE } from "./storyline.js";
+import { CHAPTER_LIST, BEAT_ORDER, chapterOfBeat, STORY_TITLE, BEAT_ALIAS } from "./storyline.js";
 import { ISLANDS } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,8 @@ export function createSession({ handoff, game, player, storyCtx, setMapSites, ge
       startBeat = replay.beats[0];
       startPos = replay.start?.() || null;
     } else if (save && save.run && save.beat && !save.finished) {
-      startBeat = BEAT_ORDER.includes(save.beat) ? save.beat : BEAT_ORDER[0];
+      const b = BEAT_ALIAS[save.beat] || save.beat;
+      startBeat = BEAT_ORDER.includes(b) ? b : BEAT_ORDER[0];
       for (const label of save.sites || []) storyCtx.findSite(label);
       const ch = CHAPTERS.find((c) => c.beats.includes(startBeat));
       startPos = save.pos

@@ -61,6 +61,8 @@ export const SITES = {
   rig:   V(2450, 0, 2150),
   stack: V(1650, 0, 2600),
   fish:  V(2080, 0, 2320),
+  /** Sigrún's stack: a lonely rock by the shoal. main.js finds the flat top. */
+  sigrun: V(2200, 0, 2000),
 };
 
 /** How close a sleepfire burst has to be to burn a cage's lock. */
@@ -76,43 +78,55 @@ const CAGE_BURN_R = 46;
 // run would have had by then (the plate, the key, the meal), because the beats
 // test for those and would otherwise wait forever.
 // ---------------------------------------------------------------------------
+const PLATE = (p) => p.addSample("alloy", "Hunter's plate");
 const RUNTIME = {
   peacetime: { start: () => ({ pos: V(0, 300, 900), toward: V(0, 0, -1100) }) },
   wood: {
     start: () => ({ pos: V(SITES.camp.x + 900, 260, SITES.camp.z - 1400), toward: SITES.camp }),
   },
-  edge: {
+  pit: {
     start: () => ({ pos: V(SITES.camp.x, 240, SITES.camp.z), toward: SITES.rig }),
-    prepare: (p) => { p.addSample("alloy", "Hunter's plate"); p.flag("sawTheCamp"); },
+    prepare: (p) => { PLATE(p); p.flag("sawTheCamp"); },
     sites: ["The clearing"],
   },
   stack: {
-    start: () => ({ pos: V(SITES.rig.x - 600, 260, SITES.rig.z - 500), toward: SITES.stack }),
-    prepare: (p) => { p.addSample("alloy", "Hunter's plate"); p.flag("sawTheRig"); },
+    start: () => ({ pos: V(SITES.rig.x - 900, 260, SITES.rig.z - 800), toward: SITES.stack }),
+    prepare: (p) => { PLATE(p); p.flag("sawTheRig"); },
     sites: ["The clearing", "Dragon Hunter Island"],
   },
-  hunger: {
+  storm: {
     start: () => ({ pos: V(SITES.stack.x, STACK_Y + 120, SITES.stack.z), toward: SITES.fish }),
     prepare: (p) => {
-      p.addSample("alloy", "Hunter's plate"); p.learnKey("nightfury");
+      PLATE(p); p.learnKey("nightfury");
       p.flag("canFire"); p.state.food = "thin"; p.state.rested = false;
     },
     sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack"],
   },
+  plan: {
+    start: () => ({ pos: V(SITES.sigrun.x, 200, SITES.sigrun.z), toward: SITES.rig }),
+    prepare: (p) => { PLATE(p); p.learnKey("nightfury"); p.flag("canFire"); p.flag("metSigrun"); },
+    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
+  },
   lights: {
     start: () => ({ pos: V(SITES.fish.x, 160, SITES.fish.z), toward: SITES.stack }),
     prepare: (p) => {
-      p.addSample("alloy", "Hunter's plate"); p.learnKey("nightfury");
-      p.flag("canFire"); p.state.food = "fed";
+      PLATE(p); p.learnKey("nightfury"); p.flag("canFire"); p.flag("metSigrun");
+      p.state.food = "fed";
     },
-    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal"],
+    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
+  },
+  wings: {
+    start: () => ({ pos: V(SITES.rig.x, RIG.y + 60, SITES.rig.z), toward: SITES.stack }),
+    prepare: (p) => {
+      PLATE(p); p.learnKey("nightfury"); p.flag("canFire"); p.flag("metSigrun");
+      p.state.food = "thin";
+    },
+    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
   },
   home: {
-    start: () => ({ pos: V(SITES.rig.x, RIG.y + 200, SITES.rig.z), toward: SITES.stack }),
-    prepare: (p) => {
-      p.addSample("alloy", "Hunter's plate"); p.learnKey("nightfury"); p.flag("raidDone");
-    },
-    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal"],
+    start: () => ({ pos: V(SITES.rig.x, RIG.y + 260, SITES.rig.z), toward: SITES.stack }),
+    prepare: (p) => { PLATE(p); p.learnKey("nightfury"); p.flag("raidDone"); p.flag("metSigrun"); },
+    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
   },
 };
 
@@ -130,16 +144,29 @@ export const BEAT_SKY = {
   "leave":      { time: 9.0,  weather: "fair" },
   "woods":      { time: 10.8, weather: "fair" },
   "camp":       { time: 11.6, weather: "fair" },
-  "beyond":     { time: 14.6, weather: "fog" },
-  "rig-find":   { time: 15.8, weather: "overcast" },
-  "rig-recon":  { time: 16.4, weather: "overcast" },
-  "stack-find": { time: 18.2, weather: "rain" },
-  "lab":        { time: 18.8, weather: "rain" },
-  "sleep":      { time: 19.6, weather: "storm" },
+  "beyond":     { time: 15.5, weather: "fog" },
+  "rig-find":   { time: 19.6, weather: "overcast" },
+  "rig-look":   { time: 20.7, weather: "overcast", hold: true },
+  "strike":     { time: 21.0, weather: "overcast", hold: true },
+  "escape":     { time: 21.1, weather: "rain", hold: true },
+  "stack-find": { time: 21.6, weather: "rain", hold: true },
+  "lab":        { time: 8.0,  weather: "overcast" },
+  "sleep":      { time: 20.5, weather: "storm" },
   "fire":       { time: 7.0,  weather: "clear" },
   "hunt":       { time: 8.2,  weather: "fair" },
-  "dusk":       { time: 19.1, weather: "fair" },
+  "cry":        { time: 9.4,  weather: "fair" },
+  "approach":   { time: 9.8,  weather: "fair" },
+  "feed":       { time: 10.2, weather: "fair" },
+  "watch":      { time: 17.8, weather: "clear" },
+  "recon":      { time: 20.3, weather: "overcast", hold: true },
+  "dusk":       { time: 20.6, weather: "fair" },
   "raid":       { time: 23.2, weather: "fair", hold: true },
+  "choice":     { time: 23.4, weather: "fair", hold: true },
+  "caught":     { time: 23.4, weather: "fair", hold: true },
+  "cage":       { time: 23.5, weather: "overcast", hold: true },
+  "rescue":     { time: 23.6, weather: "overcast", hold: true },
+  "last-cages": { time: 23.7, weather: "overcast", hold: true },
+  "flee":       { time: 23.9, weather: "fair", hold: true },
   "after":      { time: 5.7,  weather: "clear" },
 };
 
@@ -314,71 +341,98 @@ export function mission1(ctx) {
     },
 
     // -----------------------------------------------------------------------
+    // THE PIT (STORY.md Scene 5). He hears it before he sees it: furnace glow
+    // on the cloud. A spiral of torches round a hole in an island, and in the
+    // bottom of the hole, cages.
     {
       id: "rig-find",
       objective: "Something is burning out there.",
-      enter(g) { g.setWaypoint(SITES.rig.clone().setY(RIG.y + 90), "Lights"); },
-      done() { return near(SITES.rig, 900); },
+      sub: "Follow the glow.",
+      enter(g) { g.setWaypoint(SITES.rig.clone().setY(RIG.y + 300), "Lights"); },
+      done() { return near(SITES.rig, 1500); },
       async exit(g, c) {
         c.findSite?.("Dragon Hunter Island");
-        // The reveal. A long slow slide across the deck from out over the water
-        // — the one angle he could never fly, which is what a cutscene is for.
-        const r = SITES.rig;
-        // This shot was composed for a compound that no longer exists. It was
-        // written as "a slide across the deck from out over the water", with
-        // absolute heights (74, 40, 32) that assumed RIG.y was a hardcoded 50
-        // and the rig was a platform standing in the sea.
-        //
-        // The compound is on the floor of Dragon Hunter Island's caldera now,
-        // and main.js finds that floor procedurally. There is no water to be
-        // out over: the old camera path ran through the south wall, where the
-        // terrain is 340-420 m, so the entire reveal played from inside rock.
-        //
-        // Recomposed onto the floor itself. The caldera runs flat from about
-        // 180 m north of the deck to just south of it and stays near 50 m
-        // across that whole band, so the camera slides in low from the
-        // north-west with the far wall rising behind the compound — which is a
-        // better reveal than the original had, and one he genuinely cannot fly.
+        const r = SITES.rig, L = c.rig?.layout;
+        const R = L ? L.rimR : 600;
+        // Over the rim and down into the coil of torches.
         await g.playCutscene({
-          from: V(r.x - 190, RIG.y + 30, r.z - 150),
-          to:   V(r.x + 95,  RIG.y + 12, r.z - 60),
-          look: V(r.x,       RIG.y + 3,  r.z),
-          seconds: 6.5,
-          line: "Cages.",
+          from: V(r.x - R * 1.2, RIG.y + 520, r.z - R * 0.9),
+          to:   V(r.x - R * 0.35, RIG.y + 220, r.z - R * 0.25),
+          look: V(r.x, RIG.y, r.z),
+          seconds: 7,
+          line: "Dragon Hunters.",
         });
       },
-      beat: 1800,
+      beat: 900,
+    },
+
+    // -----------------------------------------------------------------------
+    // Look — and learn what being seen means. The "?" and "!" over the men are
+    // the whole tutorial.
+    {
+      id: "rig-look",
+      objective: "Get a look at the cages.",
+      sub: "Stay dark and quiet. Glide. Watch for <b>?</b> — and never be the <b>!</b>",
+      enter(g) {
+        g.setWaypoint(SITES.rig.clone().setY(RIG.y + 40), "The cages");
+        music.play("tension", { fade: 4 });
+        this._t = 0;
+      },
+      update(dt, g, c) {
+        const h = c.hunters;
+        const d = game.flatDist(SITES.rig);
+        if (h && h.alarm > 0) {
+          this._t = 0;
+          g.setObjective(this.objective, "They've seen you. Get out of sight and let them settle.");
+          return;
+        }
+        if (d < 200) this._t += dt;
+        g.setObjective(this.objective, this._t > 0
+          ? `Hold there... ${Math.min(100, Math.round(this._t / 4 * 100))}%` : this.sub);
+      },
+      done() { return this._t > 4; },
+      exit(g) { player.flag("sawTheCages"); g.toast("Dozens of them.", 1800); },
+    },
+
+    // -----------------------------------------------------------------------
+    // The failure. The only thing he knows how to do, and it does nothing.
+    {
+      id: "strike",
+      objective: "Break one open.",
+      get sub() { return `Plasma blast a cage — ${keyTag("fire")}.`; },
+      enter(g, c) {
+        g.setWaypoint(SITES.rig.clone().setY(RIG.y + 10), "The cages");
+        c.cageHits = 0;
+        c.cagesShootable = true;
+      },
+      done(g, c) { return (c.cageHits || 0) > 0; },
+      async exit(g, c) {
+        c.cagesShootable = false;
+        g.toast("Nothing. Not even a mark.", 2400);
+        c.hunters?.raiseAlarm(c.getPosition());
+        music.play("raid", { fade: 1.5 });
+      },
+      beat: 1600,
     },
 
     // -----------------------------------------------------------------------
     {
-      id: "rig-recon",
-      objective: "Get a look at it without being seen.",
-      sub: "Glide in. Powered flight is loud \u2014 and they throw.",
-      enter(g) {
-        g.setWaypoint(SITES.rig.clone().setY(RIG.y + 60), "The compound");
-        // The beat where being heard is the whole mechanic gets the sparse bed.
-        music.play("tension", { fade: 4 });
+      id: "escape",
+      objective: "Get out.",
+      sub: "Out of the pit and away. Fly fast and low — and dodge.",
+      enter(g, c) {
+        player.addSample("alloy", "Hunter's plate");
+        g.toast("A plate of it came away in his claws.", 2200);
+        g.setWaypoint(SITES.stack.clone().setY(STACK_Y + 60), "Away");
+        c.hunters?.raiseAlarm(c.getPosition());
       },
       update(dt, g, c) {
-        // Being seen is a function of how close he is and how fast he's beating.
-        // A glide from height is silent; a climb over the deck is not (§2.6).
         const d = game.flatDist(SITES.rig);
-        // speedT is a fraction of 750 mph, so cruise is about 0.14 — this is
-        // "he has his foot in it", not "he is moving".
-        const loud = c.getClimb() > 0.15 || c.getSpeedT() > 0.30;
-        if (d < 420 && loud) this._heat = (this._heat || 0) + dt;
-        else this._heat = Math.max(0, (this._heat || 0) - dt * 0.6);
-        if (this._heat > 2.2 && !this._warned) {
-          this._warned = true;
-          g.toast("Seen.", 1200);
-          this._heat = 0;
-          this._warned = false;
-        }
-        if (d < 420) this._seen = (this._seen || 0) + dt;
+        g.setObjective(this.objective, d < 1200
+          ? `${this.sub} · ${Math.round(d)} m` : "Keep going.");
       },
-      done() { return (this._seen || 0) > 6; },
-      exit() { player.flag("sawTheRig"); music.play("flight", { fade: 5 }); },
+      done() { return game.flatDist(SITES.rig) > 1900; },
+      exit(g, c) { player.flag("sawTheRig"); c.hunters?.calm(); music.play("flight", { fade: 5 }); },
     },
 
     // -----------------------------------------------------------------------
@@ -388,7 +442,16 @@ export function mission1(ctx) {
       sub: "",
       enter(g) { g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "A stack"); },
       done() { return near(SITES.stack, 260); },
-      exit(g, c) { c.findSite?.("Hollow Stack"); player.flag("home"); g.toast("Hollow Stack.", 1800); },
+      async exit(g, c) {
+        c.findSite?.("Hollow Stack"); player.flag("home");
+        g.toast("Hollow Stack.", 1800);
+        // He sleeps where he lands, and wakes to the plate on the shelf.
+        await new Promise((r) => setTimeout(r, 1600));
+        await g.fade(true);
+        c.sky?.setTime(8.0);
+        await new Promise((r) => setTimeout(r, 700));
+        await g.fade(false);
+      },
     },
 
     // -----------------------------------------------------------------------
@@ -526,6 +589,192 @@ export function mission1(ctx) {
     },
 
     // -----------------------------------------------------------------------
+    // THE STORMCUTTER (STORY.md Scene 11). A cry across the water while he is
+    // eating. Not a hunter's victim — a storm broke her wing two weeks ago and
+    // a dragon who cannot fly cannot fish. Nobody did this to her. That is
+    // the point of her.
+    {
+      id: "cry",
+      objective: "Something is crying.",
+      sub: "Across the water. Find it.",
+      enter(g, c) {
+        c.npc?.atStack();
+        g.toast("A cry, across the water.", 2400);
+        // A marker, but not a name: he does not know what he will find.
+        g.setWaypoint(SITES.sigrun.clone().setY(c.sigrunY + 40), "?");
+      },
+      done(g, c) { return near(SITES.sigrun, 420); },
+      async exit(g, c) {
+        c.findSite?.("The lonely stack");
+        const k = c.npc?.sigrun?.pos || SITES.sigrun;
+        await g.playCutscene({
+          from: V(k.x + 70, k.y + 30, k.z + 60),
+          to:   V(k.x + 32, k.y + 9, k.z + 26),
+          look: V(k.x, k.y + 3, k.z),
+          seconds: 6.5,
+          line: "A Stormcutter. Grounded. One wing a storm broke.",
+        });
+      },
+    },
+
+    // -----------------------------------------------------------------------
+    {
+      id: "approach",
+      objective: "Go carefully.",
+      sub: "She doesn't know you. Come in slow and low, and land near her.",
+      enter(g, c) {
+        c.npc?.atStack();
+        g.setWaypoint(SITES.sigrun.clone().setY(c.sigrunY + 20), "Her");
+        this._spook = 0;
+      },
+      update(dt, g, c) {
+        const d = game.flatDist(c.npc?.sigrun?.pos || SITES.sigrun);
+        this._spook = Math.max(0, this._spook - dt);
+        if (d < 170 && c.getSpeedT() > 0.3 && this._spook <= 0) {
+          this._spook = 4;
+          g.toast("She rears up. Too fast.", 1600);
+        }
+        g.setObjective(this.objective, this._spook > 0
+          ? "Back off. Slower." : d < 90 && !c.isGrounded() ? "Now land. Gently." : this.sub);
+      },
+      done(g, c) {
+        return c.isGrounded() && this._spook <= 0
+          && game.flatDist(c.npc?.sigrun?.pos || SITES.sigrun) < 95;
+      },
+      exit(g, c) { player.flag("metSigrun"); g.toast("She watches him. The hatchling hides.", 2200); },
+    },
+
+    // -----------------------------------------------------------------------
+    // Several trips. A chore, slightly, on purpose: he does it again and again
+    // without being thanked.
+    {
+      id: "feed",
+      objective: "They're starving.",
+      sub: "Bring them fish from the shoal. Low and fast over it to catch one.",
+      enter(g, c) {
+        c.npc?.atStack();
+        this._given = 0; this._carry = false; this._in = false;
+        g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
+      },
+      update(dt, g, c) {
+        const p = c.getPosition();
+        const fd = game.flatDist(SITES.fish);
+        const inRun = fd < 190 && p.y < 15 && c.getSpeedT() > 0.22;
+        if (inRun && !this._in && !this._carry) {
+          this._carry = true;
+          g.toast("One in his jaws.", 1100);
+          g.setWaypoint((c.npc?.sigrun?.pos || SITES.sigrun).clone().setY(c.sigrunY + 10), "Her");
+        }
+        this._in = inRun || (this._in && fd < 300);
+        if (this._carry && game.flatDist(c.npc?.sigrun?.pos || SITES.sigrun) < 70
+            && p.y < c.sigrunY + 45) {
+          this._carry = false;
+          this._given++;
+          g.toast(this._given === 1 ? "She takes it. She doesn't thank him."
+            : this._given === 2 ? "The hatchling eats first." : "Enough. For today.", 1800);
+          if (this._given < 3) g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
+          else g.setWaypoint(null);
+        }
+        g.setObjective(this.objective, `${this._carry ? "Take it to her." : this.sub} · ${this._given} of 3`);
+      },
+      done() { return this._given >= 3; },
+    },
+
+    // -----------------------------------------------------------------------
+    // The night by her stack, where he finally sees from the outside what he
+    // did from the inside: the hatchling purging in her sleep. Tiny. Harmless.
+    // Three times a night. Adults do it hugely and privately, on their own
+    // hide, and that is why he never knew.
+    {
+      id: "watch",
+      objective: "Stay the night.",
+      get sub() { return `Rest near them — hold ${keyTag("landUse")}.`; },
+      enter(g, c) {
+        c.npc?.atStack();
+        const k = c.npc?.sigrun?.pos || SITES.sigrun;
+        g.setWaypoint(k.clone().setY(c.sigrunY + 10), "Them");
+        c.setInteract(k.clone(), "Rest near them", 140);
+      },
+      update(dt, g, c) { if (c.tookInteract()) this._slept = true; },
+      done() { return this._slept; },
+      async exit(g, c) {
+        c.setInteract(null);
+        await g.fade(true);
+        c.sky?.setTime(23.4);
+        await new Promise((r) => setTimeout(r, 800));
+        await g.fade(false);
+        const e = c.npc?.eyvi?.pos || SITES.sigrun;
+        // Three puffs through the shot, the way the bible has it.
+        for (const at of [1200, 2900, 4700]) {
+          setTimeout(() => c.npc?.puff(), at);
+        }
+        await g.playCutscene({
+          from: V(e.x + 16, e.y + 5, e.z + 13),
+          to:   V(e.x + 8, e.y + 2.5, e.z + 7),
+          look: V(e.x, e.y + 0.8, e.z),
+          seconds: 6.5,
+          line: "She does it in her sleep. Three times a night.",
+        });
+        player.flag("sawThePurge");
+        await g.fade(true);
+        player.sleep({ beside: null });
+        c.sky?.setTime(19.8);
+        await new Promise((r) => setTimeout(r, 900));
+        await g.fade(false);
+        g.toast("He leaves in the morning. She does not thank him.", 2600);
+        g.refreshState();
+      },
+    },
+
+    // -----------------------------------------------------------------------
+    // THE PLAN (STORY.md Scene 12), as a recon: go back and learn the pit —
+    // the towers, the cage ring, the dock — without being seen. What he cannot
+    // know is the ship that comes in tonight.
+    {
+      id: "recon",
+      objective: "Learn the pit.",
+      sub: "Mark the towers, the cage ring and the dock — without being seen.",
+      enter(g, c) {
+        c.npc?.atStack();
+        const m = c.rig?.marks;
+        this._marks = m ? [
+          { label: "the towers", at: m.towers, t: 0, done: false, r: 160 },
+          { label: "the cage ring", at: m.cageRing, t: 0, done: false, r: 150 },
+          { label: "the dock", at: m.dock, t: 0, done: false, r: 150 },
+        ] : [];
+        this._point(g);
+      },
+      _point(g) {
+        const next = this._marks.find((x) => !x.done);
+        g.setWaypoint(next ? next.at.clone().setY(next.at.y + 60) : null, next ? next.label : "");
+      },
+      update(dt, g, c) {
+        const alarm = c.hunters?.alarm > 0;
+        for (const m of this._marks) {
+          if (m.done) continue;
+          if (game.flatDist(m.at) < m.r && !alarm) m.t += dt;
+          else m.t = Math.max(0, m.t - dt);
+          if (m.t > 2.5) {
+            m.done = true;
+            g.toast(`Marked: ${m.label}.`, 1400);
+            this._point(g);
+          }
+        }
+        const n = this._marks.filter((x) => x.done).length;
+        g.setObjective(this.objective, alarm
+          ? "Seen — get into the dark and wait for them to settle."
+          : `${this.sub} · ${n} of 3`);
+      },
+      done() { return this._marks.length && this._marks.every((x) => x.done); },
+      async exit(g, c) {
+        if (c.rig?.supply) c.rig.supply.visible = true;
+        g.toast("A ship is coming in. There wasn't one before.", 2600);
+        player.flag("plan");
+      },
+      beat: 2200,
+    },
+
+    // -----------------------------------------------------------------------
     // Dusk. The raid is a night beat and he has just spent his fire and filled
     // his stomach; this is the breath between, and it is where the rest comes
     // from that the raid will need.
@@ -534,6 +783,7 @@ export function mission1(ctx) {
       objective: "Wait for dark.",
       get sub() { return `Hold ${keyTag("landUse")} at the shelter on Hollow Stack.`; },
       enter(g, c) {
+        c.npc?.atStack();
         g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Hollow Stack");
         c.setInteract(SITES.stack.clone(), "Rest until dark", 190);
       },
@@ -558,6 +808,7 @@ export function mission1(ctx) {
         `Hold ${keyTag("sleepfire")} to burn a lock.`; },
       enter(g, c) {
         c.setNight(true);
+        c.hunters?.calm();
         player.flag("adrenaline");
         player.state.rested = true;
         g.refreshState();
@@ -638,12 +889,208 @@ export function mission1(ctx) {
     },
 
     // -----------------------------------------------------------------------
+    // THE CHOICE (STORY.md Scene 14). The supply ship's crew is awake and the
+    // pit goes up. The way out is open, clean and marked. And behind him, on
+    // the high terrace, one cage with a hatchling in it.
+    {
+      id: "choice",
+      objective: "Get out. The channel is clear.",
+      sub: "…a hatchling is still caged on the high terrace behind you.",
+      enter(g, c) {
+        c.hunters?.raiseAlarm(c.rig?.centre);
+        g.toast("The ship's crew. The whole pit is awake.", 2400);
+        const ex = c.rig?.marks.exit;
+        if (ex) g.setWaypoint(ex.clone(), "Out");
+        this._turned = false; this._freed = false;
+        this._seen = player.lastFired;
+      },
+      update(dt, g, c) {
+        const cage = c.rig?.hatchCage;
+        if (!cage) { this._freed = true; return; }
+        const p = c.getPosition();
+        // Sleepfire on the cage frees it.
+        if (player.lastFired > this._seen) {
+          this._seen = player.lastFired;
+          if (p.distanceTo(cage.pos) < CAGE_BURN_R) { cage.release(); this._freed = true; }
+        }
+        // Flying out anyway. Then he turns round, himself, the one time the
+        // game overrides you — because that is who he is.
+        const L = c.rig?.layout;
+        if (!this._turned && L && game.flatDist(SITES.rig) > L.rimR + 320) {
+          this._turned = true;
+          (async () => {
+            const k = c.getPosition();
+            await g.playCutscene({
+              from: V(k.x + 40, k.y + 12, k.z + 40), to: V(k.x + 20, k.y + 6, k.z + 20),
+              look: k.clone(), seconds: 3.5, line: "He turns back.",
+            });
+            c.teleport(cage.pos.clone().add(V(0, 40, 0)), 0);
+            g.setWaypoint(cage.pos.clone(), "The hatchling");
+            g.setObjective("Open it.", `Hold ${keyTag("sleepfire")} close to the cage.`);
+          })();
+        }
+      },
+      done() { return this._freed; },
+      exit(g) { g.toast("Out. Go —", 900); },
+      hold: 0.1, beat: 600,
+    },
+
+    // -----------------------------------------------------------------------
+    // And then he's caught: industrial equipment doing exactly what it was
+    // built to do. No boss. Nets, weight, a cage.
+    {
+      id: "caught",
+      objective: "",
+      async enter(g, c) {
+        const k = c.getPosition();
+        await g.playCutscene({
+          from: V(k.x - 30, k.y + 10, k.z - 30), to: V(k.x - 12, k.y + 4, k.z - 12),
+          look: k.clone(), seconds: 3.2, line: "Nets.",
+        });
+        c.setCaged(true);
+        this._ok = true;
+      },
+      done() { return this._ok; },
+      beat: 300,
+    },
+
+    // -----------------------------------------------------------------------
+    // THE CAGE (Scene 15). Not a cutscene: he is in it, and nothing works.
+    // Let it go on slightly too long.
+    {
+      id: "cage",
+      objective: "Get out.",
+      get sub() { return `Bite the lock — hold ${keyTag("landUse")}.`; },
+      enter(g, c) {
+        c.setCaged(true);
+        c.hunters?.calm();
+        player.flag("adrenaline", false);
+        this._tries = 0; this._t = 0;
+        c.setInteract(c.rig?.prisonAt?.clone() || c.getPosition().clone(), "Bite the lock", 60);
+        music.play("tension", { fade: 2 });
+      },
+      update(dt, g, c) {
+        this._t += dt;
+        if (c.tookInteract()) {
+          this._tries++;
+          g.toast(["It doesn't give.", "His teeth slide off it.", "Nothing. Alloy."][Math.min(2, this._tries - 1)], 1400);
+        }
+        if (this._tries >= 3) g.setObjective(this.objective, "Nothing works. Outside, a lantern goes out.");
+      },
+      done() { return this._tries >= 3 && this._t > 9 || this._t > 26; },
+      exit(g, c) { c.setInteract(null); },
+      beat: 800,
+    },
+
+    // -----------------------------------------------------------------------
+    // SIGRÚN (Scene 16). The cage roof comes apart. Four wings — or here, the
+    // biggest dragon he has seen in a year — and she does not look at him
+    // kindly. She flew on a wing that isn't mended, and left her hatchling
+    // alone on a rock to do it.
+    {
+      id: "rescue",
+      objective: "",
+      async enter(g, c) {
+        const at = c.rig?.prisonAt || c.getPosition();
+        c.npc?.flyIn(at.clone().add(V(0, 26, 0)));
+        await g.playCutscene({
+          from: V(at.x + 8, at.y + 3, at.z + 8), to: V(at.x + 5, at.y + 2.5, at.z + 5),
+          look: V(at.x, at.y + 40, at.z), seconds: 4.5, line: "Four wings.",
+        });
+        if (c.rig?.prison) c.rig.prison.visible = false;
+        c.setCaged(false);
+        // No forced alarm: the men nearest the cage are the ones Sigrún just
+        // scattered, and the rest notice on their own soon enough.
+        c.hunters?.calm();
+        g.toast("She tears the muzzle off. She is not gentle about it.", 2600);
+        player.flag("adrenaline");
+        player.state.rested = true;
+        g.refreshState();
+        music.play("raid", { fade: 2 });
+        this._ok = true;
+      },
+      done() { return this._ok; },
+      beat: 400,
+    },
+
+    // -----------------------------------------------------------------------
+    // THE LAST CAGES (Scene 17). A two-hander now: she takes the ones he
+    // can't, and guards who see her run.
+    {
+      id: "last-cages",
+      objective: "Finish it — together.",
+      get sub() { return `The cages on the terraces. Hold ${keyTag("sleepfire")} close to burn a lock; she'll take some.`; },
+      enter(g, c) {
+        this._seen = player.lastFired;
+        this._next = 4;
+        this._point(g, c);
+      },
+      _left(c) { return (c.rig?.terraceCages || []).filter((x) => !x.open); },
+      _point(g, c) {
+        const left = this._left(c);
+        g.setWaypoint(left.length ? left[0].pos.clone().add(V(0, 20, 0)) : null, "Cages");
+      },
+      update(dt, g, c) {
+        const p = c.getPosition();
+        if (player.lastFired > this._seen) {
+          this._seen = player.lastFired;
+          let n = 0;
+          for (const cage of this._left(c)) {
+            if (p.distanceTo(cage.pos) < CAGE_BURN_R) { cage.release(); n++; }
+          }
+          if (n) { g.toast(n > 1 ? `${n} open.` : "Open.", 900); this._point(g, c); }
+        }
+        // She opens one every few seconds, wherever he isn't.
+        this._next -= dt;
+        if (this._next <= 0 && c.npc) {
+          this._next = 7;
+          const left = this._left(c).sort((a, b) => b.pos.distanceTo(p) - a.pos.distanceTo(p));
+          const target = left[0];
+          if (target) {
+            c.npc.flyIn(target.pos.clone().add(V(0, 12, 0)), () => {
+              if (target.release()) { g.toast("She tears one open.", 1100); this._point(g, c); }
+            });
+          }
+        }
+        // Out of fire? The shoal is still there.
+        const hungry = player.food === "empty";
+        const fd = game.flatDist(SITES.fish);
+        const inRun = fd < 190 && p.y < 15 && c.getSpeedT() > 0.22;
+        if (inRun && !this._fishing && player.food !== "fed") { player.eat(1); g.refreshState(); }
+        this._fishing = inRun || (this._fishing && fd < 300);
+        const n = (c.rig?.terraceCages || []).length;
+        g.setObjective(this.objective, `${n - this._left(c).length} of ${n} open` +
+          (hungry ? " · <b>Empty — fish the shoal, or let her</b>" : ""));
+      },
+      done(g, c) { return this._left(c).length === 0; },
+      exit(g, c) { player.flag("raidDone"); },
+    },
+
+    // -----------------------------------------------------------------------
+    // The rig doesn't burn — it stops. Forty dragons leave through the roof of
+    // it, and nobody drowns.
+    {
+      id: "flee",
+      objective: "Home.",
+      sub: "Hollow Stack. She's coming too.",
+      enter(g, c) {
+        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Hollow Stack");
+        c.npc?.flyIn(SITES.stack.clone().add(V(40, STACK_Y + 30, 30)));
+        player.flag("adrenaline", false);
+        setTimeout(() => c.hunters?.calm(), 6000);
+        music.play("flight", { fade: 4 });
+      },
+      done() { return near(SITES.stack, 300); },
+    },
+
+    // -----------------------------------------------------------------------
     {
       id: "after",
       objective: "Go home.",
       sub: "",
       enter(g, c) {
         c.setNight(false);
+        c.npc?.atHollow();
         g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Hollow Stack");
       },
       done() { return near(SITES.stack, 260); },
@@ -655,7 +1102,7 @@ export function mission1(ctx) {
           to:   V(k.x + 150, STACK_Y + 180, k.z + 240),
           look: V(k.x, STACK_Y, k.z),
           seconds: 8,
-          line: "He does not go home. Not yet.",
+          line: "One mark on the wall. There is a great deal of wall left.",
         });
         // The end of the chapter is the game's to show (game.js finish()),
         // not a fade left on forever over a world still running underneath.

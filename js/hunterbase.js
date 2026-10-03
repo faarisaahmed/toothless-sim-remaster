@@ -122,13 +122,55 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
       },
     });
   }
-  // Smaller cages waiting on the second terrace.
-  for (let i = 0; i < 7; i++) {
+  // Smaller cages waiting on the second terrace — the last ones, in the
+  // finale. One of them, high on the far side, holds a hatchling: it is the
+  // cage behind him when the alarm goes and the way out is open.
+  const terraceCages = [];
+  const makeCage = (x, z, yaw, kind, colour, list) => {
+    const c = clone(kind);
+    place(c, x, z, yaw, 0.05, false);
+    const gy = groundAt(x, z);
+    const orb = makeOrb({ color: colour, radius: 1.0, intensity: 2.2, name: "caged", castLight: false });
+    orb.setPosition(x, gy + 2.2, z);
+    orb.state.bob = 0.14; orb.state.pulse = 0.3; orb.state.pulseRate = 1.2;
+    group.add(orb.group);
+    const cage = {
+      obj: c, orb, open: false, pos: V(x, gy + 2.2, z),
+      release() { if (this.open) return false; this.open = true; return true; },
+      update(dt, camera) {
+        this.orb.update(dt, camera);
+        if (this.open) {
+          this.orb.group.position.y += dt * 40;
+          this.orb.group.scale.multiplyScalar(1 - dt * 0.3);
+          if (this.orb.group.position.y > gy + 500) this.orb.group.visible = false;
+        }
+      },
+    };
+    list.push(cage);
+    return cage;
+  };
+  for (let i = 0; i < 8; i++) {
     const a = gateA + 0.9 + i * 0.62;
     const p = L.roadAt(1, Math.atan2(Math.sin(a), Math.cos(a)));
     if (roughness(p.x, p.z) > 2 || groundAt(p.x, p.z) < 8) continue;
-    place(clone("rig_cage_small"), p.x, p.z, -a, 0.05);
+    makeCage(p.x, p.z, -a, "rig_cage_small", 0x9fd8ff, terraceCages);
   }
+  let hatchCage = null;
+  {
+    const a = gateA + Math.PI;
+    const p = L.roadAt(2, Math.atan2(Math.sin(a), Math.cos(a)));
+    hatchCage = makeCage(p.x, p.z, -a, "rig_cage_small", 0xffb0d8, []);
+    hatchCage.orb.state.pulseRate = 3.0;     // it is frightened
+    hatchCage.orb.group.scale.setScalar(0.7);
+  }
+  // The cage they put HIM in: the biggest, next to the smelter.
+  const [pxw, pzw] = polar(gateA + Math.PI * 0.5, L.floorR * 0.2);
+  const prisonAt = V(pxw, groundAt(pxw, pzw), pzw);
+  const prison = clone("rig_cage_large");
+  prison.scale.setScalar(3.0);
+  prison.position.copy(prisonAt);
+  prison.rotation.y = -gateA;
+  group.add(prison);
 
   // --- braziers: the lights the story is about ----------------------------------
   const braziers = [];
@@ -267,6 +309,18 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     }
   }
 
+  // The supply ship that comes in the night of the raid — not here until the
+  // recon spots it arriving, which is the thing the plan could not know.
+  const supply = clone("boat_supply");
+  {
+    const ax = Math.cos(gateA), az = Math.sin(gateA);
+    const [dx, dz] = polar(gateA, waterR + 20);
+    supply.position.set(dx + az * 2, seaLevel - 0.6, dz - ax * 2);
+    supply.rotation.y = -gateA + Math.PI / 2;
+    supply.visible = false;
+    group.add(supply);
+  }
+
   for (const m of mergeStatic(statics)) group.add(m);
 
   // --- the men ----------------------------------------------------------------------------
@@ -372,6 +426,14 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
 
   const base = {
     group, hunters, braziers, cages, guards, towers, torches,
+    terraceCages, hatchCage, prison, prisonAt, supply,
+    /** Where things are, for the recon marks and the exit. */
+    marks: {
+      towers: towers.length ? towers[0].pos.clone() : V(cx, floorY, cz),
+      cageRing: V(cx, floorY, cz),
+      dock: onGround(...polar(gateA, waterR)),
+      exit: (() => { const [x, z] = polar(gateA, L.rimR + 380); return V(x, 30, z); })(),
+    },
     layout: L, gateA,
     deckY: floorY,
     centre: V(cx, floorY, cz),
@@ -383,6 +445,8 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     update(dt, camera) {
       t += dt;
       for (const c of cages) c.update(dt, camera);
+      for (const c of terraceCages) c.update(dt, camera);
+      hatchCage?.update(dt, camera);
       // The smelter breathes.
       if (mouth) mouth.traverse((o) => {
         if (o.isMesh && o.material.emissiveIntensity !== undefined) {

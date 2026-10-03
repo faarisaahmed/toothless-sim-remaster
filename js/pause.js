@@ -4,7 +4,7 @@ import { createSettingsPanel } from "./settingspanel.js";
 // ---------------------------------------------------------------------------
 // The in-game menu.
 //
-// Opened with Esc, P, - or =. A column of choices on the left — Resume, the
+// Opened with Esc, - or =. A column of choices on the left — Resume, the
 // Journal (or the island count in free flight), Settings, Restart chapter,
 // Save & quit — and whatever the selected one shows on the right. It stops the
 // world while it is open; the world keeps rendering behind it, dimmed.
@@ -23,7 +23,8 @@ import { createSettingsPanel } from "./settingspanel.js";
 // session writes its checkpoint first (hooks.onQuit), so nothing is lost.
 // ---------------------------------------------------------------------------
 
-const OPEN_KEYS = ["Minus", "Equal", "Escape", "KeyP"];
+// Not P: it is strafe-right in the wasd scheme (keymap.js).
+const OPEN_KEYS = ["Minus", "Equal", "Escape"];
 
 /**
  * @param {object} hooks
@@ -245,7 +246,7 @@ export function setupPause(hooks = {}) {
       return;
     }
 
-    if (["Minus", "Equal", "Escape", "KeyP"].includes(e.code)) { api.close(); return; }
+    if (OPEN_KEYS.includes(e.code)) { api.close(); return; }
     if (up) moveNav(-1);
     else if (down) moveNav(1);
     else if (enter || right) activate();

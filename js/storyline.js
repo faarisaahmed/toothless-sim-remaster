@@ -10,21 +10,28 @@
 export const STORY_TITLE = "The Metal and the Dark";
 
 export const CHAPTER_LIST = [
-  { id: "peacetime", n: "I",   title: "Peacetime",     beats: ["leave"],
+  { id: "peacetime", n: "I",    title: "Peacetime",       beats: ["leave"],
     blurb: "A month after the war. Nothing needs him." },
-  { id: "wood",      n: "II",  title: "The Wood",      beats: ["woods", "camp"],
+  { id: "wood",      n: "II",   title: "The Wood",        beats: ["woods", "camp"],
     blurb: "The last island on the chart, and something that was done to it." },
-  { id: "edge",      n: "III", title: "Past the Edge", beats: ["beyond", "rig-find", "rig-recon"],
-    blurb: "A drag mark to the water, and lights where there should be none." },
-  { id: "stack",     n: "IV",  title: "Hollow Stack",  beats: ["stack-find", "lab", "sleep", "fire"],
+  { id: "pit",       n: "III",  title: "The Pit",         beats: ["beyond", "rig-find", "rig-look", "strike", "escape"],
+    blurb: "Lights past the edge of the chart, and the men who keep them." },
+  { id: "stack",     n: "IV",   title: "Hollow Stack",    beats: ["stack-find", "lab", "sleep", "fire"],
     blurb: "Somewhere to rest, a plate that will not burn, and a night that changes it." },
-  { id: "hunger",    n: "V",   title: "Hunger",        beats: ["hunt"],
-    blurb: "Fire costs. He has paid, and now he has to eat." },
-  { id: "lights",    n: "VI",  title: "Lights Out",    beats: ["dusk", "raid"],
-    blurb: "Sixteen fires, eight cages, and the dark on his side." },
-  { id: "home",      n: "VII", title: "After",         beats: ["after"],
+  { id: "storm",     n: "V",    title: "The Stormcutter", beats: ["hunt", "cry", "approach", "feed", "watch"],
+    blurb: "A cry across the water, and somebody else's catastrophe." },
+  { id: "plan",      n: "VI",   title: "The Plan",        beats: ["recon"],
+    blurb: "Learn the pit before he goes back into it." },
+  { id: "lights",    n: "VII",  title: "Lights Out",      beats: ["dusk", "raid", "choice", "caught"],
+    blurb: "Sixteen fires, a ring of cages, and the dark on his side — until it isn't." },
+  { id: "wings",     n: "VIII", title: "Four Wings",      beats: ["cage", "rescue", "last-cages", "flee"],
+    blurb: "He never wins a fight in this story. He doesn't have to." },
+  { id: "home",      n: "IX",   title: "After",           beats: ["after"],
     blurb: "Empty cages, and a stack to come back to." },
 ];
+
+/** Beats that were renamed, so an old save lands somewhere sensible. */
+export const BEAT_ALIAS = { "rig-recon": "rig-look" };
 
 /** Every beat, in play order. */
 export const BEAT_ORDER = CHAPTER_LIST.flatMap((c) => c.beats);
