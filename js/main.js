@@ -251,10 +251,19 @@ const TRAIL_PITCH_SHARE = 0.5; // pitch follows the flight path at half rate
 // and pulls it in to whatever length still has line of sight.
 const OCCLUDE_STEPS = 12;
 const OCCLUDE_CLEAR = 5;    // metres of daylight the boom keeps over the rock
-const OCCLUDE_IN    = 22;   // pulls in fast — being blinded is worse than a jolt
+// Pulls in quickly — being blinded is worse than a lag — but no longer
+// instantly: at 22 the boom snapped in and out every frame skimming a ridge,
+// which read as the camera shaking. The margin below is computed continuously
+// rather than in twelfths, so it has nothing to flicker between.
+const OCCLUDE_IN    = 9;
 const OCCLUDE_OUT   = 2.2;  // and lets back out slowly
 const BOOM_HARD_MIN = 9;    // he is 8.6 m nose to tail; closer than this is inside him
 let boomScale = 1;
+// Smoothed copies of the two things the camera reads off his flight path. The
+// raw path angle moves fast now that rise and lower are sharp, and a camera
+// that follows it directly bounces with every tap of the key.
+let camPath = 0;
+const camLead = new THREE.Vector3();
 const boomDir = new THREE.Vector3();   // scratch, rebuilt every frame
 
 // A carve leans the horizon. Small: this is the difference between a turn you
@@ -2383,7 +2392,7 @@ function frame() {
         // And follow the flight path, so a dive shows you the sea coming up
         // instead of the top of his head, and a climb doesn't fill the screen
         // with empty sky.
-        const wantPitch = 0.26 - controls.getPathAngle() * 0.55;
+        const wantPitch = 0.26 - camPath * 0.55;
         camPitch += (wantPitch - camPitch) * damp(lam * ramp * TRAIL_PITCH_SHARE, dt);
       }
     }
@@ -2399,11 +2408,16 @@ function frame() {
     // as 750 mph: at cruise it is 9 m and you barely see it, flat out it is the
     // full 26 and he sits low in a frame full of oncoming archipelago.
     const lead = LEAD_MAX * Math.pow(speedT, LEAD_CURVE);
-    const path = grounded ? 0 : controls.getPathAngle();
+    const rawPath = grounded ? 0 : controls.getPathAngle();
+    camPath += (rawPath - camPath) * damp(2.4, dt);
+    const path = camPath;
     const h = controls.getHeading();
-    const leadX = Math.sin(h) * Math.cos(path) * lead;
-    const leadZ = Math.cos(h) * Math.cos(path) * lead;
-    const leadY = Math.sin(path) * lead;
+    // The lead itself is low-passed too, so a change of speed or of climb
+    // swings the framing over half a second instead of in one frame.
+    camLead.x += (Math.sin(h) * Math.cos(path) * lead - camLead.x) * damp(5, dt);
+    camLead.z += (Math.cos(h) * Math.cos(path) * lead - camLead.z) * damp(5, dt);
+    camLead.y += (Math.sin(path) * lead - camLead.y) * damp(3, dt);
+    const leadX = camLead.x, leadZ = camLead.z, leadY = camLead.y;
 
     const kXZ = damp(trackXZ, dt);
     focus.x += (dragon.position.x + leadX - focus.x) * kXZ;
@@ -2429,14 +2443,23 @@ function frame() {
       Math.sin(camPitch),
       Math.cos(camPitch) * Math.cos(camYaw)
     );
+    // Walk the arm; where it first dips under the rock, interpolate between
+    // the last clear sample and the first buried one for the exact fraction.
     let clear = 1;
+    let prevMargin = Infinity;
     for (let i = 1; i <= OCCLUDE_STEPS; i++) {
       const t = i / OCCLUDE_STEPS;
       const px = focus.x + boomDir.x * dist * t;
       const pz = focus.z + boomDir.z * dist * t;
       const py = focus.y + boomDir.y * dist * t + lift * t;
       const ground = Math.max(world.getHeightAt(px, pz), world.seaLevel) + OCCLUDE_CLEAR;
-      if (py < ground) { clear = (i - 1) / OCCLUDE_STEPS; break; }
+      const margin = py - ground;
+      if (margin < 0) {
+        const f = prevMargin === Infinity ? 0 : prevMargin / (prevMargin - margin);
+        clear = (i - 1 + f) / OCCLUDE_STEPS;
+        break;
+      }
+      prevMargin = margin;
     }
     // Snap in when something cuts him off, ease back out when it clears — the
     // other way round and you spend the whole pass staring at rock.
@@ -2489,7 +2512,13 @@ function frame() {
           world.getHeightAt(camera.position.x, camera.position.z) + 3,
           world.seaLevel + 4
         );
-        if (camera.position.y < minY) camera.position.y = minY;
+        // Eased up rather than snapped: the ground under a moving camera
+        // changes every frame, and a hard clamp turned every bump in it into
+        // a jolt. Only a real burial is corrected outright.
+        if (camera.position.y < minY) {
+          camera.position.y += (minY - camera.position.y) * damp(18, dt);
+          if (camera.position.y < minY - 2.5) camera.position.y = minY - 2.5;
+        }
       }
 
       camera.lookAt(focus);

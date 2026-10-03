@@ -115,13 +115,21 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
     }
   }
 
+  // Finished chunks wait here and go onto the GPU one per frame. Two or three
+  // workers finishing in the same frame used to mean two or three 1.6 MB
+  // uploads in one frame, which is a missed vsync you can see as a lurch.
+  const ready = [];
+
   function onBuilt(w, data) {
     const job = w.busy;
     w.busy = null;
     if (!job || job.key !== data.id) return;
     pending.delete(job.key);
     if (!preset) return;             // detail was turned off while it built
+    ready.push({ job, data });
+  }
 
+  function install({ job, data }) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(data.position, 3));
     g.setAttribute("normal", new THREE.InterleavedBufferAttribute(
@@ -278,6 +286,7 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
     }
     cache.clear();
     pending.clear();
+    ready.length = 0;
     shown.clear();
     refined.fill(0);
     for (const t of tiles) t.visible = true;
@@ -312,6 +321,7 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
         select(focus);
       }
       dispatch();
+      if (ready.length) install(ready.shift());
     },
 
     beforeReflect() {

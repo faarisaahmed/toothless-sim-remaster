@@ -163,6 +163,14 @@ export function createGovernor({ targetFps = 60, minScale: min0 = 0.6, maxScale:
       Array.prototype.sort.call(sorted, (a, b) => a - b);
       const median = sorted[WINDOW >> 1];
       lastMedian = median;
+      // The median alone is blind to judder. At the edge of the budget a GPU
+      // makes most frames and misses some — 16.7, 33, 16.7, 16.7, 33 — and
+      // the median of that is a perfect 16.7 while the picture visibly
+      // stutters. So retreat on the 80th percentile: once a fifth of frames
+      // miss vsync, the scale comes down. And only climb when the 90th is
+      // comfortably in, so it does not climb straight back into the judder.
+      const p80 = sorted[Math.floor(WINDOW * 0.8)];
+      const p90 = sorted[Math.floor(WINDOW * 0.9)];
       if (!enabled) return;
 
       // What a good frame actually costs here: the asked-for budget, or the
@@ -171,7 +179,7 @@ export function createGovernor({ targetFps = 60, minScale: min0 = 0.6, maxScale:
       const frameTarget = Math.max(budget, fastest);
 
       const before = scale;
-      if (median > frameTarget * 1.25) {
+      if (median > frameTarget * 1.25 || p80 > frameTarget * 1.5) {
         // Behind. Retreat in a big enough step to actually land inside budget —
         // creeping down 2% at a time means twenty bad seconds before it helps.
         scale = Math.max(minScale, scale - 0.09);
@@ -180,7 +188,7 @@ export function createGovernor({ targetFps = 60, minScale: min0 = 0.6, maxScale:
         // down every second or two, which the eye tracks far more readily than
         // a slightly soft image and cannot stop watching once it has noticed.
         climbBlock = CLIMB_BLOCK;
-      } else if (median < frameTarget * 1.08 && scale < maxScale && climbBlock === 0) {
+      } else if (median < frameTarget * 1.08 && p90 < frameTarget * 1.2 && scale < maxScale && climbBlock === 0) {
         // Riding the swap interval with room to spare. Climb slowly: the cost
         // of guessing wrong upward is a stutter, downward is nothing.
         scale = Math.min(maxScale, scale + 0.04);
