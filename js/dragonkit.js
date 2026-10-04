@@ -27,6 +27,8 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 // ---------------------------------------------------------------------------
 
 const BASE = "./assets/models/dragons/";
+/** In-place clips a resting biped rig cycles through (the ones that exist). */
+const RESTLESS = ["idle01", "idle02", "Vigilance", "F_idle_daze", "touch01", "idle01_1", "F_idle01"];
 const loader = new GLTFLoader();
 const kits = new Map();
 
@@ -120,6 +122,18 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     if (!o.isMesh) return;
     o.castShadow = true;
     o.frustumCulled = false;
+    // The Nadder and the Gronckle come flagged unlit (their textures have
+    // the lighting painted in), which three draws as MeshBasicMaterial: lit
+    // the same at midnight as at noon, so in a dark pit they glowed. Give
+    // them a real surface.
+    o.material = [].concat(o.material).map((m) => {
+      if (!m.isMeshBasicMaterial) return m;
+      return new THREE.MeshStandardMaterial({
+        map: m.map, color: m.color, side: m.side, transparent: m.transparent,
+        alphaTest: m.alphaTest, roughness: 0.82, metalness: 0,
+      });
+    });
+    if (o.material.length === 1) o.material = o.material[0];
     if (tint !== null) {
       const c = new THREE.Color(tint);
       o.material = [].concat(o.material).map((m) => {
@@ -145,7 +159,11 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     const name = names.find((n) => actions[n]);
     if (!name || playing === name) return;
     const next = actions[name];
-    next.reset().fadeIn(playing ? 0.4 : 0).play();
+    // The first clip goes straight in at full weight: the body is measured on
+    // it, and a fade from nothing would measure the rest pose instead.
+    next.reset().setEffectiveWeight(1);
+    if (playing) next.fadeIn(0.4);
+    next.play();
     if (playing) actions[playing].fadeOut(0.4);
     playing = name;
   };
@@ -168,13 +186,30 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     inner.updateMatrixWorld(true);
     anchor = _mi.copy(inner.matrixWorld).invert().multiply(pelvis.matrixWorld).clone();
   }
-  function pin() {
+  // Pinning the pelvis lets the legs wander: a clip that crouches pulls the
+  // feet up off the ground instead of the body down onto them. So the feet
+  // are put back on the floor after, by the lowest foot bone.
+  const feet = [];
+  if (pelvis) body.traverse((o) => { if (o.isBone && /(Foot|Toe0)_/.test(o.name)) feet.push(o); });
+  const _fp = new THREE.Vector3();
+  const footY = () => {
+    let lo = Infinity;
+    for (const f of feet) lo = Math.min(lo, inner.worldToLocal(f.getWorldPosition(_fp)).y);
+    return lo;
+  };
+  let foot0 = null;
+  function pin(ground) {
     body.updateMatrixWorld(true);
     // M: pelvis relative to inner. Want it at anchor: B' = A * M^-1 * B.
     _m.copy(inner.matrixWorld).invert().multiply(pelvis.matrixWorld).invert();
     _m.premultiply(anchor).multiply(body.matrix);
     _m.decompose(body.position, body.quaternion, body.scale);
+    if (ground && feet.length && foot0 !== null) {
+      body.updateMatrixWorld(true);
+      body.position.y += foot0 - footY();
+    }
   }
+  if (pelvis && feet.length) { root.updateMatrixWorld(true); foot0 = Math.max(footY(), 0); }
 
   // --- rest pose, captured once ---------------------------------------------
   // (root is still at the identity here, so world IS the actor's frame.)
@@ -256,7 +291,7 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     }
   }
 
-  const state = { mode: "idle", t: Math.random() * 10, beat: 0, droop: 0, flapRate: 1.6 };
+  const state = { mode: "idle", t: Math.random() * 10, beat: 0, droop: 0, flapRate: 1.6, next: 0 };
 
   function poseWings() {
     for (const w of wings) {
@@ -327,6 +362,7 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     /** "idle" (folded, breathing), "sleep", or "fly" (beating). */
     setMode(m) {
       state.mode = m;
+      state.next = 0;
       if (kit.kind === "bip") {
         play(m === "fly" ? ["F_move01", "move01", "idle01"] : ["idle01", "idle02"]);
       }
@@ -338,7 +374,17 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     update(dt) {
       state.t += dt;
       state.beat += dt * state.flapRate * Math.PI * 2 * (state.mode === "fly" ? 1 : 0);
-      if (mixer) { mixer.update(dt); if (pelvis) pin(); }
+      // A caged animal does not stand still: every so often it shifts, looks
+      // round, paws at the bars, sags. The rigs with clips go through theirs.
+      if (mixer && state.mode !== "fly") {
+        state.next -= dt;
+        if (state.next <= 0) {
+          state.next = 4 + Math.random() * 7;
+          const pool = RESTLESS.filter((n) => actions[n]);
+          if (pool.length) play([pool[Math.floor(Math.random() * pool.length)]]);
+        }
+      }
+      if (mixer) { mixer.update(dt); if (pelvis) pin(state.mode !== "fly"); }
       if (kit.kind !== "bip") poseWings();
     },
   };
