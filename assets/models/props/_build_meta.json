@@ -332,6 +332,36 @@
   ],
   "tris": 1280
  },
+ "dh_campfire.glb": {
+  "anchor": "ground",
+  "budget": 9000,
+  "cls": "small",
+  "detail": 1.5,
+  "min": [
+   -1.4,
+   -0.008,
+   -1.197
+  ],
+  "nodes": [
+   "dh_campfire",
+   "flame"
+  ],
+  "note": "a cooking fire: stone ring, logs, a spit on a tripod. Flames ship as `flame`",
+  "size": [
+   2.8,
+   1.496,
+   2.385
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "stone",
+   "iron",
+   "ember",
+   "leather"
+  ],
+  "tris": 1702
+ },
  "dh_forge.glb": {
   "anchor": "ground",
   "budget": 110000,
@@ -396,6 +426,86 @@
   ],
   "tris": 1794
  },
+ "dh_hut.glb": {
+  "anchor": "ground",
+  "budget": 40000,
+  "cls": "structure",
+  "detail": 1.7,
+  "min": [
+   -3.15,
+   0.0,
+   -3.281
+  ],
+  "nodes": [
+   "dh_hut"
+  ],
+  "note": "a round hide-roofed hut, 5.2 m across, door to +Z. Fits four bunks",
+  "size": [
+   6.3,
+   4.776,
+   6.562
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "rope",
+   "hide"
+  ],
+  "tris": 3548
+ },
+ "dh_leanto.glb": {
+  "anchor": "ground",
+  "budget": 16000,
+  "cls": "medium",
+  "detail": 1.6,
+  "min": [
+   -2.35,
+   0.0,
+   -1.85
+  ],
+  "nodes": [
+   "dh_leanto"
+  ],
+  "note": "a watch shelter: hide roof sloping to the back, open to +Z, bench inside, 4 x 3 m",
+  "size": [
+   4.7,
+   2.8,
+   3.7
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "hide"
+  ],
+  "tris": 1278
+ },
+ "dh_longhouse.glb": {
+  "anchor": "ground",
+  "budget": 40000,
+  "cls": "structure",
+  "detail": 1.7,
+  "min": [
+   -3.838,
+   0.0,
+   -7.9
+  ],
+  "nodes": [
+   "dh_longhouse"
+  ],
+  "note": "the barracks hall: 15 x 6.4 m, board walls on a stone footing, shingled roof, doors at both gable ends (+Z and -Z)",
+  "size": [
+   7.681,
+   6.35,
+   15.8
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "stone",
+   "hide"
+  ],
+  "tris": 16854
+ },
  "dh_palisade.glb": {
   "anchor": "ground",
   "budget": 16000,
@@ -420,6 +530,57 @@
    "wood_dark"
   ],
   "tris": 1276
+ },
+ "dh_shed.glb": {
+  "anchor": "ground",
+  "budget": 40000,
+  "cls": "structure",
+  "detail": 1.7,
+  "min": [
+   -2.757,
+   0.0,
+   -3.95
+  ],
+  "nodes": [
+   "dh_shed"
+  ],
+  "note": "an open workshop: plank roof on six posts, 7 x 4.5 m, a bench, an anvil and racks",
+  "size": [
+   5.514,
+   4.145,
+   8.02
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "iron"
+  ],
+  "tris": 4588
+ },
+ "dh_table.glb": {
+  "anchor": "ground",
+  "budget": 16000,
+  "cls": "medium",
+  "detail": 1.6,
+  "min": [
+   -1.01,
+   -0.015,
+   -2.023
+  ],
+  "nodes": [
+   "dh_table"
+  ],
+  "note": "a trestle table with two benches, 4 m long",
+  "size": [
+   2.02,
+   1.052,
+   4.046
+  ],
+  "slots": [
+   "wood",
+   "wood_dark"
+  ],
+  "tris": 796
  },
  "dh_tent.glb": {
   "anchor": "ground",

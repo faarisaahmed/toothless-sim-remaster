@@ -328,3 +328,239 @@ def dh_tent():
          "hide", double=True)
     p.contact_shade(reach=0.5, strength=0.4)
     return p
+
+
+# --------------------------------------------------------------------------
+# Where they live. The pit used to be a yard and a ring of cages with nowhere
+# to go indoors -- men standing at posts round the clock in an open bowl. A
+# camp this size has a barracks hall, huts for the crew bosses, lean-tos on
+# the terraces for the watch to get out of the rain, a workshop, and fires
+# with something cooking on them. All of it improvised: hides, rough-split
+# boards, whatever timber came in on the last ship.
+# --------------------------------------------------------------------------
+
+def _log_wall(p, pts, h0, h1, r, slot="wood_dark", seed=0):
+    """Vertical logs stood shoulder to shoulder along a path, tops ragged."""
+    rr = random.Random(seed)
+    for (x, z) in pts:
+        top = h1 + rr.uniform(-0.12, 0.10)
+        cyl(p, (x, h0, z), (x, top, z), r, r * 0.9, 6, slot, smooth=True)
+
+
+@model("dh_hut.glb", "structure",
+       "a round hide-roofed hut, 5.2 m across, door to +Z. Fits four bunks")
+def dh_hut():
+    p = Part("dh_hut")
+    R, WALL, PEAK = 2.6, 1.9, 4.3
+    # Wall: logs in a ring, a gap for the door at +Z.
+    pts = []
+    n = 62
+    for k in range(n):
+        a = TAU * k / n
+        if abs(math.atan2(math.sin(a - math.pi / 2), math.cos(a - math.pi / 2))) < 0.22:
+            continue                                   # door (+Z is a = pi/2)
+        pts.append((math.cos(a) * R, math.sin(a) * R))
+    _log_wall(p, pts, 0.0, WALL, 0.13, seed=3)
+    # Door posts and lintel.
+    for sx in (-1, 1):
+        cyl(p, (sx * 0.62, 0, R - 0.02), (sx * 0.62, WALL + 0.25, R - 0.02), 0.11, 0.1, 6, "wood")
+    beam(p, (-0.8, WALL + 0.1, R), (0.8, WALL + 0.1, R), 0.18, 0.16, "wood")
+    # Roof: a cone of hides on poles, flared at the eave, smoke hole at the top.
+    revolve(p, [(R + 0.55, WALL - 0.15), (R * 0.85, WALL + 0.55), (R * 0.45, WALL + 1.55),
+                (0.32, PEAK - 0.1)], seg=14, slot="hide", smooth=True, cap_start=False,
+            cap_end=False)
+    for k in range(10):                                # rafter poles through the hole
+        a = TAU * (k + 0.5) / 10
+        d = (math.cos(a), math.sin(a))
+        cyl(p, (d[0] * (R + 0.65), WALL - 0.25, d[1] * (R + 0.65)),
+            (d[0] * -0.12, PEAK + 0.45, d[1] * -0.12), 0.05, 0.035, 5, "wood")
+    # Lashed bands holding the hides down.
+    for h, r in ((WALL + 0.3, R * 0.93), (WALL + 1.2, R * 0.58)):
+        torus(p, (0, h, 0), r, 0.03, "rope", majseg=16, minseg=3)
+    # A hide flap rolled up over the door.
+    cyl(p, (-0.7, WALL - 0.05, R + 0.12), (0.7, WALL - 0.05, R + 0.12), 0.13, 0.13, 7, "hide",
+        smooth=True)
+    p.contact_shade(reach=0.8, strength=0.5)
+    return p
+
+
+@model("dh_longhouse.glb", "structure",
+       "the barracks hall: 15 x 6.4 m, board walls on a stone footing, shingled roof, "
+       "doors at both gable ends (+Z and -Z)")
+def dh_longhouse():
+    p = Part("dh_longhouse")
+    HL, W, EAVE, RIDGE = 7.5, 3.2, 2.3, 5.2
+    # Footing.
+    for sx in (-1, 1):
+        stone_course(p, [(sx * W, 0, -HL), (sx * W, 0, HL)], height=0.45, width=0.5, seed=4 + sx)
+    # Side walls: vertical boards.
+    rr = random.Random(9)
+    for sx in (-1, 1):
+        z = -HL
+        while z < HL - 0.1:
+            w = rr.uniform(0.26, 0.36)
+            box(p, (sx * W, 0.45 + (EAVE - 0.45) / 2, z + w / 2),
+                (0.07, EAVE - 0.45, w - 0.015), "wood" if rr.random() < 0.7 else "wood_dark")
+            z += w
+        beam(p, (sx * W, EAVE, -HL - 0.2), (sx * W, EAVE, HL + 0.2), 0.22, 0.2, "wood_dark")
+    # Gable ends with a door in each.
+    for sz in (-1, 1):
+        x = -W
+        while x < W - 0.05:
+            w = rr.uniform(0.26, 0.34)
+            xc = x + w / 2
+            if abs(xc) < 0.75:
+                x += w
+                continue
+            top = EAVE + (RIDGE - EAVE) * (1 - abs(xc) / W)
+            box(p, (xc, 0.45 + (top - 0.45) / 2, sz * HL), (w - 0.015, top - 0.45, 0.07), "wood")
+            x += w
+        for sx in (-1, 1):
+            cyl(p, (sx * 0.78, 0, sz * HL), (sx * 0.78, 2.3, sz * HL), 0.11, 0.1, 6, "wood_dark")
+        beam(p, (-0.95, 2.3, sz * HL), (0.95, 2.3, sz * HL), 0.2, 0.18, "wood_dark")
+        quad(p, (-0.72, 0.0, sz * (HL - 0.25)), (0.72, 0.0, sz * (HL - 0.25)),
+             (0.72, 2.2, sz * (HL - 0.25)), (-0.72, 2.2, sz * (HL - 0.25)), "hide", double=True)
+        # Crossed bargeboards past the ridge.
+        for sx in (-1, 1):
+            beam(p, (sx * (W + 0.5), EAVE - 0.3, sz * (HL + 0.35)),
+                 (-sx * 0.55, RIDGE + 0.7, sz * (HL + 0.35)), 0.22, 0.08, "wood_dark",
+                 up=(0, 0, 1))
+    # Roof.
+    for sx in (-1, 1):
+        def patch(u, v, sx=sx):
+            z = -HL - 0.35 + u * (2 * HL + 0.7)
+            ex, ey = sx * (W + 0.55), EAVE - 0.28
+            s = math.sin(math.pi * v) * 0.05
+            return (ex + (0 - ex) * v, ey + (RIDGE + 0.05 - ey) * v - s, z)
+        shingle_courses(p, patch, "wood_dark", width=0.42, exposure=0.36, thickness=0.035,
+                        seed=11 + sx)
+    polyline_tube(p, [(0, RIDGE + 0.17, -HL - 0.4), (0, RIDGE + 0.17, HL + 0.4)], 0.13,
+                  "wood_dark", seg=7, smooth=True)
+    # Smoke louvre on the ridge.
+    box(p, (0, RIDGE + 0.55, 0), (0.9, 0.5, 1.6), "wood_dark")
+    for sx in (-1, 1):
+        quad(p, (sx * 0.95, RIDGE + 0.8, -1.0), (sx * 0.95, RIDGE + 0.8, 1.0),
+             (0, RIDGE + 1.15, 1.0), (0, RIDGE + 1.15, -1.0), "wood", double=True)
+    p.contact_shade(reach=0.9, strength=0.5)
+    return p
+
+
+@model("dh_leanto.glb", "medium",
+       "a watch shelter: hide roof sloping to the back, open to +Z, bench inside, 4 x 3 m")
+def dh_leanto():
+    p = Part("dh_leanto")
+    HW, D, FRONT, BACK = 2.0, 3.0, 2.7, 1.5
+    for sx in (-1, 1):
+        cyl(p, (sx * HW, 0, D / 2), (sx * HW, FRONT, D / 2), 0.11, 0.09, 6, "wood")
+        cyl(p, (sx * HW, 0, -D / 2), (sx * HW, BACK, -D / 2), 0.11, 0.09, 6, "wood")
+        beam(p, (sx * HW, FRONT, D / 2 + 0.25), (sx * HW, BACK, -D / 2 - 0.25), 0.14, 0.12,
+             "wood_dark")
+    beam(p, (-HW - 0.3, FRONT, D / 2), (HW + 0.3, FRONT, D / 2), 0.16, 0.16, "wood_dark")
+    beam(p, (-HW - 0.3, BACK, -D / 2), (HW + 0.3, BACK, -D / 2), 0.16, 0.16, "wood_dark")
+    quad(p, (-HW - 0.35, FRONT + 0.1, D / 2 + 0.35), (HW + 0.35, FRONT + 0.1, D / 2 + 0.35),
+         (HW + 0.35, BACK + 0.1, -D / 2 - 0.35), (-HW - 0.35, BACK + 0.1, -D / 2 - 0.35),
+         "hide", double=True)
+    # Back wall of wattle-ish boards, half height.
+    for k in range(13):
+        x = -HW + 0.15 + k * (2 * HW - 0.3) / 12
+        box(p, (x, 0.6, -D / 2 + 0.05), (0.28, 1.2, 0.05), "wood_dark")
+    # Bench and a water butt.
+    box(p, (0, 0.45, -D / 2 + 0.55), (3.2, 0.08, 0.42), "wood")
+    for sx in (-1, 1):
+        box(p, (sx * 1.3, 0.22, -D / 2 + 0.55), (0.1, 0.44, 0.36), "wood_dark")
+    revolve(p, [(0.32, 0), (0.36, 0.45), (0.32, 0.9)], center=(HW - 0.4, 0, D / 2 - 0.5),
+            seg=10, slot="wood", smooth=True)
+    p.contact_shade(reach=0.6, strength=0.45)
+    return p
+
+
+@model("dh_shed.glb", "structure",
+       "an open workshop: plank roof on six posts, 7 x 4.5 m, a bench, an anvil and racks")
+def dh_shed():
+    p = Part("dh_shed")
+    HL, HW, H, RIDGE = 3.5, 2.25, 2.8, 3.9
+    for sx in (-1, 1):
+        for z in (-HL, 0, HL):
+            cyl(p, (sx * HW, 0, z), (sx * HW, H, z), 0.13, 0.11, 6, "wood_dark")
+        beam(p, (sx * HW, H, -HL - 0.3), (sx * HW, H, HL + 0.3), 0.2, 0.18, "wood_dark")
+        for z in (-HL, 0, HL):                          # rafters
+            beam(p, (sx * (HW + 0.45), H - 0.2, z), (0, RIDGE, z), 0.14, 0.1, "wood",
+                 up=(0, 0, 1))
+        rr = random.Random(5 + sx)
+        z = -HL - 0.4
+        while z < HL + 0.4:
+            w = rr.uniform(0.22, 0.32)
+            a = (sx * (HW + 0.5), H - 0.15, z + w / 2)
+            b = (0, RIDGE + 0.1, z + w / 2)
+            beam(p, a, b, w - 0.02, 0.04, "wood" if rr.random() < 0.6 else "wood_dark",
+                 up=(0, 1, 0))
+            z += w
+    polyline_tube(p, [(0, RIDGE + 0.15, -HL - 0.45), (0, RIDGE + 0.15, HL + 0.45)], 0.1,
+                  "wood_dark", seg=6, smooth=True)
+    # Workbench along the back.
+    box(p, (-HW + 0.55, 0.9, 0), (0.75, 0.1, 5.0), "wood")
+    for z in (-2.2, 0, 2.2):
+        box(p, (-HW + 0.55, 0.43, z), (0.6, 0.86, 0.12), "wood_dark")
+    for k in range(5):                                  # tools on it
+        box(p, (-HW + 0.5, 0.98, -1.8 + k * 0.85), (0.3, 0.06, 0.12), "iron")
+    # Anvil on a stump.
+    cyl(p, (0.6, 0, 1.2), (0.6, 0.6, 1.2), 0.32, 0.3, 8, "wood_dark")
+    box(p, (0.6, 0.72, 1.2), (0.3, 0.24, 0.7), "iron")
+    box(p, (0.6, 0.72, 1.62), (0.18, 0.12, 0.2), "iron")
+    # Spear rack.
+    beam(p, (HW - 0.3, 1.4, -2.6), (HW - 0.3, 1.4, -0.8), 0.1, 0.1, "wood_dark")
+    for k in range(6):
+        z = -2.5 + k * 0.32
+        cyl(p, (HW - 0.45, 0.02, z), (HW - 0.2, 2.5, z), 0.02, 0.018, 5, "wood")
+    # Barrels of bolts.
+    for z in (2.1, 2.9):
+        revolve(p, [(0.3, 0), (0.35, 0.4), (0.3, 0.8)], center=(HW - 0.5, 0, z), seg=10,
+                slot="wood", smooth=True)
+    p.contact_shade(reach=0.7, strength=0.45)
+    return p
+
+
+@model("dh_campfire.glb", "small",
+       "a cooking fire: stone ring, logs, a spit on a tripod. Flames ship as `flame`")
+def dh_campfire():
+    p = Part("dh_campfire")
+    for k in range(11):
+        a = TAU * k / 11
+        boulder(p, (math.cos(a) * 0.95, 0.12, math.sin(a) * 0.95), size=(0.32, 0.24, 0.28),
+                seed=k + 20, seg=6, rings=4, bed=0.0)
+    for k in range(5):
+        a = TAU * k / 5 + 0.3
+        d = (math.cos(a), math.sin(a))
+        cyl(p, (d[0] * 0.75, 0.08, d[1] * 0.75), (d[0] * 0.05, 0.42, d[1] * 0.05), 0.07, 0.06,
+            6, "wood_dark", smooth=True)
+    # Tripods and a spit.
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            cyl(p, (sx * 1.35, 0, sz * 0.35), (sx * 1.2, 1.45, 0), 0.04, 0.035, 5, "wood")
+    cyl(p, (-1.4, 1.42, 0), (1.4, 1.42, 0), 0.03, 0.03, 5, "iron")
+    sphere(p, (0, 1.32, 0), 0.24, "leather", rings=4, seg=7, squash=0.7)   # something roasting
+    p.contact_shade(reach=0.3, strength=0.4)
+    f = Part("flame")
+    revolve(f, [(0.4, 0.12), (0.34, 0.3), (0.16, 0.6), (0.0, 0.85)], seg=8, slot="ember",
+            smooth=True)
+    return [p, f]
+
+
+@model("dh_table.glb", "medium", "a trestle table with two benches, 4 m long")
+def dh_table():
+    p = Part("dh_table")
+    rr = random.Random(2)
+    for k in range(4):
+        box(p, (-0.36 + k * 0.24, 0.84, 0), (0.23, 0.06, 4.0 + rr.uniform(-0.05, 0.05)), "wood")
+    for z in (-1.6, 1.6):
+        for sx in (-1, 1):
+            beam(p, (sx * 0.38, 0, z), (0, 0.8, z), 0.08, 0.08, "wood_dark", up=(0, 0, 1))
+    for sx in (-1, 1):
+        box(p, (sx * 0.85, 0.46, 0), (0.32, 0.06, 3.8), "wood")
+        for z in (-1.5, 1.5):
+            box(p, (sx * 0.85, 0.22, z), (0.28, 0.44, 0.08), "wood_dark")
+    for k in range(5):                                  # cups and a bowl
+        cyl(p, (rr.uniform(-0.2, 0.2), 0.87, -1.6 + k * 0.8), (rr.uniform(-0.2, 0.2), 1.0,
+            -1.6 + k * 0.8), 0.05, 0.05, 6, "wood_dark")
+    p.contact_shade(reach=0.4, strength=0.45)
+    return p

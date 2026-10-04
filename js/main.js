@@ -1268,7 +1268,7 @@ function blastTargets() {
   // he gets up a minute later wondering what hit him.
   if (rig?.hunters && dragon) {
     for (const m of rig.hunters.men) {
-      if (m.ko > 0 || m.pos.distanceTo(dragon.position) > 450) continue;
+      if (m.ko > 0 || m.inside || m.pos.distanceTo(dragon.position) > 450) continue;
       m._shot ??= { pos: new THREE.Vector3(), hit: () => rig.hunters.knockOut(m, 60) };
       m._shot.pos.copy(m.pos).y += 1.2;
       _blastTargets.push(m._shot);
@@ -1326,7 +1326,7 @@ function updateHunterMarkers() {
   let n = 0;
   if (!game.cine) {
     for (const m of rig.hunters.men) {
-      if (m.ko > 0 || m.awareness < 0.25 || !dragon) continue;
+      if (m.ko > 0 || m.inside || m.awareness < 0.25 || !dragon) continue;
       if (m.pos.distanceTo(dragon.position) > 480) continue;
       _mk.copy(m.pos); _mk.y += 2.6;
       _mk.project(camera);
@@ -2447,10 +2447,12 @@ function frame() {
     const h = controls.getHeading(), sp = controls.getSpeed();
     huntTarget.pos = dragon.position;
     huntTarget.vel.set(Math.sin(h) * sp, controls.getVerticalSpeed(), Math.cos(h) * sp);
-    huntTarget.loud = controls.getClimb() > 0.15 || controls.getSpeedT() > 0.30;
+    // Loud is wingbeats you can hear: a hard climb or a flat-out dive. A Night
+    // Fury cruising or gliding is close to silent, and that is half his point.
+    huntTarget.loud = controls.getClimb() > 0.3 || controls.getSpeedT() > 0.65;
     huntTarget.speedT = controls.getSpeedT();
     huntTarget.hidden = !!game.cine;
-    const spotted = rig.hunters.update(sdt, huntTarget, world.sky.state?.night ?? 0);
+    const spotted = rig.hunters.update(sdt, huntTarget, world.sky.state?.night ?? 0, world.sky.state?.hour ?? 12);
     if (spotted.length && !game.cine) {
       if (!alarmToasted) game.toast("Seen.", 1100);
       alarmToasted = true;
