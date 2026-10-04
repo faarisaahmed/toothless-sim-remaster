@@ -1,0 +1,9 @@
+Stand-in dragon models, used under CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+Changes: Monstrous Nightmare, Thunderdrum and Zippleback rigged by tools/dragons/build_dragons.py.
+
+stormcutter: "baby Stormcutter" by Dragonblue223, CC-BY 4.0, https://sketchfab.com/3d-models/95e2d843fee84e25a44e57d80550096e
+nadder: "Deadly Nadder" by witsanusuperball, CC-BY 4.0, https://sketchfab.com/3d-models/1aca2b08569f4f7eb9d21ef29aa38ccb
+gronckle: "Gronckle" by witsanusuperball, CC-BY 4.0, https://sketchfab.com/3d-models/e63924a7a29242ecb1e2fd8ff05c3368
+nightmare: "adult Monstrous Nightmare" by Dragonblue223, CC-BY 4.0, https://sketchfab.com/3d-models/5573b2bf120144e5aada7ee0c9a3169d
+thunderdrum: "adult Thunderdrum" by Dragonblue223, CC-BY 4.0, https://sketchfab.com/3d-models/6fc65dd3b28944c6b1a9f112d97c1863
+zippleback: "Hideous Zippleback" by joeandrollamoso, CC-BY 4.0, https://sketchfab.com/3d-models/b4e612e1c56f4e788a2698fd76bb0b18

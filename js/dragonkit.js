@@ -22,8 +22,8 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 //            animations of its own, which are simply played.
 //
 // Missing files are fine: loadKit() resolves null and the caller keeps its
-// fallback (the re-coloured Night Fury). The public build has none of these —
-// see tools/dragons/fetch_dragons.py.
+// fallback (the re-coloured Night Fury). Where they come from, and their
+// CC-BY credits: tools/dragons/, assets/models/dragons/CREDITS.txt.
 // ---------------------------------------------------------------------------
 
 const BASE = "./assets/models/dragons/";

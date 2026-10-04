@@ -2,10 +2,11 @@
 """
 Download the stand-in dragon models from Sketchfab into assets/models/dragons/_src/.
 
-These are fan uploads of HTTYD species, used for local testing only. The
-designs are not ours to redistribute, so — like the film soundtrack — the
-whole folder is gitignored and the game falls back to re-coloured Night Fury
-bodies when they are missing (which is what the public Pages build shows).
+These are fan uploads of HTTYD species, stand-ins until the game has dragons
+of its own. All are CC-BY 4.0 and published with the game, credited in
+assets/models/dragons/CREDITS.txt. Only the raw downloads (_src/) are
+gitignored; the game falls back to re-coloured Night Fury bodies if the
+built models are missing.
 
     SKETCHFAB_TOKEN=... python3 tools/dragons/fetch_dragons.py
 
@@ -30,7 +31,8 @@ MODELS = {
 
 
 def credits_text():
-    lines = ["Stand-in dragon models, local testing only. Not redistributed.", ""]
+    lines = ["Stand-in dragon models, used under CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/).",
+             "Changes: Monstrous Nightmare, Thunderdrum and Zippleback rigged by tools/dragons/build_dragons.py.", ""]
     for name, (uid, title, author) in MODELS.items():
         lines.append(f'{name}: "{title}" by {author}, CC-BY 4.0, https://sketchfab.com/3d-models/{uid}')
     return "\n".join(lines) + "\n"
