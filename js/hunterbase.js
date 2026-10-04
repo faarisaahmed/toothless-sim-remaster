@@ -36,8 +36,8 @@ import { createHunters } from "./hunters.js";
 const TAU = Math.PI * 2;
 
 // ---------------------------------------------------------------------------
-// What is in the cages. A glowing orb until the stand-in models load (they are
-// local-only, see tools/dragons/); then a dragon of a real species, folded up
+// What is in the cages. A glowing orb until the stand-in models load (see
+// tools/dragons/); then a dragon of a real species, folded up
 // and shifting about, which beats its way up and out when the cage breaks.
 // ---------------------------------------------------------------------------
 const SPECIES = ["nadder", "gronckle", "nightmare", "thunderdrum", "zippleback"];

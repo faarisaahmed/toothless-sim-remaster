@@ -164,7 +164,7 @@ assets/models/props/_preview/
 # recorder and a frame grabber spliced in.
 _render_check.html
 
-# Stand-in dragon models from Sketchfab (fan uploads of HTTYD species), local
-# testing only — see tools/dragons/fetch_dragons.py. The game falls back to
-# re-coloured Night Fury bodies without them.
-assets/models/dragons/
+# The raw Sketchfab downloads the stand-in dragons are built from — inputs to
+# tools/dragons/build_dragons.py, re-fetched by fetch_dragons.py. The built
+# models next to them ship.
+assets/models/dragons/_src/
