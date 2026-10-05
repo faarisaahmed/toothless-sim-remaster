@@ -60,7 +60,9 @@ export const LEVELS = {
 
 const TIER = (() => { try { return detectTier(); } catch { return "medium"; } })();
 
-const DEFAULTS = { preset: "auto", showFps: false, ...PRESETS[TIER] };
+// Photoreal is not part of any preset: it is a change of look, not of cost
+// level, and picking "High" should not quietly switch it off.
+const DEFAULTS = { preset: "auto", showFps: false, photoreal: false, ...PRESETS[TIER] };
 
 let state = { ...DEFAULTS };
 try {
@@ -97,8 +99,32 @@ export const graphics = {
   set(key, value) {
     if (state[key] === value) return;
     state[key] = value;
-    if (key !== "showFps" && key !== "fpsCap") state.preset = "custom";
+    if (key !== "showFps" && key !== "fpsCap" && key !== "photoreal") state.preset = "custom";
     save([key]);
+  },
+
+  /**
+   * Photoreal on also brings everything it leans on up to where it can be
+   * seen: real shadows, the fine terrain, the full forest, volume clouds. It
+   * never turns anything DOWN, and turning it off leaves the rest alone.
+   */
+  setPhotoreal(on) {
+    const changed = ["photoreal"];
+    state.photoreal = !!on;
+    if (on) {
+      const raise = (key, order, min) => {
+        if (order.indexOf(state[key]) < order.indexOf(min)) { state[key] = min; changed.push(key); }
+      };
+      raise("shadows", ["off", "low", "high", "ultra"], "ultra");
+      raise("terrain", ["low", "medium", "high", "ultra"], "ultra");
+      raise("trees", ["low", "medium", "high", "ultra"], "high");
+      raise("clouds", ["low", "medium", "high", "ultra"], "high");
+      raise("reflections", ["low", "medium", "high"], "high");
+      if (!state.grass) { state.grass = true; changed.push("grass"); }
+      if (!state.bloom) { state.bloom = true; changed.push("bloom"); }
+      if (changed.length > 1) { state.preset = "custom"; changed.push("preset"); }
+    }
+    save(changed);
   },
 
   onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
@@ -132,6 +158,14 @@ const LMHU = ["low", "medium", "high", "ultra"];
 const NAMES4 = ["Low", "Medium", "High", "Ultra"];
 
 export const GRAPHICS_OPTIONS = [
+  {
+    id: "photoreal", section: "Graphics", glyph: "&#9672;", label: "Photoreal",
+    value: () => (state.photoreal ? "On" : "Off"),
+    cycle: () => graphics.setPhotoreal(!state.photoreal),
+    hint: () => state.photoreal
+      ? "Mountains cast real shadows, valleys fill with sky light, haze settles low, the slopes are eroded. Heavy — wants a strong GPU"
+      : "Live-action look: real terrain shadows and sky light, aerial haze, eroded slopes, a camera grade. Raises shadows, terrain and forest with it",
+  },
   {
     id: "gfxPreset", section: "Graphics", glyph: "&#9673;", label: "Quality preset",
     hint: () => state.preset === "auto"

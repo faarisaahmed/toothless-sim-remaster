@@ -1590,6 +1590,10 @@ function applyGraphics(g, changed = null) {
     world.sky.setDeckOnly(!cloudPass.enabled);
   }
   if (has("bloom")) post.setBloom(g.bloom);
+  if (has("photoreal")) {
+    world.setPhotoreal(!!g.photoreal);
+    post.setPhotoreal?.(!!g.photoreal);
+  }
   if (has("showFps")) fpsEl.classList.toggle("on", !!g.showFps);
 }
 applyGraphics(graphics.state);

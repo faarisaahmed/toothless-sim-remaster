@@ -31,6 +31,19 @@ draw distance, grass, water reflections, clouds, glow, and an FPS counter.
 Everything applies live. For a weak laptop: **Low**, or Medium with shadows off
 and a 30 fps cap.
 
+**Photoreal** (top of Settings → Graphics, or `photoreal on` in the console) is
+the live-action look, and it is heavy. Mountains cast real shadows across the
+valleys, tree tops, roofs and the dragon included, from a shadow map baked off
+the height field on the GPU. Gullies, fjords and cliff feet are dimmed by how
+much sky they can see. Haze lies thicker low down, so the peaks stand clear. The
+slopes are cut with erosion gullies, rock breaks through the turf, and cliffs get
+crag relief at the scale you see them from the air. Each tree gets its own shade
+and a dark inner crown. The camera switches to AgX tone mapping with a light
+sharpen, lens fringing and a softer bloom. Turning it on raises shadows, terrain,
+forest, clouds and reflections to match; turning it off leaves them where they
+are. It all lives in `js/photoreal.js`, plus the `uPR` paths in
+`js/terrainmat.js` and `js/flora.js`.
+
 Clouds are ray-marched volume (`js/clouds.js`) from Medium up — fly into them,
 through them and out on top; Low paints them on the sky instead. Time of day,
 weather (clear, fair, overcast, rain, storm, fog), the sun and moon, fog and
