@@ -21,7 +21,8 @@ import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
 import { chapterOfBeat, chapterById } from "./storyline.js";
 import { setMapSites, setMapObjective } from "./map.js";
 import { buildRig, buildHollowStack, buildSnareCamp } from "./places.js";
-import { setupPost } from "./postfx.js";
+import { setupPost, SunShaftShader } from "./postfx.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { setupFlights } from "./flights.js";
 import { setupGamepad, BTN } from "./gamepad.js";
 import { setupMap } from "./map.js";
@@ -1514,7 +1515,9 @@ const post = setupPost(renderer, scene, camera, {
   bloom: { strength: 0.7, radius: 0.6, threshold: 2.4 },
   vignette: 0.55,
   grain: 0.010,
-  tint: { cool: 0x16233c, warm: 0x241608, mix: 0.42 },
+  // Shadows to a sea-blue, highlights barely warm: the old warm lift put
+  // a holiday glow on everything, and this is the North Atlantic.
+  tint: { cool: 0x14243e, warm: 0x1a1814, mix: 0.4 },
   basePixelRatio: BASE_DPR,
 });
 
@@ -1523,6 +1526,9 @@ const post = setupPost(renderer, scene, camera, {
 const cloudPass = new CloudPass(camera);
 cloudPass.enabled = false;
 post.composer.insertPass(cloudPass, 1);
+// Sun shafts, after the clouds so a cloud edge can cut them, before the bloom.
+const shafts = new ShaderPass(SunShaftShader);
+post.composer.insertPass(shafts, 2);
 world.sky.setCloudPass(cloudPass);
 let cloudsWanted = false;
 loadCloudNoise((weather) => {
@@ -2758,7 +2764,55 @@ function frame() {
     camera.position.copy(camPin.from);
     camera.lookAt(camPin.look);
   }
+  updateGrade();
   post.render(dt);
+}
+
+// The grade follows the sky: cold and a little muted by day, neutral in the
+// golden hour, blue at night. And the sun in the lens, when it is in shot and
+// nothing — a ridge, a sea stack — is in front of it.
+const _sunP = new THREE.Vector3(), _sunW = new THREE.Vector3();
+let sunSeen = 0;
+function updateGrade() {
+  const sky = world.sky;
+  const gu = post.grade.uniforms;
+  const g = sky.grade;
+  if (g) { gu.uWhite.value.copy(g.white); gu.uSat.value = g.sat; }
+  gu.uAspect.value = camera.aspect;
+  let vis = 0;
+  if (g && g.glare > 0.001) {
+    _sunP.copy(camera.position).addScaledVector(sky.sunDir, 5000).project(camera);
+    const inFront = camera.getWorldDirection(_sunW).dot(sky.sunDir) > 0;
+    if (inFront && Math.abs(_sunP.x) < 1.3 && Math.abs(_sunP.y) < 1.3) {
+      // Walk the line to the sun over the terrain: is anything in the way?
+      let clear = 1;
+      for (let i = 1; i <= 36; i++) {
+        const d = i * i * 6;
+        _sunW.copy(camera.position).addScaledVector(sky.sunDir, d);
+        if (world.getHeightAt(_sunW.x, _sunW.z) > _sunW.y) { clear = 0; break; }
+      }
+      const edge = 1 - THREE.MathUtils.smoothstep(Math.max(Math.abs(_sunP.x), Math.abs(_sunP.y)), 0.9, 1.3);
+      vis = clear * edge;
+      gu.uSunUv.value.set(_sunP.x * 0.5 + 0.5, _sunP.y * 0.5 + 0.5);
+    }
+  }
+  // Shafts want the sun near the frame but NOT necessarily clear — rays
+  // through a gap are the whole point — so they key on being in shot only.
+  {
+    _sunP.copy(camera.position).addScaledVector(sky.sunDir, 5000).project(camera);
+    const inFront = camera.getWorldDirection(_sunW).dot(sky.sunDir) > 0.2;
+    const near = 1 - THREE.MathUtils.smoothstep(Math.max(Math.abs(_sunP.x), Math.abs(_sunP.y)), 1.0, 1.6);
+    const su = shafts.uniforms;
+    const want = inFront && post.bloom?.enabled !== false ? near * (g?.glare ?? 0) : 0;
+    su.uStrength.value = want * 0.9;
+    shafts.enabled = want > 0.01;
+    su.uSun.value.set(_sunP.x * 0.5 + 0.5, _sunP.y * 0.5 + 0.5);
+    su.uAspect.value = camera.aspect;
+    if (g) su.uTint.value.setRGB(g.glareCol.x, g.glareCol.y, g.glareCol.z);
+  }
+  // Eased, so a sun dipping behind a crag dims rather than blinks.
+  sunSeen += (vis - sunSeen) * Math.min(1, 0.016 * 10);
+  gu.uSunGlare.value.copy(g ? g.glareCol : _sunW.set(0, 0, 0)).multiplyScalar(sunSeen * (g?.glare ?? 0));
 }
 
 // animate() is started by the loading sequence above, once warm.

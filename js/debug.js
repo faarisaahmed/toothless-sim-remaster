@@ -817,6 +817,16 @@ export function setupDebugConsole(ctx) {
       },
     },
 
+    aurora: {
+      help: "aurora <0-1> | aurora auto — force the northern lights, or let the night decide",
+      run(args) {
+        const sky = ctx.world.sky;
+        if (!args.length || args[0] === "auto") { sky.setAurora(null); return log("aurora: the night's own"); }
+        sky.setAurora(Math.max(0, Math.min(1.5, num(args[0], 1))));
+        log(`aurora ${args[0]}`);
+      },
+    },
+
     cam: {
       help: "cam <x> <y> <z> <lx> <ly> <lz> | cam off — pin the camera (y is above ground)",
       run(args) {
