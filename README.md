@@ -27,7 +27,11 @@ the pause menu (Journal, Settings, Restart chapter, Save & quit).
 Settings → Graphics. A preset (Auto picks one from the GPU, then Low / Medium /
 High / Ultra), plus each setting on its own: frame-rate limit (30 / 60 /
 unlimited), render resolution (auto or fixed), shadows, terrain detail, forest
-draw distance, grass, water reflections, clouds, glow, and an FPS counter.
+draw distance, grass (Off / On / **Ultra**), water reflections, clouds, glow, and
+an FPS counter. Ultra grass puts it on every meadow out to about 3 km. The GPU
+places it (`js/grassfield.js`), in rings round the camera that get coarser as
+they go out, read off the same height field and vegetation paint as the
+terrain. The Ultra preset turns it on.
 Everything applies live. For a weak laptop: **Low**, or Medium with shadows off
 and a 30 fps cap.
 

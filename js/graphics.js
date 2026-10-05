@@ -38,7 +38,7 @@ export const PRESETS = {
   },
   ultra: {
     fpsCap: 0, resScale: "auto", maxDpr: 2, shadows: "ultra", terrain: "ultra",
-    trees: "ultra", grass: true, bloom: true, reflections: "high", clouds: "ultra",
+    trees: "ultra", grass: "ultra", bloom: true, reflections: "high", clouds: "ultra",
   },
 };
 
@@ -215,9 +215,11 @@ export const GRAPHICS_OPTIONS = [
   },
   {
     id: "grass", section: "Graphics", glyph: "&#8270;", label: "Grass",
-    value: () => (state.grass ? "On" : "Off"),
-    cycle: () => graphics.set("grass", !state.grass),
-    hint: () => "Blades underfoot when you land or fly low",
+    ...step("grass", [false, true, "ultra"], ["Off", "On", "Ultra"],
+      () => state.grass === "ultra"
+        ? "Grass on every meadow out to three kilometres, drawn on the GPU. Heavy"
+        : state.grass ? "Blades underfoot when you land or fly low"
+        : "No grass. The ground texture carries it"),
   },
   {
     id: "reflections", section: "Graphics", glyph: "&#8776;", label: "Water reflections",
