@@ -1,5 +1,5 @@
 import {
-  SEA_LEVEL, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R,
+  SEA_LEVEL, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R, padWeight,
 } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
@@ -54,6 +54,7 @@ const CHAR       = lin(0x2b2620);
 // The hunters' pit: packed road and the cut rock between its terraces.
 const PIT_ROAD   = lin(0x6a5c4a);
 const PIT_ROCK   = lin(0x2e2b28);
+const TRODDEN    = lin(0x5d4f3c);
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 function smoothstep(x, a, b) {
@@ -164,6 +165,16 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
         mix(PIT_ROAD, inPit * tread * (0.8 + 0.2 * patch));
         veg *= 1 - inPit;
       }
+    }
+
+    // Levelled ground where people live (terrain.js PADS): trodden to earth
+    // between the houses, grass hanging on in patches, so a village reads
+    // from the air as a village and not as a lawn in a hole.
+    const pw = padWeight(x, z);
+    if (pw > 0.001) {
+      const wear = smoothstep(fbm(x * 0.045 + 3.3, z * 0.045 - 1.7, 2) * 0.5 + 0.5, 0.25, 0.75);
+      mix(TRODDEN, pw * (0.45 + 0.45 * wear) * (1 - smoothstep(slope, 0.3, 0.6)));
+      veg *= 1 - pw * 0.6;
     }
 
     if (CLEARING) {
