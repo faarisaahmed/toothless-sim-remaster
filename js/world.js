@@ -318,6 +318,7 @@ export function setupWorld(scene, renderer, quality = {}) {
   colourTex.needsUpdate = true;
 
   const flora = createFlora(scene, {
+    renderer,
     field: photoreal ? {
       heightTex: photoreal.textures.height, surfTex, colourTex, verts, size: TERRAIN_SIZE,
     } : null,

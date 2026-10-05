@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { addPhotoreal } from "./photoreal.js";
 import { createGrassField } from "./grassfield.js";
-import { terrainHeight, terrainNormal, fertility, islandAt, fbm, noise2,
+import { createForest } from "./forest.js";
+import { terrainHeight, terrainNormal, fertility, noise2,
          SEA_LEVEL, TERRAIN_SIZE, WIND_BEARING } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
@@ -15,31 +16,19 @@ import { terrainHeight, terrainNormal, fertility, islandAt, fbm, noise2,
 //   * Everything is scattered ONCE, at load, from the same fertility() that the
 //     ground texture blends against, so the forest is on the green and the
 //     scree is bare and the two agree.
-//   * Trees live in a 16 x 16 grid of tiles, two instanced meshes per tile: a
-//     built one for the tile you are over, a crossed billboard for the ones you
-//     are not. Visibility is a distance test per TILE, which means one boolean
-//     for a thousand trees, and three.js frustum-culls the rest for free.
+//   * Trees are forest.js and trees.js: seven species grown from skeletons,
+//     placed by ecology, drawn at three levels of detail by distance.
 //   * Grass exists only within 90 m of the camera and only below 140 m of
 //     altitude, because above that it is smaller than a pixel. It follows him
 //     and re-scatters a quarter of itself per frame so the refill never lands
 //     as one hitch.
 //
-// Draw call budget: ~2 near tiles and ~30 far tiles visible is 32 calls for the
-// whole forest, plus one for the boulders and one for the grass. No lights are
-// added — see the note in places.js about what a point light costs here.
+// No lights are added — see the note in places.js about what a point light
+// costs here.
 // ---------------------------------------------------------------------------
 
-const TILES = 16;
-const TILE = TERRAIN_SIZE / TILES;
-const NEAR_LOD = 420;          // metres. Beyond this a tree is a billboard.
+const NEAR_LOD = 420;          // metres: real trees out to here, cards beyond
 const FAR_LOD = 2600;          // beyond this the ground colour carries it
-// m^2 of fully fertile ground per tree. A `coniferGeometry(9)` has a crown
-// about 5.4 m across, so 210 -- a 14.5 m grid -- could not close a canopy even
-// if every candidate survived: it is parkland spacing, and parkland is what it
-// looked like. 95 is a 9.7 m grid, ~105 stems a hectare, which reads as wood
-// from the air and still lets light down between the trunks underneath.
-const AREA_PER_TREE = 95;
-const TILE_TREE_CAP = 9000;
 
 const GRASS_COUNT = 11000;       // the most the near grass ever draws
 const GRASS_RADIUS = 55;
@@ -77,91 +66,6 @@ function toTex(c, srgb = true) {
   return t;
 }
 
-/**
- * Foliage for the cone shells.
- *
- * The first version of this drew three thin sprigs on a transparent tile, which
- * was pretty and useless: at alphaTest 0.42 it covered about a sixth of the
- * cone, so eighty percent of every tree was discarded and the forest came out
- * as a hillside of bare sticks. What an alpha-tested shell actually wants is
- * mostly-opaque foliage with a TORN EDGE — solid enough to read as a canopy,
- * broken enough that you see sky through it and the shell behind it.
- */
-function needleTexture(size = 256) {
-  const c = canvas(size);
-  const g = c.getContext("2d");
-  g.clearRect(0, 0, size, size);
-
-  // A dense mat first, so the tile is opaque where the foliage is.
-  for (let i = 0; i < 900; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    // Thinner toward the tile edges, so the shells break up along their rims
-    // rather than ending on a straight line.
-    const edge = Math.min(1, Math.min(x, size - x, y, size - y) / (size * 0.18));
-    if (Math.random() > 0.25 + edge * 0.85) continue;
-    const len = size * (0.05 + Math.random() * 0.10);
-    const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.9;
-    g.strokeStyle = `rgb(${24 + Math.random() * 30}, ${52 + Math.random() * 58}, ${24 + Math.random() * 30})`;
-    g.lineWidth = 2.4 + Math.random() * 3.4;
-    g.lineCap = "round";
-    g.beginPath();
-    g.moveTo(x, y);
-    g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
-    g.stroke();
-  }
-
-  // Then eat holes in it, so the canopy has sky through it instead of being a
-  // solid green cone with a green texture on it.
-  g.globalCompositeOperation = "destination-out";
-  for (let i = 0; i < 90; i++) {
-    const r = size * (0.015 + Math.random() * 0.05);
-    g.beginPath();
-    g.arc(Math.random() * size, Math.random() * size, r, 0, Math.PI * 2);
-    g.fill();
-  }
-  g.globalCompositeOperation = "source-over";
-
-  const t = toTex(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  return t;
-}
-
-/** A whole conifer as one silhouette, for the far LOD. */
-function treeBillboard(size = 128) {
-  const c = canvas(size, size);
-  const g = c.getContext("2d");
-  g.clearRect(0, 0, size, size);
-
-  g.fillStyle = "#3a2418";
-  g.fillRect(size * 0.47, size * 0.72, size * 0.06, size * 0.28);
-
-  // Four overlapping ragged triangles. The ragged edge is what stops a
-  // distant forest reading as a field of identical cones.
-  for (let tier = 0; tier < 5; tier++) {
-    const t = tier / 5;
-    const top = size * (0.04 + t * 0.16);
-    const bot = size * (0.30 + t * 0.44);
-    const halfW = size * (0.10 + t * 0.28);
-    g.fillStyle = `rgb(${26 + tier * 6}, ${58 + tier * 11}, ${30 + tier * 6})`;
-    g.beginPath();
-    g.moveTo(size / 2, top);
-    for (let i = 0; i <= 12; i++) {
-      const u = i / 12;
-      const w = halfW * u;
-      g.lineTo(size / 2 + w * (0.82 + Math.random() * 0.36), top + (bot - top) * u);
-    }
-    for (let i = 12; i >= 0; i--) {
-      const u = i / 12;
-      const w = halfW * u;
-      g.lineTo(size / 2 - w * (0.82 + Math.random() * 0.36), top + (bot - top) * u);
-    }
-    g.closePath();
-    g.fill();
-  }
-  return toTex(c);
-}
-
 /** A clump of blades, for the grass tufts. */
 function grassTexture(size = 128) {
   const c = canvas(size);
@@ -190,42 +94,6 @@ function grassTexture(size = 128) {
 
 // --- Geometry --------------------------------------------------------------
 
-/**
- * One conifer, in metres, origin at the base.
- *
- * Cone SHELLS rather than solid cones: an open cone is half the triangles and,
- * with an alpha-tested needle map on it, you see through the gaps to the shell
- * behind, which is what gives it depth. Solid cones read as traffic bollards.
- */
-function coniferGeometry(height = 9) {
-  const parts = [];
-  const trunk = new THREE.CylinderGeometry(height * 0.018, height * 0.045, height * 0.62, 5, 1, true);
-  trunk.translate(0, height * 0.31, 0);
-  parts.push({ geo: trunk, group: 0 });
-
-  const tiers = 4;
-  for (let i = 0; i < tiers; i++) {
-    const t = i / tiers;
-    const r = height * (0.30 - t * 0.20);
-    const hh = height * (0.34 - t * 0.12);
-    const y = height * (0.30 + t * 0.52);
-    const cone = new THREE.ConeGeometry(r, hh, 7, 1, true);
-    cone.translate(0, y + hh * 0.5, 0);
-    parts.push({ geo: cone, group: 1 });
-  }
-  return parts;
-}
-
-/** Two crossed quads. Four triangles for a tree at half a kilometre. */
-function crossGeometry(height = 9) {
-  const w = height * 0.62;
-  const a = new THREE.PlaneGeometry(w, height);
-  a.translate(0, height * 0.5, 0);
-  const b = a.clone();
-  b.rotateY(Math.PI / 2);
-  return [a, b];
-}
-
 /** A boulder: an icosahedron kicked about until it stops looking like one. */
 function boulderGeometry() {
   const geo = new THREE.IcosahedronGeometry(1, 1);
@@ -251,6 +119,7 @@ const SWAY_PARS = /* glsl */`
   uniform float uTime;
   uniform vec2 uWind;
   uniform float uGust;
+  uniform float uSwayK;
 `;
 const SWAY_MAIN = /* glsl */`
   #ifdef USE_INSTANCING
@@ -274,7 +143,7 @@ const SWAY_MAIN = /* glsl */`
   // stays planted and the top does the swinging.
   float lever = max( 0.0, transformed.y );
   float sway = sin( uTime * 1.35 + phase ) * 0.55 + sin( uTime * 2.9 + phase * 1.7 ) * 0.25;
-  transformed.xz += windLocal * sway * uGust * lever * lever * 0.016;
+  transformed.xz += windLocal * sway * uGust * lever * lever * uSwayK;
 `;
 
 // Photoreal's forest. No two trees in a real wood are the same green: age,
@@ -296,9 +165,9 @@ const TREE_VERT = /* glsl */`
   }
 `;
 
-function addSway(material, uniforms) {
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
+/** The wind patch on its own, for materials with more patching of their own. */
+export function swayShader(shader, uniforms) {
+    Object.assign(shader.uniforms, { uSwayK: { value: 0.016 } }, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\n" + SWAY_PARS + "\nvarying vec3 vFlTint;\nvarying float vFlAo;")
       .replace("#include <begin_vertex>", "#include <begin_vertex>\n" + SWAY_MAIN + TREE_VERT);
@@ -306,8 +175,11 @@ function addSway(material, uniforms) {
       .replace("#include <common>", "#include <common>\nvarying vec3 vFlTint;\nvarying float vFlAo;")
       .replace("#include <map_fragment>",
         "#include <map_fragment>\n  if ( uPR > 0.5 ) diffuseColor.rgb *= vFlTint * vFlAo;");
-  };
-  material.customProgramCacheKey = () => "flora-sway-v2";
+}
+
+function addSway(material, uniforms) {
+  material.onBeforeCompile = (shader) => swayShader(shader, uniforms);
+  material.customProgramCacheKey = () => "flora-sway-v3";
   return material;
 }
 
@@ -348,21 +220,8 @@ export function createFlora(scene, opts = {}) {
     uGust: { value: 1 },
   };
 
-  const needles = needleTexture();
-  const billboard = treeBillboard();
   const blades = grassTexture();
 
-  const barkMat = addSway(new THREE.MeshStandardMaterial({
-    color: 0x4a3626, roughness: 0.95, metalness: 0,
-  }), uniforms);
-  const needleMat = addSway(new THREE.MeshStandardMaterial({
-    map: needles, color: 0xffffff, roughness: 0.88, metalness: 0,
-    alphaTest: 0.42, side: THREE.DoubleSide,
-  }), uniforms);
-  const cardMat = addSway(new THREE.MeshStandardMaterial({
-    map: billboard, transparent: false, alphaTest: 0.42,
-    side: THREE.DoubleSide, roughness: 0.9, metalness: 0,
-  }), uniforms);
   const boulderMat = new THREE.MeshStandardMaterial({
     color: 0x6d6960, roughness: 0.96, metalness: 0, vertexColors: true,
   });
@@ -370,154 +229,21 @@ export function createFlora(scene, opts = {}) {
     map: blades, alphaTest: 0.35, side: THREE.DoubleSide,
     roughness: 0.95, metalness: 0,
   }), uniforms);
-  // Shadowed by the mountains, and dimmed in the hollows, under Photoreal: a
-  // sunlit forest in a valley the sun left an hour ago is the first thing the
-  // eye catches as wrong.
-  for (const m of [barkMat, needleMat, cardMat]) m.defines = { ...m.defines, FLORA_TREE: 1 };
-  for (const m of [barkMat, needleMat, cardMat, boulderMat, grassMat]) addPhotoreal(m);
+  // Shadowed by the mountains, and dimmed in the hollows, under Photoreal.
+  for (const m of [boulderMat, grassMat]) addPhotoreal(m);
 
-  // Geometry is shared across every tile — the tiles differ in where the trees
-  // are, not in what a tree is.
-  const SHARED = {
-    conifer: coniferGeometry(9).map((p) => p.geo),
-    cards: crossGeometry(9),
-  };
-
-  // --- Scatter ------------------------------------------------------------
-  // Poisson-ish: a jittered grid rather than pure random, because pure random
-  // clumps and leaves bald patches, and a forest does neither.
-  const spacing = Math.sqrt(AREA_PER_TREE);
-  const tiles = [];
+  // The trees: seven species, grown, scattered by ecology, three levels of
+  // detail. See forest.js and trees.js. Boulders come out of the same scatter,
+  // because where nothing grows is where the rock lies.
+  const forest = createForest({
+    root, renderer: opts.renderer, sway: uniforms, swayShader,
+    near: NEAR, far: FAR, onProgress,
+  });
+  const boulders = forest.boulders;
+  const pos = new THREE.Vector3(), q = new THREE.Quaternion(), euler = new THREE.Euler();
+  const scl = new THREE.Vector3(), m4 = new THREE.Matrix4(), col = new THREE.Color();
   const nrm = { x: 0, y: 1, z: 0 };
-  const m4 = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const euler = new THREE.Euler();
-  const scl = new THREE.Vector3();
-  const pos = new THREE.Vector3();
-  const col = new THREE.Color();
-
-  const boulders = [];
-  let treeTotal = 0;
-
-  for (let tz = 0; tz < TILES; tz++) {
-    for (let tx = 0; tx < TILES; tx++) {
-      const x0 = -TERRAIN_SIZE / 2 + tx * TILE;
-      const z0 = -TERRAIN_SIZE / 2 + tz * TILE;
-
-      // Twenty-five probes to find out whether this tile is worth 1800. Most
-      // of the map is open water and open water grows nothing.
-      let anyLand = false;
-      for (let py = 0; py <= 4 && !anyLand; py++) {
-        for (let px = 0; px <= 4; px++) {
-          if (terrainHeight(x0 + px * TILE / 4, z0 + py * TILE / 4) > SEA_LEVEL + 5) { anyLand = true; break; }
-        }
-      }
-      if (!anyLand) continue;
-
-      const spots = [];
-      for (let gz = 0; gz < TILE; gz += spacing) {
-        for (let gx = 0; gx < TILE; gx += spacing) {
-          const jx = (noise2((x0 + gx) * 0.31, (z0 + gz) * 0.29) * 0.5 + 0.5);
-          const jz = (noise2((x0 + gx) * 0.27 + 40, (z0 + gz) * 0.33 - 12) * 0.5 + 0.5);
-          const x = x0 + gx + jx * spacing;
-          const z = z0 + gz + jz * spacing;
-          const h = terrainHeight(x, z);
-          if (h < SEA_LEVEL + 5) continue;
-          terrainNormal(x, z, 7, nrm);
-          const slope = Math.min(1, (1 - nrm.y) * 2.6);
-          const f = fertility(x, z, h, slope);
-          if (f < 0.16) {
-            // Where nothing grows, put rock. Loose boulders on scree slopes and
-            // above the storm line are most of what makes a bare island read as
-            // bare rather than as untextured.
-            if (f < 0.05 && slope > 0.10 && slope < 0.5 && jx > 0.86) {
-              boulders.push({ x, z, h, n: { ...nrm }, s: 0.5 + jz * 2.2 });
-            }
-            continue;
-          }
-          // Thin it out toward the edge of what will grow, so the wood has a
-          // ragged margin instead of a contour line around it.
-          if (jx * 0.9 + 0.1 > f * 1.15) continue;
-          spots.push({ x, z, h, f, slope, j: jz });
-        }
-      }
-      if (!spots.length) continue;
-
-      // Over the cap, thin the whole tile evenly instead of stopping partway
-      // through it. The scan runs in +z order, so breaking out at the cap left
-      // the northern slice of every dense tile completely bald -- a straight
-      // 625 m edge where the wood stopped, which is not a thing forests do.
-      if (spots.length > TILE_TREE_CAP) {
-        const stride = spots.length / TILE_TREE_CAP;
-        const kept = [];
-        for (let i = 0; kept.length < TILE_TREE_CAP; i += stride)
-          kept.push(spots[Math.floor(i)]);
-        spots.length = 0;
-        spots.push(...kept);
-      }
-
-      const n = spots.length;
-      treeTotal += n;
-
-      const nearGeos = SHARED.conifer;
-      const near = new THREE.Group();
-      const nearMeshes = [];
-      for (let gi = 0; gi < nearGeos.length; gi++) {
-        const im = new THREE.InstancedMesh(nearGeos[gi], gi === 0 ? barkMat : needleMat, n);
-        im.castShadow = true;
-        im.receiveShadow = false;
-        im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-        nearMeshes.push(im);
-        near.add(im);
-      }
-      const [cardA, cardB] = SHARED.cards;
-      const farMeshes = [
-        new THREE.InstancedMesh(cardA, cardMat, n),
-        new THREE.InstancedMesh(cardB, cardMat, n),
-      ];
-      const far = new THREE.Group();
-      for (const im of farMeshes) { im.castShadow = false; far.add(im); }
-
-      for (let i = 0; i < n; i++) {
-        const s = spots[i];
-        const isl = islandAt(s.x, s.z);
-        // Shorter and scrubbier high up and on thin ground, taller in the
-        // sheltered fertile hollows. Same reason a treeline looks like one.
-        const vigour = 0.55 + s.f * 0.75 - Math.min(0.35, s.h / 900);
-        const height = THREE.MathUtils.clamp(vigour * (0.7 + s.j * 0.7), 0.35, 1.45);
-        euler.set(0, s.j * Math.PI * 4, 0);
-        q.setFromEuler(euler);
-        scl.set(height * (0.85 + s.j * 0.3), height, height * (0.85 + s.j * 0.3));
-        pos.set(s.x, s.h - 0.3, s.z);
-        m4.compose(pos, q, scl);
-
-        // Colour per tree, warmer on the low ground and bluer up high, plus a
-        // fraction that are the odd one out.
-        const warm = fbm(s.x * 0.004, s.z * 0.004, 2) * 0.5 + 0.5;
-        col.setHSL(
-          0.255 + warm * 0.045 - (isl && isl.bare > 0.6 ? 0.02 : 0),
-          0.34 + warm * 0.20,
-          0.14 + s.f * 0.10 + (s.j > 0.94 ? 0.08 : 0));
-
-        for (const im of nearMeshes) { im.setMatrixAt(i, m4); im.setColorAt(i, col); }
-        for (const im of farMeshes) { im.setMatrixAt(i, m4); im.setColorAt(i, col); }
-      }
-      for (const im of [...nearMeshes, ...farMeshes]) {
-        im.instanceMatrix.needsUpdate = true;
-        if (im.instanceColor) im.instanceColor.needsUpdate = true;
-        im.computeBoundingSphere();
-      }
-
-      near.visible = false;
-      far.visible = false;
-      root.add(near);
-      root.add(far);
-      tiles.push({
-        cx: x0 + TILE / 2, cz: z0 + TILE / 2, near, far, count: n,
-      });
-    }
-    onProgress((tz + 1) / TILES);
-  }
+  let viewer = null;
 
   // --- Boulders ------------------------------------------------------------
   let boulderMesh = null;
@@ -633,8 +359,11 @@ export function createFlora(scene, opts = {}) {
 
   return {
     root,
-    treeCount: treeTotal,
-    tileCount: tiles.length,
+    treeCount: forest.treeCount,
+    tileCount: forest.tileCount,
+    forest,
+    /** LOD round the camera rather than the dragon, when there is a camera. */
+    setViewer(cam) { viewer = cam; },
     boulderCount: boulders.length,
     grass,
     hasGrass: !!grass,
@@ -646,13 +375,7 @@ export function createFlora(scene, opts = {}) {
 
       if (!focus || !this.enabled) return;
 
-      for (const tile of tiles) {
-        const d = Math.hypot(focus.x - tile.cx, focus.z - tile.cz) - TILE * 0.72;
-        const wantNear = d < NEAR;
-        const wantFar = !wantNear && d < FAR;
-        if (tile.near.visible !== wantNear) tile.near.visible = wantNear;
-        if (tile.far.visible !== wantFar) tile.far.visible = wantFar;
-      }
+      forest.update(viewer ? viewer.position : focus);
 
       if (!grass || !grassOn) return;
 
@@ -677,7 +400,7 @@ export function createFlora(scene, opts = {}) {
     setGust(v) { uniforms.uGust.value = v; },
 
     /** Where trees turn into cards, and where cards stop being drawn. */
-    setLod(near, far) { NEAR = near; FAR = far; },
+    setLod(near, far) { NEAR = near; FAR = far; forest.setLod(near, far); },
 
     /** "off" | "low" | "medium" | "ultra" (true / false from old saves). */
     setGrass(v) {
@@ -700,7 +423,7 @@ export function createFlora(scene, opts = {}) {
     /** Debug console switch. Hides everything scattered without unbuilding it. */
     setEnabled(v) {
       this.enabled = v;
-      for (const tile of tiles) { tile.near.visible = false; tile.far.visible = false; }
+      forest.setEnabled(v);
       if (boulderMesh) boulderMesh.visible = v;
       if (grass) grass.visible = false;
       field?.setEnabled(v && fieldWanted);
@@ -708,7 +431,6 @@ export function createFlora(scene, opts = {}) {
 
     dispose() {
       scene.remove(root);
-      for (const tile of tiles) { root.remove(tile.near); root.remove(tile.far); }
       if (boulderMesh) root.remove(boulderMesh);
       if (grass) root.remove(grass);
     },
