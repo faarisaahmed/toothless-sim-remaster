@@ -10,7 +10,8 @@ import { GRAPHICS_OPTIONS } from "./graphics.js";
 // ONE registry, rendered in two places — the title screen and the in-game
 // menu — because the alternative is two lists that agree until the day
 // somebody adds an option to one of them. Every row here is
-// `{ id, label, hint, value, cycle }` and nothing about how it is drawn lives
+// `{ id, label, hint, value, cycle }` (plus `choices`/`current`/`pick` or
+// `toggle`, so the menu can show every value at once) and nothing about how it is drawn lives
 // in this file, which is what lets a menu built out of <li> and a menu built
 // out of buttons share it.
 //
@@ -88,11 +89,16 @@ function stepper(values, get, set, labels) {
       const i = values.indexOf(get());
       set(values[((i < 0 ? 0 : i) + dir + values.length) % values.length]);
     },
+    // All the values at once, for the menu's segmented control.
+    choices: () => values.map((v, i) => ({ v, label: labels[i] })),
+    current: get,
+    pick: set,
   };
 }
 
 const onOff = (key) => ({
   value: () => (state[key] ? "On" : "Off"),
+  toggle: () => !!state[key],
   cycle: () => settings.set(key, !state[key]),
 });
 
@@ -140,6 +146,9 @@ const BASE_OPTIONS = [
     hint: () => keymap.SCHEMES[keymap.getScheme()].hint,
     value: () => keymap.SCHEMES[keymap.getScheme()].label,
     cycle: () => keymap.toggleScheme(),
+    choices: () => Object.values(keymap.SCHEMES).map((s) => ({ v: s.id, label: s.label })),
+    current: () => keymap.getScheme(),
+    pick: (v) => keymap.setScheme(v),
   },
   {
     id: "aim", section: "Controls", glyph: "&#8853;", label: "Aiming",
@@ -150,6 +159,9 @@ const BASE_OPTIONS = [
       const i = ids.indexOf(getAimMode());
       setAimMode(ids[(i + dir + ids.length) % ids.length]);
     },
+    choices: () => Object.entries(AIM_MODES).map(([v, m]) => ({ v, label: m.label })),
+    current: () => getAimMode(),
+    pick: (v) => setAimMode(v),
   },
   {
     id: "invertY", section: "Controls", glyph: "&#8597;", label: "Invert look &mdash; up / down",
@@ -191,6 +203,7 @@ const BASE_OPTIONS = [
       ? "Every control a keyboard has, on screen. Hide them from the corner"
       : "For a phone or a tablet. Everything a keyboard can do"),
     value: () => (touchOn() ? "On" : "Off"),
+    toggle: () => !!touchOn(),
     // Read once when the flight scene builds, so it takes hold on the way in
     // rather than needing a reload — which is why this is worth saying on the
     // row itself rather than leaving the player to wonder.
@@ -207,6 +220,9 @@ const BASE_OPTIONS = [
       : "The room, before the first flight. Skip it if you are testing"),
     value: () => (state.skipPrologue ? "Skip" : "Play"),
     cycle: () => settings.set("skipPrologue", !state.skipPrologue),
+    choices: () => [{ v: false, label: "Play" }, { v: true, label: "Skip" }],
+    current: () => !!state.skipPrologue,
+    pick: (v) => settings.set("skipPrologue", v),
   },
   {
     id: "music", section: "Audio", glyph: "&#9834;", label: "Music",

@@ -237,7 +237,8 @@ export function setupPause(hooks = {}) {
         if (up) settingsPanel.move(-1);
         else if (down) settingsPanel.move(1);
         else if (left) settingsPanel.change(-1);
-        else if (right || enter) settingsPanel.change(1);
+        else if (right) settingsPanel.change(1);
+        else if (enter) settingsPanel.change(1, true);
         else if (e.code === "KeyQ" || e.code === "PageUp") settingsPanel.tab(-1);
         else if (e.code === "KeyE" || e.code === "PageDown") settingsPanel.tab(1);
         return;

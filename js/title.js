@@ -503,7 +503,7 @@ export function runTitle(pad = null) {
 
     function activate() {
       if (done) return;
-      if (screen === "settings") { settingsPanel.change(1); return; }
+      if (screen === "settings") { settingsPanel.change(1, true); return; }
       const it = items()[cursor];
       if (!it || it.disabled) return;
       it.act();
