@@ -379,13 +379,17 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
   const geo = discGeometry(260, 220, 30000, 2.6);
 
   const water = new Water(geo, {
-    textureWidth: 512,
-    textureHeight: 512,
+    // 768 rather than 512: the reflection is what makes water read as water,
+    // and at the sharper distortion below the extra resolution shows.
+    textureWidth: 768,
+    textureHeight: 768,
     waterNormals,
     sunDirection: sunDirection.clone(),
     sunColor,
     waterColor: 0x0a2c3d,
-    distortionScale: 7.5,
+    // Lower than it was (7.5): a cold sea under a light wind holds a clear
+    // reflection of the cliffs, broken but legible, and that is the picture.
+    distortionScale: 3.8,
     fog: true,
   });
   water.rotation.x = -Math.PI / 2;
@@ -412,8 +416,10 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
     uShoalBias: { value: 1.8 },
     uWave:      { value: waveTable },
     uFoam:      { value: foam },
-    uShallow:   { value: new THREE.Color(0x357a6c) },
-    uDeep:      { value: new THREE.Color(0x0a3350) },
+    // North Atlantic: slate deep water and a cold green over the shallows,
+    // not the turquoise of somewhere warm.
+    uShallow:   { value: new THREE.Color(0x2c6264) },
+    uDeep:      { value: new THREE.Color(0x0a2738) },
     uSurf:      { value: 1.0 },
     // How much light there is to see the water's own colour by: 1 at noon,
     // a few percent at night. sky.js drives it; without it the sea's body
@@ -514,7 +520,9 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
 
       vec3 albedo = mix(
         waterBody * getShadowMask(),
-        ( vec3( 0.06 ) + reflectionSample * 0.86 + reflectionSample * specularLight ),
+        // (The grey floor under the reflection follows the light: unscaled it
+        // put a dull pewter sheen on the sea at midnight.)
+        ( vec3( 0.06 ) * uLight + reflectionSample * 0.86 + reflectionSample * specularLight ),
         rf );
 
       // --- Foam ---------------------------------------------------------
@@ -558,7 +566,9 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
       // white stripe following the contour.
       foamAmt *= smoothstep( 0.30, 0.82, foamTex * ( 0.5 + foamAmt * 1.0 ) );
 
-      vec3 foamColor = vec3( 0.86, 0.92, 0.95 ) * ( 0.55 + diffuseLight * 0.6 ) * uLight;
+      // Foam is white only in daylight: by moonlight it is a dim grey line,
+      // and scaled by the light alone it glowed along every beach at night.
+      vec3 foamColor = vec3( 0.86, 0.92, 0.95 ) * ( 0.55 + diffuseLight * 0.6 ) * uLight * mix( 0.3, 1.0, smoothstep( 0.15, 0.6, uLight ) );
       albedo = mix( albedo, foamColor, clamp( foamAmt, 0.0, 1.0 ) );
 
       // Let the beach show through the last metre of water. There is no

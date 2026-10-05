@@ -37,11 +37,13 @@ function lin(hex) {
 const SEABED     = lin(0x0e2422);
 const SHALLOW    = lin(0x3f8578);
 const SAND       = lin(0xc2b08c);
-const GRASS_COOL = lin(0x3d7026);
-const GRASS_WARM = lin(0x7a8a36);
-const MEADOW     = lin(0x8f9a4a);
-const DARK_MOSS  = lin(0x23431c);
-const HEATH      = lin(0x6b5a48);
+// Sub-arctic turf: the greens of the Faroes and western Iceland, grey-green
+// and olive under a cold sky, not the green of an English lawn in June.
+const GRASS_COOL = lin(0x3f6232);
+const GRASS_WARM = lin(0x6c7646);
+const MEADOW     = lin(0x7c8256);
+const DARK_MOSS  = lin(0x263f28);
+const HEATH      = lin(0x5f564e);
 const ROCK_LIGHT = lin(0x7a7266);
 const ROCK_DARK  = lin(0x34312c);
 const SNOW       = lin(0xe6edf2);

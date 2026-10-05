@@ -35,6 +35,15 @@ const GradeShader = {
     uCool:    { value: new THREE.Color(0x2a3a52) },  // pushed into shadow
     uWarm:    { value: new THREE.Color(0x2a1a08) },  // pushed into highlight
     uMix:     { value: 1.0 },
+    // White balance and saturation, set by the sky for the time of day: a
+    // northern day is a cold, slightly muted one.
+    uWhite:   { value: new THREE.Vector3(1, 1, 1) },
+    uSat:     { value: 1.0 },
+    // The sun as the lens sees it: where it is on screen, how much of it is
+    // showing, and its colour. Drives a glare and a few faint ghosts.
+    uSunUv:   { value: new THREE.Vector2(0.5, 0.5) },
+    uSunGlare:{ value: new THREE.Vector3(0, 0, 0) },
+    uAspect:  { value: 1.6 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -47,6 +56,11 @@ const GradeShader = {
     uniform sampler2D tDiffuse;
     uniform float uTime, uVignette, uGrain, uMix;
     uniform vec3 uCool, uWarm;
+    uniform vec3 uWhite;
+    uniform float uSat;
+    uniform vec2 uSunUv;
+    uniform vec3 uSunGlare;
+    uniform float uAspect;
     varying vec2 vUv;
 
     // Cheap hash grain. Deterministic per pixel per frame, no texture fetch.
@@ -58,6 +72,34 @@ const GradeShader = {
 
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
+
+      // The sun in the lens: a soft glare round it, a six-point starburst
+      // from the aperture, and a few dim ghosts strung back through the
+      // middle of the frame. All of it scaled by how much sun is showing, so
+      // a ridge or a cloud across the disc puts it out.
+      if (uSunGlare.x + uSunGlare.y + uSunGlare.z > 0.0001) {
+        vec2 d = (vUv - uSunUv) * vec2(uAspect, 1.0);
+        float r = length(d);
+        float a = atan(d.y, d.x);
+        float glare = exp(-r * 5.5) * 0.10 + exp(-r * 22.0) * 0.28;
+        float burst = pow(abs(cos(a * 3.0 + 0.4)), 90.0) * exp(-r * 4.0) * 0.16
+                    + pow(abs(cos(a * 3.0 + 1.45)), 140.0) * exp(-r * 6.0) * 0.08;
+        vec3 add = uSunGlare * (glare + burst);
+        vec2 axis = vec2(0.5) - uSunUv;
+        for (int i = 0; i < 4; i++) {
+          float k = float(i) * 0.45 + 0.55;
+          vec2 gp = (vUv - (uSunUv + axis * k * 2.0)) * vec2(uAspect, 1.0);
+          float rad = 0.03 + float(i) * 0.025;
+          float ghost = smoothstep(rad, rad * 0.6, length(gp)) * 0.018;
+          add += uSunGlare * ghost * vec3(0.7 + 0.3 * float(i == 1), 0.85, 1.0 - 0.2 * float(i == 2));
+        }
+        c.rgb += add;
+      }
+
+      // White balance, then saturation about luminance.
+      c.rgb *= uWhite;
+      float lum = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb = max(vec3(0.0), mix(vec3(lum), c.rgb, uSat));
 
       // Split tone: luminance decides how much cool vs warm gets added. Adding
       // rather than mixing keeps it out of the way of saturated colour.
@@ -76,6 +118,54 @@ const GradeShader = {
       c.rgb += g * uGrain * (0.35 + 0.65 * smoothstep(0.0, 0.35, l));
 
       gl_FragColor = c;
+    }
+  `,
+};
+
+/**
+ * Sun shafts. The bright part of the frame — the sun, its aureole, the lit
+ * edges of cloud — smeared outward along lines from the sun's position on
+ * screen, so that anything dark in front of it (a ridge, a sea stack, the
+ * edge of a cloud) cuts shadows into the light. The old GPU Gems trick, in
+ * HDR before tone mapping, which is what lets it key on the sun alone: the
+ * sky is a few units bright and the sun is ninety.
+ */
+export const SunShaftShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uSun: { value: new THREE.Vector2(0.5, 0.5) },
+    uStrength: { value: 0 },
+    uThreshold: { value: 5.0 },
+    uTint: { value: new THREE.Color(1, 0.95, 0.85) },
+    uAspect: { value: 1.6 },
+  },
+  vertexShader: GradeShader.vertexShader,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform vec2 uSun;
+    uniform float uStrength, uThreshold, uAspect;
+    uniform vec3 uTint;
+    varying vec2 vUv;
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main() {
+      vec4 base = texture2D(tDiffuse, vUv);
+      if (uStrength <= 0.0) { gl_FragColor = base; return; }
+      const int N = 36;
+      vec2 delta = (vUv - uSun) * (0.92 / float(N));
+      // Jitter the start so the steps do not band; the grain hides the noise.
+      vec2 p = vUv - delta * hash(vUv * 811.0);
+      float decay = 1.0;
+      vec3 acc = vec3(0.0);
+      for (int i = 0; i < N; i++) {
+        p -= delta;
+        vec3 sc = texture2D(tDiffuse, clamp(p, 0.001, 0.999)).rgb;
+        float l = dot(sc, vec3(0.2126, 0.7152, 0.0722));
+        acc += min(vec3(8.0), sc * max(0.0, l - uThreshold) / max(l, 1e-3)) * decay;
+        decay *= 0.955;
+      }
+      acc /= float(N);
+      float r = length((vUv - uSun) * vec2(uAspect, 1.0));
+      gl_FragColor = vec4(base.rgb + acc * uTint * uStrength * exp(-r * 1.3), base.a);
     }
   `,
 };

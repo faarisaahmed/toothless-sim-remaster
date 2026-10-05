@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { WEATHER_GLSL, CLOUD_BASE, CLOUD_TOP, VOLUME_FAR, WEATHER_TILE } from "./clouds.js";
 import { WIND_BEARING } from "./terrain.js";
+import { createStars } from "./stars.js";
 
 // ---------------------------------------------------------------------------
 // The sky: time of day and weather.
@@ -22,6 +23,14 @@ import { WIND_BEARING } from "./terrain.js";
 // fog) and the live state is always a blend between the last one and the next,
 // so a change rolls in over a minute instead of switching.
 //
+// THE NIGHT is the real sky over the North Atlantic: the catalogue stars
+// turning about Polaris (stars.js), the Milky Way where it really lies, a
+// moon with a phase, and on most clear nights the aurora in the north —
+// drawn in the dome, so the sea reflects all of it.
+//
+// THE SUN is a limb-darkened disc with the haze's aureole round it; main.js
+// adds the lens — glare, starburst, ghosts, and shafts through any gap.
+//
 // THE DOME is drawn on a sphere that follows the camera. It also carries a flat
 // cloud deck read from the same weather map as the volumetric clouds — that is
 // what the sea reflects, what the environment map is made of, what Low
@@ -31,21 +40,28 @@ import { WIND_BEARING } from "./terrain.js";
 const lin = (hex) => new THREE.Color(hex);  // THREE.Color(hex) converts sRGB → linear
 
 /** Sky keyframes on sun elevation, degrees. */
+// A northern sky. Berk is at the latitude of Iceland, and the light there
+// is not a holiday light: the sun never gets high, so even at noon it comes
+// in low and white across the water; the sky is a pale cold blue going to
+// grey-white at the horizon with the haze off the sea; and the ambient light
+// in the shadows is the blue of all that sky. Gold is for the hour either
+// side of sunset, and it earns its place by being the only warm thing in
+// the day. Night is not black but a deep blue-black with the stars in it.
 const KEYS = [
-  { e: -24, zen: 0x02040b, hor: 0x08101e, glow: 0x0a1222, sun: 0x000000, sunI: 0.0,
-    amb: 0x22345a, ambI: 0.55, gnd: 0x05070b, B: 0.9, exp: 1.55 },
-  { e: -9,  zen: 0x07122a, hor: 0x1e2b49, glow: 0x3a3456, sun: 0x000000, sunI: 0.0,
-    amb: 0x2c3c66, ambI: 0.55, gnd: 0x080b12, B: 0.9, exp: 1.25 },
-  { e: -3,  zen: 0x15284f, hor: 0x6a5a72, glow: 0xb2603c, sun: 0xff5a20, sunI: 0.15,
-    amb: 0x46507a, ambI: 0.5, gnd: 0x141218, B: 1.0, exp: 0.98 },
-  { e: 2,   zen: 0x2a4a88, hor: 0xd88c62, glow: 0xff8a40, sun: 0xff8a48, sunI: 1.25,
-    amb: 0x7a7a98, ambI: 0.42, gnd: 0x2a2420, B: 1.25, exp: 0.78 },
-  { e: 9,   zen: 0x3762aa, hor: 0xe6bc98, glow: 0xffb070, sun: 0xffc48a, sunI: 2.0,
-    amb: 0x9aaac8, ambI: 0.34, gnd: 0x4a4434, B: 1.6, exp: 0.66 },
-  { e: 26,  zen: 0x3a72c4, hor: 0xb8d0e8, glow: 0xfff0d8, sun: 0xfff1d6, sunI: 2.4,
-    amb: 0x9ec8f5, ambI: 0.28, gnd: 0x6d7a48, B: 2.0, exp: 0.6 },
-  { e: 60,  zen: 0x2c68c0, hor: 0xc4daf0, glow: 0xffffff, sun: 0xfff8ee, sunI: 2.7,
-    amb: 0x9ec8f5, ambI: 0.26, gnd: 0x6d7a48, B: 2.1, exp: 0.58 },
+  { e: -24, zen: 0x02040c, hor: 0x070d1c, glow: 0x080f20, sun: 0x000000, sunI: 0.0,
+    amb: 0x1f3258, ambI: 0.55, gnd: 0x04060b, B: 0.9, exp: 1.6 },
+  { e: -9,  zen: 0x06102a, hor: 0x1a2746, glow: 0x2c3054, sun: 0x000000, sunI: 0.0,
+    amb: 0x2a3a66, ambI: 0.55, gnd: 0x070a12, B: 0.9, exp: 1.3 },
+  { e: -3,  zen: 0x13264e, hor: 0x5e5670, glow: 0xa85a3c, sun: 0xff5a20, sunI: 0.15,
+    amb: 0x434e7a, ambI: 0.5, gnd: 0x121218, B: 1.0, exp: 0.98 },
+  { e: 2,   zen: 0x26457f, hor: 0xd08866, glow: 0xff8644, sun: 0xff8a4c, sunI: 1.25,
+    amb: 0x737a9c, ambI: 0.42, gnd: 0x262422, B: 1.25, exp: 0.78 },
+  { e: 9,   zen: 0x335a9a, hor: 0xd6b9a2, glow: 0xffb27a, sun: 0xffcc9c, sunI: 2.0,
+    amb: 0x92a6c8, ambI: 0.36, gnd: 0x3e4038, B: 1.6, exp: 0.66 },
+  { e: 20,  zen: 0x3a64a2, hor: 0xc2cdd8, glow: 0xf2ece4, sun: 0xfbf2e6, sunI: 2.3,
+    amb: 0x96b2d6, ambI: 0.31, gnd: 0x4c5446, B: 1.9, exp: 0.62 },
+  { e: 40,  zen: 0x36629e, hor: 0xc6d3de, glow: 0xf4f4f2, sun: 0xf6f4f0, sunI: 2.55,
+    amb: 0x98b4d8, ambI: 0.29, gnd: 0x4e5848, B: 2.05, exp: 0.6 },
 ].map((k) => ({ ...k, zen: lin(k.zen), hor: lin(k.hor), glow: lin(k.glow), sun: lin(k.sun),
                 amb: lin(k.amb), gnd: lin(k.gnd) }));
 
@@ -84,11 +100,98 @@ const DOME_FRAG = /* glsl */`
   uniform vec3 uZen, uHor, uGlow, uSunCol, uGnd, uOverCol, uMoonDir;
   uniform vec3 uSunDir;
   uniform float uOver, uSunVis, uFlash, uNight;
+  uniform float uTime, uStarFade, uAurora, uHaze, uAurSteps;
+  uniform mat3 uWorldToEq;
   uniform float uDeckNear;     // the flat deck only beyond this distance
   uniform vec3 uDeckLit, uDeckShade;
   uniform float uDeckDens;
   uniform float uCirrus;
   ${WEATHER_GLSL}
+
+  float hsh( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+  float vnoise( vec2 p ) {
+    vec2 i = floor( p ), f = fract( p );
+    f = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( hsh( i ), hsh( i + vec2( 1.0, 0.0 ) ), f.x ),
+                mix( hsh( i + vec2( 0.0, 1.0 ) ), hsh( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+  }
+  float fbm4( vec2 p ) {
+    float s = 0.0, a = 0.5;
+    for ( int i = 0; i < 4; i++ ) { s += vnoise( p ) * a; p *= 2.03; a *= 0.5; }
+    return s;
+  }
+
+  // The Milky Way. Direction to galactic coordinates (J2000), then a band
+  // along the galactic equator — brightest toward the centre in Sagittarius,
+  // split by the Great Rift's dust in Cygnus and Aquila, mottled with star
+  // clouds — so it lies across the sky exactly where the real one does.
+  vec3 milkyWay( vec3 dir ) {
+    vec3 e = uWorldToEq * dir;
+    vec3 g = mat3( -0.0548756, 0.4941094, -0.8676661,
+                   -0.8734371, -0.4448296, -0.1980764,
+                   -0.4838350, 0.7469822, 0.4559838 ) * e;
+    float b = asin( clamp( g.z, -1.0, 1.0 ) );
+    float l = atan( g.y, g.x );
+    float lc = abs( l );                                  // 0 at the centre
+    float band = exp( -b * b / 0.06 ) * 0.55 + exp( -b * b / 0.018 ) * 0.5;
+    band *= 0.4 + 0.6 * exp( -lc * lc / 1.4 );
+    // The bulge round the centre, in Sagittarius and Scorpius.
+    band += exp( -( lc * lc ) / 0.12 - b * b / 0.03 ) * 0.6;
+    // Star clouds: round-ish clumps (the noise is not stretched along the
+    // band, or it draws as ruled lines), and dust: dark lanes on the plane,
+    // heaviest in the rift between Cygnus and the centre.
+    vec2 q = vec2( l * 5.0, b * 7.0 );
+    float cl = fbm4( q * 1.3 + 2.0 );
+    float clouds = 0.35 + cl * cl * 2.0;
+    float rift = smoothstep( 0.07, 0.0, abs( b + 0.02 + ( fbm4( q * 0.9 ) - 0.5 ) * 0.09 ) )
+               * smoothstep( 1.7, 0.5, lc ) * smoothstep( 0.0, 0.35, lc ) * 0.6;
+    float dust = smoothstep( 0.4, 0.75, fbm4( q * 2.3 + 7.0 ) );
+    float v = band * clouds * ( 1.0 - rift ) * ( 1.0 - dust * 0.5 );
+    return vec3( 0.72, 0.78, 0.95 ) * v;
+  }
+
+  // The aurora. Curtains hanging in the northern sky, a hundred kilometres
+  // up and more: the view ray is walked up through that height, and at each
+  // step the curtain's footprint — a wavering east-west line, frayed into
+  // vertical rays — adds light. Green where it is low and bright, fading to
+  // the red and violet of the thin air at the top.
+  float fbm3( vec2 p ) {
+    return vnoise( p ) * 0.57 + vnoise( p * 2.03 ) * 0.29 + vnoise( p * 4.1 ) * 0.14;
+  }
+  vec3 aurora( vec3 dir ) {
+    // Only the northern sky has any, and only above the horizon.
+    if ( dir.y < 0.015 || dir.z / dir.y > -0.6 ) return vec3( 0.0 );
+    vec3 acc = vec3( 0.0 );
+    float t = uTime;
+    for ( int i = 0; i < 12; i++ ) {
+      float fi = float( i );
+      if ( fi >= uAurSteps ) break;
+      float hgt = 1.0 + fi * ( 1.32 / uAurSteps );
+      vec2 p = dir.xz / ( dir.y + 0.04 ) * hgt;           // where the ray is at this height
+      // Nowhere near either sheet, however they fold (the warp and the waves
+      // move them by under a unit): skip the noise, which is all the cost.
+      if ( abs( p.y + 2.3 ) > 1.35 && abs( p.y + 3.5 ) > 1.7 ) continue;
+      float x = p.x * 1.15;
+      // The sheets fold and drift: a slow domain warp along their length
+      // bends each into loops and S-curves rather than a ruled line.
+      float warp = fbm3( vec2( x * 0.28 + 1.7, t * 0.012 ) ) - 0.5;
+      float c1 = p.y + 2.3 + 0.5 * sin( x * 0.55 + t * 0.04 + warp * 6.0 ) + 0.45 * warp;
+      float c2 = p.y + 3.5 + 0.7 * sin( x * 0.4 - t * 0.03 + 2.0 + warp * 4.0 ) - 0.4 * warp;
+      float sheet = exp( -c1 * c1 * 10.0 ) + exp( -c2 * c2 * 6.0 ) * 0.7;
+      if ( sheet < 0.003 ) continue;
+      // Activity comes and goes along the arc: bright knots, quiet gaps.
+      float act = smoothstep( 0.3, 0.7, fbm3( vec2( x * 0.42 + 4.0, t * 0.01 ) ) );
+      // Rays: the field lines, irregular in spacing and brightness, and
+      // drifting along the curtain.
+      float rx = x * 5.0 + warp * 7.0 + t * 0.05;
+      float rays = vnoise( vec2( rx, t * 0.18 ) ) * 0.6 + vnoise( vec2( rx * 2.7, t * 0.4 ) ) * 0.4;
+      float fh = fi * 12.0 / uAurSteps;                  // as if there were twelve steps
+      float a = sheet * act * ( 0.5 + 0.8 * rays * rays ) * exp( -fh * 0.17 ) * ( 12.0 / uAurSteps );
+      vec3 col = mix( vec3( 0.12, 1.0, 0.42 ), vec3( 0.35, 0.18, 0.75 ), smoothstep( 3.5, 10.0, fh ) );
+      acc += col * a;
+    }
+    return acc * 0.19 * smoothstep( 0.015, 0.12, dir.y );
+  }
 
   void main() {
     vec3 dir = normalize( vWorld - cameraPosition );
@@ -107,6 +210,13 @@ const DOME_FRAG = /* glsl */`
     col = mix( col, uGlow, pow( side, 3.0 ) * hz * 0.75 );
     col += uSunCol * ( pow( max( cs, 0.0 ), 48.0 ) * 0.9 + pow( max( cs, 0.0 ), 6.0 ) * 0.12 ) * uSunVis;
 
+    // Night: the Milky Way and, some nights, the aurora. Both behind cloud.
+    if ( uStarFade > 0.001 && h > -0.02 ) {
+      float lift = smoothstep( -0.02, 0.15, h );
+      col += milkyWay( dir ) * 0.03 * uStarFade * lift;
+      if ( uAurora > 0.001 ) col += aurora( dir ) * uAurora * uStarFade;
+    }
+
     // Overcast: the gradient flattens to a lit grey.
     col = mix( col, uOverCol * mix( 0.75, 1.1, up ), uOver );
 
@@ -114,9 +224,22 @@ const DOME_FRAG = /* glsl */`
     // sea's far edge and the sky meet without a line.
     col = mix( col, uGnd, smoothstep( 0.02, -0.05, h ) );
 
-    // The sun's disc.
-    float disc = smoothstep( 0.99992, 0.99996, cs );
-    col += uSunCol * disc * 60.0 * uSunVis * ( 1.0 - uOver );
+    // The sun. A disc a little over a degree across — larger than the real
+    // half-degree, as every painter has made it, because a true-size sun is a
+    // pinprick on a monitor — dimmer at its limb as the real one is, and
+    // round it the forward scatter of the haze: a tight bright aureole and a
+    // wide soft glow whose size is how much salt and water is in the air.
+    float ang = acos( clamp( cs, -1.0, 1.0 ) );
+    float R = 0.0105;
+    float discM = 1.0 - smoothstep( R * 0.9, R, ang );
+    float mu = sqrt( max( 0.0, 1.0 - ( ang / R ) * ( ang / R ) ) );
+    float limb = 0.45 + 0.55 * mu;
+    float clearV = uSunVis * ( 1.0 - uOver );
+    col += uSunCol * discM * limb * 90.0 * clearV;
+    float g = 0.82;
+    float mie = ( 1.0 - g * g ) / pow( 1.0 + g * g - 2.0 * g * cs, 1.5 );
+    col += uSunCol * ( exp( -ang * 70.0 ) * 2.2 + exp( -ang * 16.0 ) * 0.22 * ( 0.6 + uHaze )
+                       + mie * 0.0035 * ( 0.5 + uHaze ) ) * clearV;
 
     // Cirrus: fibres at eight kilometres, read from the map's fourth channel
     // stretched hard along the wind. Thin, bright on the sun's side.
@@ -125,8 +248,16 @@ const DOME_FRAG = /* glsl */`
       vec3 pc = cameraPosition + dir * tc;
       vec2 along = uWindDir, across = vec2( -uWindDir.y, uWindDir.x );
       vec2 cq = vec2( dot( pc.xz + uWeatherOff * 2.0, across ) * 1.0, dot( pc.xz, along ) * 0.18 );
-      float ci = texture2D( tWeather, cq / 26000.0 ).a;
-      ci = smoothstep( 0.35, 0.95, ci ) * uCirrus * smoothstep( 0.01, 0.12, h );
+      // The map's own contours, thresholded, came out as loops and curls —
+      // worms, not ice. Cirrus is fibre: a soft broad patch from the map,
+      // combed into fine streaks by a second lookup stretched much harder
+      // along the wind, and averaged along it so no edge is ever a contour.
+      float broad = 0.0;
+      for ( int k = 0; k < 3; k++ ) broad += texture2D( tWeather, ( cq + vec2( 0.0, float( k ) * 900.0 ) ) / 26000.0 ).a;
+      broad = smoothstep( 0.42, 0.95, broad / 3.0 );
+      float fib = texture2D( tWeather, vec2( cq.x * 6.0, cq.y * 0.35 ) / 26000.0 + 0.37 ).a;
+      float ci = broad * ( 0.35 + 0.65 * smoothstep( 0.35, 0.85, fib ) );
+      ci *= uCirrus * smoothstep( 0.01, 0.12, h ) * 0.8;
       vec3 cc = uDeckLit * 1.1 + uSunCol * 0.15 * pow( max( cs, 0.0 ), 4.0 );
       col = mix( col, cc, ci * 0.55 * ( 1.0 - uOver ) );
     }
@@ -170,52 +301,9 @@ function moonTexture() {
   halo.addColorStop(0.4, "rgba(160,180,240,0.08)");
   halo.addColorStop(1, "rgba(120,140,220,0)");
   g.fillStyle = halo; g.fillRect(0, 0, 256, 256);
-  g.fillStyle = "#eef2ff";
-  g.beginPath(); g.arc(128, 128, 30, 0, Math.PI * 2); g.fill();
-  // Maria: a few soft grey patches, deterministic.
-  const spots = [[118, 120, 9], [136, 132, 7], [126, 141, 6], [140, 116, 5], [112, 136, 4]];
-  for (const [x, y, r] of spots) {
-    const s = g.createRadialGradient(x, y, 0, x, y, r);
-    s.addColorStop(0, "rgba(150,160,185,0.55)");
-    s.addColorStop(1, "rgba(150,160,185,0)");
-    g.fillStyle = s; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-  }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
-}
-
-function makeStars() {
-  const N = 2600;
-  const pos = new Float32Array(N * 3);
-  const col = new Float32Array(N * 3);
-  let s = 1;
-  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-  for (let i = 0; i < N; i++) {
-    // Uniform over the upper hemisphere and a little below.
-    const z = rnd() * 1.1 - 0.1;
-    const a = rnd() * Math.PI * 2;
-    const r = Math.sqrt(1 - z * z);
-    pos[i * 3] = Math.cos(a) * r * 30000;
-    pos[i * 3 + 1] = z * 30000;
-    pos[i * 3 + 2] = Math.sin(a) * r * 30000;
-    const b = Math.pow(rnd(), 6) * 2.4 + 0.25;
-    const warm = rnd();
-    col[i * 3] = b * (0.85 + warm * 0.2);
-    col[i * 3 + 1] = b * 0.9;
-    col[i * 3 + 2] = b * (1.05 - warm * 0.2);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  const m = new THREE.PointsMaterial({
-    size: 1.6, sizeAttenuation: false, vertexColors: true, transparent: true,
-    depthWrite: false, fog: false, opacity: 0,
-  });
-  const p = new THREE.Points(g, m);
-  p.renderOrder = -9;
-  p.frustumCulled = false;
-  return p;
 }
 
 function lerpKey(e) {
@@ -241,7 +329,9 @@ export function sunPosition(hour) {
   const h = ((hour % 24) + 24) % 24;
   if (h >= DAY0 && h <= DAY1) {
     const f = (h - DAY0) / (DAY1 - DAY0);
-    elev = 56 * Math.sin(Math.PI * f);
+    // A high-latitude sun: forty degrees at its highest, so the light is
+    // always raking — long shadows at noon are half of what reads as north.
+    elev = 40 * Math.sin(Math.PI * f);
     bearing = 72 + 216 * f;            // ENE → S → WNW
   } else {
     const f = ((h - DAY1 + 24) % 24) / (24 - (DAY1 - DAY0));
@@ -277,6 +367,9 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     tWeather: { value: null }, uWeatherOff: { value: new THREE.Vector2() }, uCoverage: { value: 0.4 },
     uWindDir: { value: new THREE.Vector2(Math.sin(WIND_BEARING), Math.cos(WIND_BEARING)) },
     uMist: { value: 0 }, uCirrus: { value: 0 },
+    uTime: { value: 0 }, uStarFade: { value: 0 }, uAurora: { value: 0 }, uHaze: { value: 0.3 },
+    uAurSteps: { value: 12 },
+    uWorldToEq: { value: new THREE.Matrix3() },
   };
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(42000, 48, 24),
@@ -289,16 +382,56 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
   dome.name = "sky";
   scene.add(dome);
 
-  const stars = makeStars();
-  scene.add(stars);
+  const starfield = createStars(scene);
+  const stars = starfield.points;
 
+  // The moon: a lit ball, not a sticker. Its phase is wherever the sun
+  // really is, its seas and highlands are noise on the sphere, and the dark
+  // limb keeps a trace of earthshine. A soft halo of the haze round it.
+  const moonU = { uSun: { value: new THREE.Vector3(0, 1, 0) }, uFade: { value: 0 } };
   const moon = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshBasicMaterial({ map: moonTexture(), transparent: true, depthWrite: false, fog: false,
-                                  blending: THREE.AdditiveBlending }));
+    new THREE.SphereGeometry(1, 48, 24),
+    new THREE.ShaderMaterial({
+      uniforms: moonU, transparent: true, depthWrite: false, fog: false,
+      vertexShader: /* glsl */`
+        varying vec3 vN, vObj;
+        void main() {
+          vN = normalize( mat3( modelMatrix ) * normal );
+          vObj = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+          gl_Position.z = gl_Position.w * 0.99998;
+        }`,
+      fragmentShader: /* glsl */`
+        uniform vec3 uSun;
+        uniform float uFade;
+        varying vec3 vN, vObj;
+        float h3( vec3 p ) { return fract( sin( dot( p, vec3( 17.1, 113.7, 51.3 ) ) ) * 43758.5 ); }
+        float n3( vec3 p ) {
+          vec3 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+          return mix( mix( mix( h3( i ), h3( i + vec3( 1, 0, 0 ) ), f.x ), mix( h3( i + vec3( 0, 1, 0 ) ), h3( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+                      mix( mix( h3( i + vec3( 0, 0, 1 ) ), h3( i + vec3( 1, 0, 1 ) ), f.x ), mix( h3( i + vec3( 0, 1, 1 ) ), h3( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+        }
+        void main() {
+          vec3 p = normalize( vObj );
+          // Seas: big dark smooth patches. Highlands: bright and mottled.
+          float maria = smoothstep( 0.52, 0.62, n3( p * 2.2 + 3.0 ) * 0.65 + n3( p * 4.7 ) * 0.35 );
+          float mott = n3( p * 14.0 ) * 0.5 + n3( p * 31.0 ) * 0.25;
+          float alb = mix( 0.95, 0.55, maria ) * ( 0.85 + mott * 0.3 );
+          float lit = smoothstep( -0.02, 0.18, dot( vN, uSun ) );
+          vec3 c = vec3( 0.93, 0.95, 1.0 ) * alb * ( lit * 1.9 + 0.025 );
+          gl_FragColor = vec4( c * uFade, uFade );
+        }`,
+    }));
   moon.renderOrder = -8;
   moon.frustumCulled = false;
   scene.add(moon);
+  const moonHalo = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: moonTexture(), transparent: true, depthWrite: false, fog: false,
+                                  blending: THREE.AdditiveBlending }));
+  moonHalo.renderOrder = -9;
+  moonHalo.frustumCulled = false;
+  scene.add(moonHalo);
 
   scene.fog = new THREE.FogExp2(0x8fb2cf, BASE_FOG);
 
@@ -339,6 +472,10 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
   let cloudPass = null;
   let rain = null;
   let onThunder = null;
+  let dayCount = 0, lastHour = 16.5;
+  let auroraOverride = null;
+  const grade = { white: new THREE.Vector3(1, 1, 1), sat: 1, glare: 0, glareCol: new THREE.Vector3() };
+  const _gDay = new THREE.Vector3(0.94, 0.985, 1.07), _gNight = new THREE.Vector3(0.9, 0.97, 1.1);
 
   const tmpA = new THREE.Color(), tmpB = new THREE.Color();
   let state = null;
@@ -398,6 +535,8 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     } else if (flow) {
       hour = (hour + flow * dt) % 24;
     }
+    if (hour < lastHour - 12) dayCount++;
+    lastHour = hour;
 
     // Weather blend.
     if (wT < 1) {
@@ -414,7 +553,9 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     const sp = sunPosition(hour);
     dirFrom(sp.elev, sp.bearing, sunDir);
     const moonElev = Math.max(-40, -sp.elev * 0.8 + 14);
-    dirFrom(moonElev, sp.bearing + 180, moonDir);
+    // A little off opposition, so it is a waxing gibbous with a shadowed limb
+    // rather than a flat full disc.
+    dirFrom(moonElev, sp.bearing + 152, moonDir);
 
     const k = lerpKey(sp.elev);
     const over = wNow.over, dim = wNow.dim;
@@ -462,16 +603,34 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
 
     // Stars and moon: only at night and only through gaps in the cloud.
     const clearSky = 1 - over;
-    stars.material.opacity = night * clearSky;
-    stars.visible = stars.material.opacity > 0.01;
-    moon.material.opacity = THREE.MathUtils.smoothstep(moonElev, -2, 4) * (0.25 + 0.75 * night) * (1 - over * 0.85);
-    moon.visible = moon.material.opacity > 0.01;
+    // The sky turns once a day about the pole; seven hours' offset puts
+    // Orion in the south-east and the Plough high in the north-east at one
+    // in the morning, which is the winter sky over the North Atlantic.
+    const lst = (hour + 7) % 24;
+    const starFade = night * clearSky * clearSky * (1 - wNow.rain);
+    starfield.update(camera, { fade: starFade, lst, time: elapsed, pixel: renderer.getPixelRatio() });
+    u.uWorldToEq.value.copy(starfield.uniforms.uEqToWorld.value).transpose();
+    u.uStarFade.value = starFade;
+    u.uTime.value = elapsed;
+    u.uHaze.value = 0.25 + wNow.fog * 0.15 + over * 0.5;
+    // Aurora: most clear nights have some, a few have a lot. Which is decided
+    // by the night, so it does not flicker on and off with the weather.
+    const nightNo = Math.floor((hour + 12) / 24 + dayCount);
+    const auroraNight = auroraOverride ?? (0.35 + 0.65 * Math.abs(Math.sin(nightNo * 12.9898 + 3.1)));
+    u.uAurora.value = auroraNight * night;
+    const moonA = THREE.MathUtils.smoothstep(moonElev, -2, 4) * (0.25 + 0.75 * night) * (1 - over * 0.85);
+    moonU.uFade.value = moonA;
+    moonU.uSun.value.copy(sunDir);
+    moon.visible = moonA > 0.01;
+    moonHalo.material.opacity = moonA * 0.7;
+    moonHalo.visible = moon.visible;
     if (camera) {
       dome.position.copy(camera.position);
-      stars.position.copy(camera.position);
       moon.position.copy(camera.position).addScaledVector(moonDir, 28000);
-      moon.quaternion.copy(camera.quaternion);
-      moon.scale.setScalar(4200);
+      moon.scale.setScalar(310);
+      moonHalo.position.copy(camera.position).addScaledVector(moonDir, 28500);
+      moonHalo.quaternion.copy(camera.quaternion);
+      moonHalo.scale.setScalar(4200);
     }
 
     // The deck colours: lit from above by the sun, shaded underneath by sky.
@@ -501,8 +660,11 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
       cu.uSunCol.value.copy(sunUp ? k.sun : tmpB.setRGB(0.5, 0.6, 0.85))
         .multiplyScalar(sunUp ? Math.max(0.02, k.sunI) * 0.95 * (1 - dim * 0.7) * THREE.MathUtils.smoothstep(sp.elev, -2.5, 4)
                               : 0.09 * THREE.MathUtils.smoothstep(moonElev, 0, 12) * (1 - dim));
-      cu.uAmbTop.value.copy(k.amb).multiplyScalar(k.ambI * B * 1.1).lerp(u.uOverCol.value, over * 0.5);
-      cu.uAmbBot.value.copy(k.gnd).multiplyScalar(B * 0.55).lerp(fogCol, 0.4);
+      cu.uAmbTop.value.copy(k.amb).multiplyScalar(k.ambI * B * 1.3).lerp(u.uOverCol.value, over * 0.5);
+      // Undersides lit by the sky and the sea-haze below them — blue-grey, the
+      // colour of the North Atlantic under cloud. Lighting them with the
+      // ground colour turned every backlit cloud a muddy brown.
+      cu.uAmbBot.value.copy(k.amb).multiplyScalar(k.ambI * B * 0.78).lerp(fogCol, 0.45);
       // Low sun: the whole horizon is lit, and it lights the clouds from the
       // side and underneath — the pink and gold bellies of a sunset deck. Sun
       // light alone cannot do it: a ray toward a sun on the horizon crosses
@@ -542,6 +704,18 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     if (key !== envKey && envAge > 2) { envKey = key; envAge = 0; rebuildEnv(); }
 
     state = { hour, elev: sp.elev, night, over, rain: wNow.rain };
+
+    // The grade (postfx.js reads it through main.js): white balance and
+    // saturation by the light. Day is cold and a touch muted; the golden hour
+    // is let be warm, since it is the only warm thing; night is blue.
+    const golden = THREE.MathUtils.smoothstep(sp.elev, -4, 1) * (1 - THREE.MathUtils.smoothstep(sp.elev, 6, 16));
+    const day = THREE.MathUtils.smoothstep(sp.elev, 8, 20);
+    grade.white.set(1, 1, 1)
+      .lerp(_gDay, day * (1 - over * 0.4))
+      .lerp(_gNight, night * 0.85);
+    grade.sat = 1 - day * 0.13 - night * 0.22 - over * 0.12 + golden * 0.06;
+    grade.glare = THREE.MathUtils.smoothstep(sp.elev, -1.5, 2) * (1 - dim) * (1 - over * 0.9);
+    grade.glareCol.set(k.sun.r, k.sun.g, k.sun.b).multiplyScalar(0.9 + golden * 0.6);
   }
 
   // --- lightning -------------------------------------------------------------------
@@ -576,6 +750,7 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     get hour() { return hour; },
     get weather() { return weatherName; },
     get state() { return state; },
+    get grade() { return grade; },
     setTime,
     /** Hours of game time per second of real time; 0 holds the clock. */
     setFlow(hoursPerSecond) { flow = hoursPerSecond; },
@@ -584,14 +759,24 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
     setChanging(on) { changing = on; changeIn = 120 + Math.random() * 120; },
     setCloudPass(p) { cloudPass = p; },
     setWeatherTexture(t) { u.tWeather.value = t; },
-    setDeckOnly(on) { deckOnly = on; },
+    // Low quality: the flat deck instead of the volume, and a lighter aurora.
+    setDeckOnly(on) { deckOnly = on; u.uAurSteps.value = on ? 6 : 12; },
     setRain(r) { rain = r; },
     onThunder(fn) { onThunder = fn; },
     /** The mirror sees the whole flat deck: the volume is not in it. */
-    beforeReflect() { this._near = u.uDeckNear.value; u.uDeckNear.value = 0; },
-    afterReflect() { u.uDeckNear.value = this._near ?? u.uDeckNear.value; },
+    beforeReflect() {
+      this._near = u.uDeckNear.value; u.uDeckNear.value = 0;
+      // Half the aurora in the mirror: it is torn up by the waves anyway.
+      this._aur = u.uAurSteps.value; u.uAurSteps.value = Math.min(6, this._aur);
+    },
+    afterReflect() {
+      u.uDeckNear.value = this._near ?? u.uDeckNear.value;
+      u.uAurSteps.value = this._aur ?? u.uAurSteps.value;
+    },
     update,
     /** Debug console: put the sun at an elevation directly. */
+    /** Debug: force the aurora, 0..1, or null for the night's own. */
+    setAurora(v) { auroraOverride = v; },
     debugSun(elev) {
       // Find the hour on the afternoon side with that elevation.
       for (let h = 12.75; h <= 24; h += 0.02) {
