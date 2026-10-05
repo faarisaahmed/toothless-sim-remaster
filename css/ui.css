@@ -141,17 +141,27 @@ kbd.pad.shape { font-size: 12px; letter-spacing: 0; }
 .ui-tabkeys { margin-left: auto; align-self: center; display: flex; gap: 4px; opacity: .7; }
 
 /* ---- Setting rows ----------------------------------------------------------
-   Label and hint on the left, the value between two arrows on the right. The
-   arrows are real buttons, so a mouse can step either way, and the whole row
-   still takes Enter / click to step forward. */
+   Label and hint on the left, the control on the right — and the control
+   shows every value at once, so one click or tap picks one:
+
+     .ui-presets   the big preset buttons, on a line of their own
+     .ui-seg       a segmented control; .many (5+ values) takes its own line
+     .ui-switch    On / Off
+     .val          the old value-between-arrows, for anything without choices
+
+   Left / right still step the focused row, Enter still goes round. */
 .ui-rows { list-style: none; margin: 0; padding: 0; }
 .ui-row {
-  display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 14px;
-  padding: 11px 14px; border-radius: var(--r-sm); cursor: pointer;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  padding: 10px 14px; border-radius: var(--r-sm); cursor: default;
   border: 1px solid transparent; transition: background .15s, border-color .15s;
 }
+.ui-row.sw, .ui-row:has(> .ctl > .val) { cursor: pointer; }
 .ui-row + .ui-row { margin-top: 2px; }
-.ui-row .glyph { color: var(--ink-4); font-size: 1rem; text-align: center; transition: color .15s; }
+.ui-row .glyph { flex: 0 0 26px; color: var(--ink-4); font-size: 1rem; text-align: center; transition: color .15s; }
+.ui-row .main { flex: 1 1 170px; min-width: 0; }
+.ui-row .ctl { flex: 0 1 auto; margin-left: auto; max-width: 100%; }
+.ui-row.presets .ctl, .ui-row:has(.ui-seg.many) .ctl { flex-basis: 100%; padding-left: 40px; box-sizing: border-box; }
 .ui-row .lbl { font: 600 .98rem/1.15 var(--ui); letter-spacing: .06em; color: var(--ink-2); }
 .ui-row .hint { font: 500 .8rem/1.3 var(--ui); letter-spacing: .03em; color: var(--ink-4);
                 margin-top: 3px; max-height: 0; overflow: hidden; opacity: 0;
@@ -173,8 +183,90 @@ kbd.pad.shape { font-size: 12px; letter-spacing: 0; }
 .ui-row.on .lbl { color: var(--ink); }
 .ui-row.on .hint { max-height: 3em; opacity: 1; color: var(--ink-3); }
 .ui-row.on .val button { color: var(--ember-2); border-color: rgba(255, 138, 61, .4); }
-.ui-row.flash .val span { animation: ui-flash .35s var(--ease); }
-@keyframes ui-flash { 0% { color: var(--ember-2); transform: scale(1.08); } 100% { color: var(--ink); transform: none; } }
+.ui-row .val.flash span, .ui-seg.flash .on, .ui-presets.flash .on, .ui-switch.flash i::after { animation: ui-flash .35s var(--ease); }
+@keyframes ui-flash { 0% { filter: brightness(1.5); transform: scale(1.08); } 100% { filter: none; transform: none; } }
+
+/* Segmented control. The chosen value is lit in every row, and in full ember
+   on the row that has focus — that is the one left / right will move. */
+.ui-seg {
+  display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; max-width: 100%; box-sizing: border-box;
+  border: 1px solid var(--edge); border-radius: var(--r-sm); background: rgba(236, 230, 216, .03);
+}
+.ui-seg.many { display: flex; width: 100%; }
+.ui-seg.many button { flex: 1 1 auto; }
+.ui-seg button {
+  min-height: 32px; padding: 0 11px; border: 0; border-radius: 4px; cursor: pointer;
+  font: 700 .74rem/1 var(--ui); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap;
+  color: var(--ink-3); background: transparent; transition: color .15s, background .15s, box-shadow .15s;
+}
+.ui-seg button:hover { color: var(--ink); background: rgba(236, 230, 216, .07); }
+.ui-seg button.on { color: var(--ink); background: rgba(255, 138, 61, .24); }
+.ui-row.on .ui-seg { border-color: rgba(255, 138, 61, .28); }
+.ui-row.on .ui-seg button.on { color: #120a04; background: var(--ember); box-shadow: 0 0 14px var(--ember-glow); }
+
+/* On / Off. */
+.ui-switch {
+  display: inline-flex; align-items: center; gap: 10px; padding: 4px 2px; min-height: 32px;
+  border: 0; background: none; cursor: pointer;
+  font: 700 .74rem/1 var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+}
+.ui-switch span { min-width: 2.2em; text-align: left; }
+.ui-switch i {
+  position: relative; width: 42px; height: 22px; border-radius: 11px; box-sizing: border-box;
+  background: rgba(236, 230, 216, .08); border: 1px solid var(--edge-2); transition: background .18s, border-color .18s;
+}
+.ui-switch i::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--ink-3); transition: transform .2s var(--ease), background .18s, box-shadow .18s;
+}
+.ui-switch.on { color: var(--ink); }
+.ui-switch.on i { background: rgba(255, 138, 61, .32); border-color: var(--ember); }
+.ui-switch.on i::after { transform: translateX(20px); background: var(--ember-2); box-shadow: 0 0 10px var(--ember-glow); }
+.ui-switch:hover i { border-color: var(--ember); }
+
+/* Presets: one click sets everything. "Custom" is a lamp, not a button — it
+   lights when a single option has been changed by hand. */
+.ui-presets { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.ui-preset {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  min-height: 46px; padding: 8px 4px; box-sizing: border-box; border-radius: var(--r-sm); cursor: pointer;
+  font: 600 clamp(.8rem, 1.5vw, .92rem)/1 var(--display); letter-spacing: .04em; color: var(--ink-2);
+  white-space: nowrap; overflow: hidden;
+  background: rgba(236, 230, 216, .04); border: 1px solid var(--edge-2);
+  transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
+}
+.ui-preset small { font: 700 .58rem/1 var(--ui); letter-spacing: .2em; text-transform: uppercase; color: var(--ink-4); }
+.ui-preset:hover { color: var(--ink); border-color: rgba(255, 138, 61, .5); background: var(--pane-hi); }
+.ui-preset.on { color: #120a04; background: var(--ember); border-color: var(--ember); box-shadow: 0 0 20px var(--ember-glow); }
+.ui-preset.on small { color: rgba(18, 10, 4, .65); }
+.ui-preset.custom {
+  cursor: default; border-style: dashed; color: var(--ink-4); background: transparent; opacity: .55;
+  font: 700 .66rem/1 var(--ui); letter-spacing: .2em; text-transform: uppercase;
+}
+.ui-preset.custom:hover { border-color: var(--edge-2); background: transparent; color: var(--ink-4); }
+.ui-preset.custom.on { opacity: 1; color: var(--ember-2); border-color: rgba(255, 138, 61, .55); background: var(--pane-hi); box-shadow: none; }
+.ui-row.presets { padding-top: 12px; padding-bottom: 12px; }
+.ui-row.presets + .ui-row { margin-top: 6px; }
+
+@media (pointer: coarse) {
+  .ui-row.presets .ctl { padding-left: 0; }
+  .ui-seg button, .ui-switch { min-height: 38px; }
+  .ui-preset { min-height: 50px; }
+}
+@media (max-width: 560px) {
+  .ui-row { padding: 9px 8px; gap: 8px 10px; }
+  .ui-row .glyph { flex-basis: 20px; }
+  .ui-row.presets .ctl, .ui-row:has(.ui-seg.many) .ctl { padding-left: 0; }
+  .ui-row .ctl { margin-left: 0; flex-basis: 100%; }
+  .ui-row.sw .ctl { flex-basis: auto; margin-left: auto; }
+  .ui-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-tabs { overflow-x: auto; scrollbar-width: none; gap: 0; }
+  .ui-tab { padding: 10px 9px 12px; letter-spacing: .14em; flex-shrink: 0; }
+  .ui-tab::after { left: 6px; right: 6px; }
+  .ui-tabkeys { display: none; }
+  .ui-seg { display: flex; width: 100%; }
+  .ui-seg button { flex: 1 1 auto; padding: 0 8px; letter-spacing: .08em; }
+}
 
 /* ---- Legend (the strip of key hints along the foot of a menu) ------------- */
 .ui-legend {

@@ -140,7 +140,9 @@ export const graphics = {
 
 // ---------------------------------------------------------------------------
 // Menu rows. Same shape as settings.js's — { id, glyph, label, hint, value,
-// cycle } — plus `section`, which is how the menus group them.
+// cycle } — plus `section`, which is how the menus group them, and either
+// `choices` / `current` / `pick` (drawn as a segmented control) or `toggle`
+// (drawn as a switch). `cycle` stays: it is what left / right step.
 // ---------------------------------------------------------------------------
 
 function step(key, values, names, hintFn) {
@@ -150,6 +152,21 @@ function step(key, values, names, hintFn) {
       const i = values.indexOf(state[key]);
       graphics.set(key, values[((i < 0 ? 0 : i) + dir + values.length) % values.length]);
     },
+    // Every value at once, so the menu can show them side by side and one
+    // click picks one, instead of stepping through them to get there.
+    choices: () => values.map((v, i) => ({ v, label: names[i] })),
+    current: () => state[key],
+    pick: (v) => graphics.set(key, v),
+    hint: hintFn,
+  };
+}
+
+/** An On/Off row. The menu draws it as a switch. */
+function onOff(key, hintFn) {
+  return {
+    value: () => (state[key] ? "On" : "Off"),
+    toggle: () => !!state[key],
+    cycle: () => graphics.set(key, !state[key]),
     hint: hintFn,
   };
 }
@@ -160,29 +177,54 @@ const LMH = ["low", "medium", "high"];
 const LMHU = ["low", "medium", "high", "ultra"];
 const NAMES4 = ["Low", "Medium", "High", "Ultra"];
 
+// "Max" is the ultra preset. It is called Max on the button because that is
+// what somebody looking for "everything up" is looking for; Photoreal stays
+// its own switch right under the presets rather than riding along with Max,
+// because it is a change of LOOK (and a heavy one) more than a quality level.
+const PRESET_CHOICES = [
+  { v: "auto", label: "Auto" },
+  { v: "low", label: "Low" },
+  { v: "medium", label: "Medium" },
+  { v: "high", label: "High" },
+  { v: "ultra", label: "Max" },
+];
+const PRESET_HINTS = {
+  auto: () => `Picked for this machine — it looks like a ${PRESET_NAMES[TIER].toLowerCase()} one`,
+  low: () => "Everything down. For a weak laptop or a phone",
+  medium: () => "A balance. Light shadows, the nearer forest, no grass",
+  high: () => "Full shadows, the near forest, grass on the meadows",
+  ultra: () => "Everything up: sharpest shadows, grass to the horizon, no frame cap. Photoreal is separate",
+  custom: () => "Your own mix. Pick a preset to start again from one",
+};
+
 export const GRAPHICS_OPTIONS = [
   {
-    id: "photoreal", section: "Graphics", glyph: "&#9672;", label: "Photoreal",
-    value: () => (state.photoreal ? "On" : "Off"),
-    cycle: () => graphics.setPhotoreal(!state.photoreal),
-    hint: () => state.photoreal
-      ? "Mountains cast real shadows, valleys fill with sky light, haze settles low, the slopes are eroded. Heavy — wants a strong GPU"
-      : "Live-action look: real terrain shadows and sky light, aerial haze, eroded slopes, a camera grade. Raises shadows, terrain and forest with it",
-  },
-  {
     id: "gfxPreset", section: "Graphics", glyph: "&#9673;", label: "Quality preset",
-    hint: () => state.preset === "auto"
-      ? `Picked for this machine — it looks like a ${PRESET_NAMES[TIER].toLowerCase()} one`
-      : state.preset === "custom" ? "Your own mix. Pick a preset to start again from one"
-      : "Sets everything below at once. Change any of them to fine-tune",
+    kind: "presets",
+    hint: () => (PRESET_HINTS[state.preset] ?? PRESET_HINTS.custom)(),
     value: () => state.preset === "auto"
-      ? `Auto (${PRESET_NAMES[TIER]})` : PRESET_NAMES[state.preset] ?? state.preset,
+      ? `Auto (${PRESET_NAMES[TIER]})` : state.preset === "ultra" ? "Max"
+      : PRESET_NAMES[state.preset] ?? state.preset,
     cycle: (dir = 1) => {
       const cur = PRESET_IDS.indexOf(state.preset);
       const i = cur < 0 ? (dir > 0 ? 0 : PRESET_IDS.length - 1)
         : (cur + dir + PRESET_IDS.length) % PRESET_IDS.length;
       graphics.setPreset(PRESET_IDS[i]);
     },
+    choices: () => PRESET_CHOICES,
+    current: () => state.preset,
+    pick: (v) => graphics.setPreset(v),
+    /** What Auto resolved to, for the small print under its button. */
+    autoTier: () => PRESET_NAMES[TIER],
+  },
+  {
+    id: "photoreal", section: "Graphics", glyph: "&#9672;", label: "Photoreal",
+    value: () => (state.photoreal ? "On" : "Off"),
+    toggle: () => !!state.photoreal,
+    cycle: () => graphics.setPhotoreal(!state.photoreal),
+    hint: () => state.photoreal
+      ? "Mountains cast real shadows, valleys fill with sky light, haze settles low, the slopes are eroded. Heavy — wants a strong GPU"
+      : "Live-action look: real terrain shadows and sky light, aerial haze, eroded slopes, a camera grade. Raises shadows, terrain and forest with it",
   },
   {
     id: "fpsCap", section: "Graphics", glyph: "&#9201;", label: "Frame rate limit",
@@ -239,14 +281,10 @@ export const GRAPHICS_OPTIONS = [
   },
   {
     id: "bloom", section: "Graphics", glyph: "&#10035;", label: "Glow",
-    value: () => (state.bloom ? "On" : "Off"),
-    cycle: () => graphics.set("bloom", !state.bloom),
-    hint: () => "The bloom around fire and plasma",
+    ...onOff("bloom", () => "The bloom around fire and plasma"),
   },
   {
     id: "showFps", section: "Graphics", glyph: "#", label: "Show frame rate",
-    value: () => (state.showFps ? "On" : "Off"),
-    cycle: () => graphics.set("showFps", !state.showFps),
-    hint: () => "A small counter in the corner",
+    ...onOff("showFps", () => "A small counter in the corner"),
   },
 ];
