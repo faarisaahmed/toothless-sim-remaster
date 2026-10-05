@@ -28,7 +28,7 @@ import { addPhotoreal } from "./photoreal.js";
 // the near grass switches off, this fills the middle too.
 // ---------------------------------------------------------------------------
 
-const LEVELS = 6;           // 50 m, then doubling: out to 3.2 km
+const LEVELS = 6;           // 50 m, then doubling: out to 3.2 km at most
 const R0 = 50;              // where the first ring starts when the near grass is on
 const CELL0 = 1.35;         // lattice spacing in the first ring, metres
 // Lattice points per side, the same in every ring. Two cells over, because the
@@ -135,8 +135,8 @@ export function createGrassField({ texture, heightTex, surfTex, colourTex, verts
       uCell: { value: CELL0 * 2 ** k },
       uR0: { value: k === 0 ? R0 : R0 * 2 ** k },
       uR1: { value: R0 * 2 ** (k + 1) },
-      // The last ring fades over its whole outer half, so the field ends in
-      // a thinning rather than a line.
+      // The outermost ring that is drawing fades over its whole outer half,
+      // so the field ends in a thinning rather than a line. setRings moves it.
       uOutFade: { value: last ? 0.5 : 0.86 },
       // Tufts grow a little slower than the lattice coarsens, so the field
       // thins with distance but still reads as a carpet, not as speckle.
@@ -175,13 +175,20 @@ export function createGrassField({ texture, heightTex, surfTex, colourTex, verts
     mesh.receiveShadow = false;
     mesh.matrixAutoUpdate = false;
     root.add(mesh);
-    rings.push(u);
+    rings.push({ u, mesh });
   }
 
   return {
     root,
     instanceCount: N * N * LEVELS,
     setEnabled(v) { root.visible = !!v; },
+    /** How many rings draw: 3 is out to 400 m, 6 to about 3.2 km. */
+    setRings(n) {
+      rings.forEach((r, k) => {
+        r.mesh.visible = k < n;
+        r.u.uOutFade.value = k === n - 1 ? 0.5 : 0.86;
+      });
+    },
     get enabled() { return root.visible; },
     /**
      * Centred on the camera itself (cameraPosition, in the shader).
@@ -190,7 +197,7 @@ export function createGrassField({ texture, heightTex, surfTex, colourTex, verts
      */
     update(focus, nearCovered) {
       if (!root.visible) return;
-      rings[0].uR0.value = nearCovered ? R0 : 0;
+      rings[0].u.uR0.value = nearCovered ? R0 : 0;
     },
   };
 }
