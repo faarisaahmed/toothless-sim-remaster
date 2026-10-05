@@ -388,8 +388,72 @@ def dh_hut():
        "the barracks hall: 15 x 6.4 m, board walls on a stone footing, shingled roof, "
        "doors at both gable ends (+Z and -Z)")
 def dh_longhouse():
-    p = Part("dh_longhouse")
-    HL, W, EAVE, RIDGE = 7.5, 3.2, 2.3, 5.2
+    return _longhouse("dh_longhouse", 7.5, 3.2, 2.3, 5.2)
+
+
+@model("dh_hall.glb", "hero",
+       "the chief's hall: 24 x 9 m, high roof, a porch on the +Z gable with carved "
+       "posts, dragon-head finials, shields along the walls")
+def dh_hall():
+    p = _longhouse("dh_hall", 12.0, 4.5, 3.0, 8.2)
+    HL, W = 12.0, 4.5
+    # A porch on the front gable: a roof on four carved posts.
+    for sx in (-1, 1):
+        for z in (HL + 0.2, HL + 3.4):
+            cyl(p, (sx * 2.4, 0, z), (sx * 2.4, 3.2, z), 0.2, 0.17, 8, "wood_dark", smooth=True)
+            for k in range(4):
+                torus(p, (sx * 2.4, 0.6 + k * 0.7, z), 0.2, 0.035, "iron", majseg=8, minseg=3)
+    for sx in (-1, 1):
+        quad(p, (sx * 3.0, 3.1, HL + 3.9), (sx * 3.0, 3.1, HL - 0.2),
+             (0, 4.6, HL - 0.2), (0, 4.6, HL + 3.9), "wood_dark", double=True)
+    # Steps up to it.
+    for k in range(3):
+        box(p, (0, 0.1 + k * 0.2, HL + 4.2 - k * 0.45), (4.4, 0.2, 0.9), "stone")
+    # Dragon-head finials where the bargeboards cross, front and back.
+    for sz in (-1, 1):
+        z = sz * (HL + 0.5)
+        polyline_tube(p, smooth_path([(0, 8.6, z), (0, 9.5, z + sz * 0.4), (0, 10.1, z + sz * 1.0),
+                                      (0, 10.0, z + sz * 1.6)]), 0.16, "wood_dark", seg=6, smooth=True)
+        sphere(p, (0, 10.0, z + sz * 1.75), 0.26, "wood_dark", rings=3, seg=6, squash=0.7)
+    # Round shields along both long walls, painted cloth over wood.
+    for sx in (-1, 1):
+        for k in range(7):
+            z = -HL + 2.2 + k * (2 * HL - 4.4) / 6
+            revolve(p, [(0.55, 0), (0.5, 0.06), (0.12, 0.14)], center=(sx * (W + 0.07), 2.0, z),
+                    seg=10, slot="cloth" if k % 2 else "hide", axis=(sx, 0, 0))
+    # Two braziers on posts at the door.
+    for sx in (-1, 1):
+        cyl(p, (sx * 3.4, 0, HL + 4.3), (sx * 3.4, 2.0, HL + 4.3), 0.1, 0.08, 6, "iron")
+        revolve(p, [(0.1, 0.0), (0.35, 0.15), (0.42, 0.4)], center=(sx * 3.4, 2.0, HL + 4.3),
+                seg=10, slot="iron", cap_end=False)
+    p.contact_shade(reach=1.0, strength=0.5)
+    f = Part("flame")
+    for sx in (-1, 1):
+        revolve(f, [(0.3, 2.3), (0.26, 2.55), (0.12, 2.85), (0.0, 3.1)], center=(sx * 3.4, 0, HL + 4.3),
+                seg=8, slot="ember", smooth=True)
+    return [p, f]
+
+
+@model("dh_fishrack.glb", "medium",
+       "a drying rack: two A-frames and poles hung with split fish, 5 m long")
+def dh_fishrack():
+    p = Part("dh_fishrack")
+    for x in (-2.4, 2.4):
+        for sz in (-1, 1):
+            beam(p, (x, 0, sz * 0.9), (x, 2.3, 0), 0.09, 0.09, "wood", up=(1, 0, 0))
+    rr = random.Random(4)
+    for y in (2.15, 1.55):
+        cyl(p, (-2.7, y, 0), (2.7, y, 0), 0.04, 0.04, 6, "wood_dark")
+        for k in range(16):
+            x = -2.2 + k * 0.29 + rr.uniform(-0.05, 0.05)
+            l = rr.uniform(0.38, 0.52)
+            box(p, (x, y - 0.06 - l / 2, 0), (0.1, l, 0.03), "leather" if k % 3 else "hide")
+    p.contact_shade(reach=0.3, strength=0.4)
+    return p
+
+
+def _longhouse(name, HL, W, EAVE, RIDGE):
+    p = Part(name)
     # Footing.
     for sx in (-1, 1):
         stone_course(p, [(sx * W, 0, -HL), (sx * W, 0, HL)], height=0.45, width=0.5, seed=4 + sx)

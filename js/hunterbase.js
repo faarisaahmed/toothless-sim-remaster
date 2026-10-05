@@ -3,7 +3,7 @@ import { prop } from "./props.js";
 import { mergeStatic, makeLightPool } from "./places.js";
 import { makeOrb } from "./placeholder.js";
 import { loadKit, createActor } from "./dragonkit.js";
-import { pitLayout } from "./terrain.js";
+import { pitLayout, PADS } from "./terrain.js";
 import { createHunters } from "./hunters.js";
 
 // ---------------------------------------------------------------------------
@@ -13,27 +13,25 @@ import { createHunters } from "./hunters.js";
 // wall in terraces, a rim, a channel to the sea. This dresses it, in sections
 // that each do a job in the story and in the stealth:
 //
-//   THE PIT FLOOR   Bellows' smelter in the middle — the thing the whole
-//                   operation exists to feed — and a ring of cages round it.
-//                   Braziers, cranes, the clutter of a working yard, the
-//                   barracks tents on the channel side. The brightest, busiest
-//                   and most watched place on the island: the target.
-//   THE SPIRAL      The road up the wall, torch every thirty metres, so from
-//                   the air at night it is a coil of fire round a black hole
-//                   — the shot from the films. Patrols walk it; small cages
-//                   wait on it to be carried down. The torches are what make
-//                   the walls dangerous to fly along.
+//   THE YARD        The pit floor, fenced: a palisade with one gate toward the
+//                   channel, Bellows' smelter in the middle, the cages round
+//                   it, the braziers, a workshop and the yard crew's barracks.
+//                   Two men on the gate, one walking the cages; the real
+//                   watching is from the towers above it. The target.
+//   THE SPIRAL      The road up the wall. Dark, as roads are, but for the
+//                   lanterns on the towers that overlook the yard and the
+//                   lean-to where the small cages wait to be carried down.
 //   THE RIM         Six watchtowers with archers and alarm horns, ballistae,
 //                   palisade between them. Coming over the top means coming
 //                   past these.
 //   THE CHANNEL     The dock and the supply ships, the only way in at sea
 //                   level, and the one place everyone is looking.
-//   THE CAMP        Where the crews live: barracks halls, huts, tents,
-//                   workshops, cook fires and mess tables across the floor,
-//                   and huts and lean-to watch posts strung along every
-//                   terrace. hunters.js runs their day round it — work,
-//                   meals, the fire, bed — so the island is a place with a
-//                   routine to read and slip through, not a ring of sentries.
+//   THE HARBOUR     Where they live, outside the pit: a cove cut into the
+//                   outer slope beside the channel (terrain.js PADS). Houses
+//                   round a square with a fire, the chief's hall on a knoll at
+//                   the back with men on its door, a jetty, boats, fish racks,
+//                   a net shed. hunters.js gives everyone a day — work, meals,
+//                   the fire, bed — and only a handful hold posts at night.
 //
 // The returned object keeps the shape the story already reads (braziers,
 // cages, guards, litFraction), so the chapters drive it unchanged.
@@ -114,7 +112,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   const names = ["rig_cage_large", "rig_cage_small", "rig_brazier", "rig_crane", "rig_crate",
     "rig_barrel", "rig_chain_coil", "rig_net_pile", "dh_watchtower", "dh_ballista", "dh_torch",
     "dh_forge", "dh_palisade", "dh_tent", "boat_supply", "berk_dock", "rig_mooring_post",
-    "dh_hut", "dh_longhouse", "dh_leanto", "dh_shed", "dh_campfire", "dh_table"];
+    "dh_hut", "dh_longhouse", "dh_leanto", "dh_shed", "dh_campfire", "dh_table", "dh_hall", "dh_fishrack"];
   const P = Object.fromEntries(
     await Promise.all(names.map(async (n) => [n, await prop(n)])));
   // Some props were built for people; a dragon is eight and a half metres
@@ -258,7 +256,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     });
   };
   for (let i = 0; i < 8; i++) addBrazier(...polar(gateA + (i + 0.25) * TAU / 8, L.floorR * 0.32));
-  for (let i = 0; i < 8; i++) addBrazier(...polar(gateA + (i + 0.75) * TAU / 8, L.floorR * 0.84));
+  for (let i = 0; i < 8; i++) addBrazier(...polar(gateA + (i + 0.75) * TAU / 8, L.floorR * 0.72));
 
   // --- the camp ------------------------------------------------------------------
   // Where the crews live and work. The floor was a yard with a ring of cages
@@ -342,219 +340,286 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   };
   const facing = (fromX, fromZ, toX, toZ) => Math.atan2(toX - fromX, toZ - fromZ);
 
-  // The floor: barracks halls on the channel side, long side to the pit.
-  const floorZone = { kind: "floor" };
-  for (const da of [-0.42, 0.42, 1.95, -2.2]) {
-    const s0 = site(...polar(gateA + da, L.floorR * 0.8), 9);
-    if (!s0) continue;
-    const a = Math.atan2(s0.z - cz, s0.x - cx);
-    // Door ends face along the tangent; +Z of the model is a gable door.
-    build("dh_longhouse", s0.x, s0.z, -a, 9, { doorOut: 8.3, beds: 12, zone: floorZone });
-  }
-  // Huts for the crew bosses round the far side.
-  for (const [da, rr] of [[-0.95, 0.88], [-0.45, 0.9], [0.05, 0.88], [0.55, 0.9], [1.05, 0.88],
-                          [-0.7, 0.66], [-0.2, 0.68], [0.3, 0.66], [0.8, 0.68], [2.3, 0.88], [-2.6, 0.9],
-                          [2.6, 0.66], [-2.0, 0.66]]) {
-    const s0 = site(...polar(gateA + Math.PI + da, L.floorR * rr), 3.6, { reach: 14 });
-    if (!s0) continue;
-    build("dh_hut", s0.x, s0.z, facing(s0.x, s0.z, cx, cz), 3.6, { doorOut: 3.2, beds: 4, zone: floorZone });
-  }
-  // Workshops, by the cranes.
-  for (const [da, rr] of [[1.2, 0.62], [-1.6, 0.6], [2.5, 0.42], [-0.9, 0.42]]) {
-    const s0 = site(...polar(gateA + da, L.floorR * rr), 5.5);
-    if (!s0) continue;
-    const yaw = facing(s0.x, s0.z, cx, cz) + Math.PI / 2;
-    build("dh_shed", s0.x, s0.z, yaw, 5.5, { torch: true });
-    // The bench runs along the shed's -X side; men stand at it facing it.
-    const ax = Math.cos(yaw), az = -Math.sin(yaw);       // the shed's +X in the world
-    for (const off of [-1.8, 0, 1.8]) {
-      const px = s0.x - ax * 1.1 + Math.sin(yaw) * off, pz = s0.z - az * 1.1 + Math.cos(yaw) * off;
-      works.push({ pos: V(px, groundAt(px, pz), pz), yaw: Math.atan2(-ax, -az), zone: floorZone, act: "work" });
+  const addTable = (x, z, yaw, zone) => {
+    place(clone("dh_table"), x, z, yaw, 0);
+    take(x, z, 2.6);
+    const seats = [];
+    const ax = Math.cos(yaw), az = -Math.sin(yaw);
+    for (const sd of [-1, 1]) {
+      for (const along of [-1.3, 0, 1.3]) {
+        const px = x + ax * 0.85 * sd + Math.sin(yaw) * along, pz = z + az * 0.85 * sd + Math.cos(yaw) * along;
+        seats.push({ pos: V(px, groundAt(px, pz), pz), yaw: Math.atan2(-ax * sd, -az * sd), ground: false, by: null });
+      }
     }
-    const anx = s0.x + ax * 0.6 + Math.sin(yaw) * 0.6, anz = s0.z + az * 0.6 + Math.cos(yaw) * 0.6;
-    works.push({ pos: V(anx, groundAt(anx, anz), anz), yaw: yaw + Math.PI, zone: floorZone, act: "work" });
+    tables.push({ seats, zone });
+  };
+  const workAt = (x, z, yaw, zone, act = "work", look = null) =>
+    works.push({ pos: V(x, groundAt(x, z), z), yaw, zone, act, look });
+  // A flame with no prop of its own — a lantern on a tower, a brazier built
+  // into a model — that still lights the ground and the men round it.
+  const lamp = (x, y, z, r = 15) => { const t = { pos: V(x, y, z), lit: true, r }; torches.push(t); return t; };
+
+  // ===========================================================================
+  // THE YARD. The pit floor is where the dragons are kept and worked, and
+  // nothing else: a palisade round it with one gate toward the channel, the
+  // smelter in the middle, the cages round it, the braziers, a workshop and a
+  // barracks for the yard crew. A few men on the gate and one walking the
+  // cages; the watching is done from above — two towers at the gate and three
+  // on the terraces looking straight down into it.
+  // ===========================================================================
+  const yardZone = { kind: "floor" };
+  const YARD_R = L.floorR - 13;
+  const gateHalf = 0.075;
+  for (let a = gateA + gateHalf + 0.03; a < gateA + TAU - gateHalf - 0.03; a += 6 / YARD_R) {
+    const [x, z] = polar(a, YARD_R);
+    place(clone("dh_palisade"), x, z, -a, -0.2);
+    take(x, z, 2);
   }
-  for (const [a, r, yaw] of [[gateA + 1.2, L.floorR * 0.78, 0.6], [gateA - 1.6, L.floorR * 0.74, -1.1],
-                             [gateA + Math.PI, L.floorR * 0.8, 2.2]]) {
-    const s0 = site(...polar(a, r), 4.5, { flat: 3 });
+  const yardTowers = [];
+  for (const side of [-1, 1]) {
+    const a = gateA + side * (gateHalf + 0.07);
+    const [x, z] = polar(a, YARD_R - 6);
+    const t = clone("dh_watchtower");
+    place(t, x, z, -gateA + Math.PI / 2, -0.3);
+    take(x, z, 4);
+    const pos = onGround(x, z);
+    yardTowers.push({ pos, a: gateA, look: gateA });
+    lamp(x, pos.y + 9.5, z, 16);
+  }
+  const gateAt = (off) => onGround(...polar(gateA + off, YARD_R + 4));
+  for (const off of [-gateHalf * 1.2, gateHalf * 1.2]) addTorch(...polar(gateA + off, YARD_R + 2.5));
+  // Barracks and the cook fire, just inside the gate.
+  {
+    const s0 = site(...polar(gateA + 0.45, YARD_R - 14), 9);
+    if (s0) {
+      const a = Math.atan2(s0.z - cz, s0.x - cx);
+      build("dh_longhouse", s0.x, s0.z, -a, 9, { doorOut: 8.3, beds: 12, zone: yardZone });
+    }
+    const f0 = site(...polar(gateA + 0.22, YARD_R - 22), 3.6);
+    if (f0) {
+      addFire(f0.x, f0.z, yardZone);
+      const t0 = site(f0.x + 6, f0.z, 2.6);
+      if (t0) addTable(t0.x, t0.z, facing(t0.x, t0.z, cx, cz), yardZone);
+    }
+  }
+  // The workshop, with the bench and the anvil to work at.
+  {
+    const s0 = site(...polar(gateA - 0.5, YARD_R - 16), 5.5);
+    if (s0) {
+      const yaw = facing(s0.x, s0.z, cx, cz) + Math.PI / 2;
+      build("dh_shed", s0.x, s0.z, yaw, 5.5, { torch: false });
+      const ax = Math.cos(yaw), az = -Math.sin(yaw);
+      for (const off of [-1.8, 0, 1.8]) {
+        workAt(s0.x - ax * 1.1 + Math.sin(yaw) * off, s0.z - az * 1.1 + Math.cos(yaw) * off, Math.atan2(-ax, -az), yardZone);
+      }
+      workAt(s0.x + ax * 0.6 + Math.sin(yaw) * 0.6, s0.z + az * 0.6 + Math.cos(yaw) * 0.6, yaw + Math.PI, yardZone);
+    }
+  }
+  for (const [a, rr, yaw] of [[gateA + 1.3, 0.7, 0.6], [gateA - 1.7, 0.66, -1.1], [gateA + Math.PI, 0.72, 2.2]]) {
+    const s0 = site(...polar(a, L.floorR * rr), 4.5, { flat: 3 });
     if (!s0) continue;
     place(clone("rig_crane"), s0.x, s0.z, yaw, 0);
     take(s0.x, s0.z, 4.5);
   }
-  // The mess: a fire and tables between the halls; more fires by the huts
-  // and the workshops.
-  {
-    const s0 = site(...polar(gateA, L.floorR * 0.62), 3.6);
-    if (s0) {
-      addFire(s0.x, s0.z, floorZone);
-      for (const side of [-1, 1]) {
-        const a = Math.atan2(s0.z - cz, s0.x - cx) + side * 0.14;
-        const t0 = site(cx + Math.cos(a) * Math.hypot(s0.x - cx, s0.z - cz), cz + Math.sin(a) * Math.hypot(s0.x - cx, s0.z - cz), 2.6);
-        if (!t0) continue;
-        const yaw = -a;
-        place(clone("dh_table"), t0.x, t0.z, yaw, 0);
-        take(t0.x, t0.z, 2.6);
-        const seats = [];
-        const ax = Math.cos(yaw), az = -Math.sin(yaw);
-        for (const sd of [-1, 1]) {
-          for (const along of [-1.3, 0, 1.3]) {
-            const px = t0.x + ax * 0.85 * sd + Math.sin(yaw) * along, pz = t0.z + az * 0.85 * sd + Math.cos(yaw) * along;
-            seats.push({ pos: V(px, groundAt(px, pz) + 0.0, pz), yaw: Math.atan2(-ax * sd, -az * sd), ground: false, by: null });
-          }
-        }
-        tables.push({ seats, zone: floorZone });
-      }
-    }
-  }
-  for (const [da, rr] of [[Math.PI, 0.72], [1.2, 0.45], [-1.6, 0.45], [Math.PI * 0.5, 0.42]]) {
-    const s0 = site(...polar(gateA + da, L.floorR * rr), 3.6);
-    if (s0) addFire(s0.x, s0.z, floorZone);
-  }
-  // Tending the cages: a man at each door, and at the smelter's mouth.
+  // Feeding and watering the cages, and stoking the smelter.
   for (const c of cages) {
     const a = Math.atan2(c.pos.z - cz, c.pos.x - cx);
-    const px = c.pos.x - Math.cos(a) * 9, pz = c.pos.z - Math.sin(a) * 9;
-    works.push({ pos: V(px, groundAt(px, pz), pz), yaw: facing(px, pz, c.pos.x, c.pos.z), zone: floorZone, act: "tend" });
+    const px = c.pos.x - Math.cos(a) * 10, pz = c.pos.z - Math.sin(a) * 10;
+    workAt(px, pz, facing(px, pz, c.pos.x, c.pos.z), yardZone, "tend");
   }
   {
-    // In front of the smelter's mouth (the forge faces the channel).
     const ax = Math.cos(gateA), az = Math.sin(gateA);
     for (const off of [-3, 0, 3]) {
-      const px = cx + ax * 20 - az * off, pz = cz + az * 20 + ax * off;
-      works.push({ pos: V(px, groundAt(px, pz), pz), yaw: facing(px, pz, cx, cz), zone: floorZone, act: "work" });
+      const px = cx + ax * 21 - az * off, pz = cz + az * 21 + ax * off;
+      workAt(px, pz, facing(px, pz, cx, cz), yardZone);
     }
   }
-
-  // The terraces: a lean-to watch post with a fire on every turn, a hut or
-  // two, and the small cages' keepers.
-  const terraceZones = [];
-  for (let k = 0; k < L.turns; k++) {
-    const zone = { kind: "road", k };
-    terraceZones.push(zone);
-    for (let j = 0; j < 5; j++) {
-      const a0 = gateA + 0.5 + j * TAU / 5 + k * 0.9;
-      const a = Math.atan2(Math.sin(a0), Math.cos(a0));
-      const p = L.roadAt(k, a);
-      if (groundAt(p.x, p.z) < seaLevel + 6) continue;
-      const s0 = site(p.x, p.z, 2.6, { reach: 12, flat: 1.8 });
-      if (!s0) continue;
-      // Open side to the pit: looking out over it is the job.
-      const yaw = facing(s0.x, s0.z, cx, cz);
-      build("dh_leanto", s0.x, s0.z, yaw, 2.7, { torch: false, zone });
-      const at = (lz) => { const x = s0.x + Math.sin(yaw) * lz, z = s0.z + Math.cos(yaw) * lz; return V(x, groundAt(x, z), z); };
-      leantos.push({ post: at(2.4), seat: { pos: at(-0.95), yaw }, yaw, zone });
-      const fa = a + 14 / p.r;
-      const fp = L.roadAt(k, Math.atan2(Math.sin(fa), Math.cos(fa)));
-      const f0 = site(fp.x, fp.z, 3.6, { reach: 10, flat: 1.8 });
-      if (f0) addFire(f0.x, f0.z, zone);
-      if (j < 4) {
-        const ha = a - 18 / p.r;
-        const hp = L.roadAt(k, Math.atan2(Math.sin(ha), Math.cos(ha)));
-        const h0 = site(hp.x, hp.z, 3.6, { reach: 12, flat: 1.8 });
-        if (h0) build("dh_hut", h0.x, h0.z, facing(h0.x, h0.z, cx, cz), 3.6, { doorOut: 3.2, beds: 3, zone });
-      }
-    }
-  }
-  for (const c of terraceCages) {
-    works.push({ pos: V(c.pos.x, groundAt(c.pos.x, c.pos.z), c.pos.z).add(V(cx - c.pos.x, 0, cz - c.pos.z).normalize().multiplyScalar(3.5)),
-      yaw: 0, zone: terraceZones[1] ?? null, act: "tend", look: c.pos });
-  }
-
-  // And then the rest of the settlement, filling in: a camp that has grown
-  // for years round the work, not a few buildings on a parade ground. Huts,
-  // tents, sheds and lean-tos in clusters across the floor, and strung along
-  // every terrace on the pit side of the road. An avenue stays open from the
-  // channel to the smelter (the way the cages come in), and a lane round
-  // the cage ring. Only some have anyone living in them; the rest are stores.
-  {
-    let fs = 31;
-    const fr = () => ((fs = (fs * 48271) % 2147483647) / 2147483647);
-    const avenue = (x, z, w) => {
-      const ux = Math.cos(gateA), uz = Math.sin(gateA);
-      const along = (x - cx) * ux + (z - cz) * uz;
-      return along > 0 && Math.abs(-(x - cx) * uz + (z - cz) * ux) < w;
-    };
-    const KINDS = [["dh_hut", 3.6, 0.42], ["dh_tent", 3.0, 0.3], ["dh_leanto", 2.7, 0.14], ["dh_shed", 5.5, 0.14]];
-    const pickKind = () => { let r = fr(); for (const k of KINDS) { if ((r -= k[2]) <= 0) return k; } return KINDS[0]; };
-    const putOne = (x, z, zone, yawTo) => {
-      const [kind, rad] = pickKind();
-      if (avenue(x, z, 14) || !free(x, z, rad + 2.5) || flatFor(x, z, rad) > 1.6 || groundAt(x, z) < seaLevel + 4) return false;
-      const yaw = yawTo(x, z) + (fr() - 0.5) * 0.5;
-      const lived = kind === "dh_hut" && fr() < 0.5;
-      build(kind, x, z, yaw, rad, { doorOut: kind === "dh_hut" ? 3.2 : 0, beds: lived ? 2 : 0, zone,
-                                     torch: kind !== "dh_tent" && fr() < 0.6 });
-      return true;
-    };
-    // The floor: rings of candidates, each one the seed of a little cluster.
-    for (let r = 30; r < L.floorR - 8; r += 13) {
-      const n = Math.floor(TAU * r / 17);
-      for (let i = 0; i < n; i++) {
-        const a = gateA + (i + fr() * 0.6) * TAU / n;
-        const [x, z] = polar(a, r + (fr() - 0.5) * 6);
-        if (fr() < 0.35) continue;
-        putOne(x, z, floorZone, (px, pz) => facing(px, pz, cx, cz));
-      }
-    }
-    // The terraces: along the road, on the pit side of it.
-    for (let k = 0; k < L.turns; k++) {
-      for (let a = -Math.PI; a < Math.PI; ) {
-        const p = L.roadAt(k, a);
-        a += (11 + fr() * 10) / p.r;
-        if (fr() < 0.3) continue;
-        const inward = 4 + fr() * 12;
-        const x = p.x - Math.cos(a) * inward, z = p.z - Math.sin(a) * inward;
-        putOne(x, z, terraceZones[k], (px, pz) => facing(px, pz, cx, cz));
-      }
-    }
-  }
-
-  // Clutter, round everything else.
-  let s = 7;
-  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  // Stores: crates, barrels, chain and nets, stacked against the palisade
+  // where a yard keeps them, not scattered across it.
   const piles = [];
-  for (let i = 0; i < 140; i++) {
-    const a = rnd() * TAU, r = 24 + rnd() * (L.floorR - 30);
-    const [x, z] = polar(a, r);
-    if (!free(x, z, 1.4) || roughness(x, z) > 1.5) continue;
-    const kind = i % 7 === 0 ? "rig_net_pile" : i % 5 === 0 ? "rig_chain_coil" : i % 3 ? "rig_crate" : "rig_barrel";
-    place(clone(kind), x, z, rnd() * TAU, 0.02);
-    take(x, z, 1.4);
-    if (kind === "rig_crate" && piles.length < 14) piles.push(V(x, groundAt(x, z), z));
-  }
-  // A few tents for the overflow, out by the halls.
-  for (let i = 0; i < 6; i++) {
-    const s0 = site(...polar(gateA + (i - 2.5) * 0.2, L.floorR * 0.93), 3, { reach: 12 });
-    if (!s0) continue;
-    const a = Math.atan2(s0.z - cz, s0.x - cx);
-    place(clone("dh_tent"), s0.x, s0.z, -a, 0);
-    take(s0.x, s0.z, 3);
-  }
-
-  // --- torches -------------------------------------------------------------------------
-  // The spiral road gets one every eighteen metres, on the outer edge against
-  // the wall: the coil of fire round a black hole.
-  for (let k = 0; k < L.turns; k++) {
-    for (let a = -Math.PI; a < Math.PI; ) {
-      const p = L.roadAt(k, a);
-      a += 18 / p.r;
-      const gy = groundAt(p.x, p.z);
-      if (gy < seaLevel + 4 || roughness(p.x, p.z) > 2.2) continue;
-      const ox = p.x + Math.cos(a) * 8, oz = p.z + Math.sin(a) * 8;
-      if (Math.abs(groundAt(ox, oz) - gy) > 3 || !free(ox, oz, 0.8)) continue;
-      addTorch(ox, oz);
+  {
+    let r0 = 7;
+    const rnd = () => ((r0 = (r0 * 16807) % 2147483647) / 2147483647);
+    for (const a0 of [gateA + 0.9, gateA + 2.2, gateA - 1.1, gateA - 2.6]) {
+      for (let i = 0; i < 9; i++) {
+        const a = a0 + (rnd() - 0.5) * 0.35, r = YARD_R - 5 - rnd() * 7;
+        const [x, z] = polar(a, r);
+        if (!free(x, z, 1.3)) continue;
+        const kind = i % 6 === 0 ? "rig_net_pile" : i % 4 === 0 ? "rig_chain_coil" : i % 2 ? "rig_crate" : "rig_barrel";
+        place(clone(kind), x, z, rnd() * TAU, 0.02);
+        take(x, z, 1.3);
+        if (kind === "rig_crate" && piles.length < 10) piles.push(V(x, groundAt(x, z), z));
+      }
     }
   }
-  // Round the floor's edge, and a ring between the cages and the smelter.
-  for (let i = 0; i < 28; i++) {
-    const [x, z] = polar(gateA + i * TAU / 28, L.floorR - 8);
-    if (roughness(x, z) > 2 || !free(x, z, 0.8)) continue;
-    addTorch(x, z);
+
+  // ===========================================================================
+  // THE TERRACES. The road up the wall, and the towers that overlook the
+  // yard. A road is not lit end to end: there is a lean-to and a fire where
+  // the small cages wait, and the rest is dark.
+  // ===========================================================================
+  const terraceZones = [];
+  for (let k = 0; k < L.turns; k++) terraceZones.push({ kind: "road", k });
+  const overTowers = [];
+  for (let i = 0; i < 3; i++) {
+    const a0 = gateA + 1.1 + i * TAU / 3;
+    const p = L.roadAt(1, Math.atan2(Math.sin(a0), Math.cos(a0)));
+    // On the pit edge of the tread, where the drop is.
+    const s0 = site(p.x - Math.cos(a0) * 8, p.z - Math.sin(a0) * 8, 4, { reach: 14, flat: 2.2 });
+    if (!s0) continue;
+    const t = clone("dh_watchtower");
+    place(t, s0.x, s0.z, facing(s0.x, s0.z, cx, cz), -0.3);
+    take(s0.x, s0.z, 4);
+    const pos = onGround(s0.x, s0.z);
+    overTowers.push({ pos, look: Math.atan2(cz - s0.z, cx - s0.x) });
+    lamp(s0.x, pos.y + 9.5, s0.z, 16);
   }
-  for (let i = 0; i < 12; i++) {
-    const [x, z] = polar(gateA + (i + 0.5) * TAU / 12, L.floorR * 0.47);
-    if (!free(x, z, 0.8)) continue;
-    addTorch(x, z);
+  {
+    // The lean-to by the small cages on the second terrace.
+    const c = terraceCages[Math.floor(terraceCages.length / 2)];
+    if (c) {
+      const a = Math.atan2(c.pos.z - cz, c.pos.x - cx) + 0.06;
+      const p = L.roadAt(1, a);
+      const s0 = site(p.x, p.z, 2.6, { reach: 14, flat: 1.8 });
+      if (s0) {
+        const yaw = facing(s0.x, s0.z, cx, cz);
+        build("dh_leanto", s0.x, s0.z, yaw, 2.7, { torch: false });
+        const at = (lz) => { const x = s0.x + Math.sin(yaw) * lz, z = s0.z + Math.cos(yaw) * lz; return V(x, groundAt(x, z), z); };
+        leantos.push({ post: at(2.4), seat: { pos: at(-0.95), yaw }, yaw, zone: terraceZones[1] });
+        const f0 = site(s0.x + Math.sin(yaw + 1.6) * 6, s0.z + Math.cos(yaw + 1.6) * 6, 3.6, { reach: 8, flat: 1.8 });
+        if (f0) addFire(f0.x, f0.z, terraceZones[1]);
+      }
+    }
   }
+
+  // ===========================================================================
+  // THE HARBOUR. Where they live: a cove cut into the outer slope beside the
+  // channel (terrain.js PADS), at the water. Houses round a square with a
+  // fire in it, the chief's hall on the knoll at the back with two men on its
+  // door, the boats and the fish racks along the shore, a net shed. Lit the
+  // way a village is at night — the hall's door, the square, the jetty —
+  // and dark between.
+  // ===========================================================================
+  const villageZone = { kind: "village" };
+  const H = PADS.find((p) => p.name === "harbour");
+  const K = PADS.find((p) => p.name === "hall");
+  let hall = null;
+  const villageWatch = [];
+  if (H) {
+    // Which way is the sea from the middle of the cove?
+    let seaA = 0, lowH = Infinity;
+    for (let k = 0; k < 32; k++) {
+      const a = k * TAU / 32;
+      const h = groundAt(H.x + Math.cos(a) * (H.r + 40), H.z + Math.sin(a) * (H.r + 40));
+      if (h < lowH) { lowH = h; seaA = a; }
+    }
+    const sx = Math.cos(seaA), sz = Math.sin(seaA);          // toward the water
+    const px = -sz, pz = sx;                                // along the shore
+    // Laid out tight round the square, the way a village is — a hundred and
+    // eighty metres of level ground does not mean houses a stone's throw apart.
+    const at = (along, out) => [H.x + px * along + sx * out, H.z + pz * along + sz * out];
+    const atc = (along, out) => at(along * 0.62, out * 0.62);
+    const sq = at(0, 2);                                     // the square
+    take(H.x, H.z, 0);
+    // The chief's hall, on its knoll, door toward the square.
+    if (K) {
+      const yaw = facing(K.x, K.z, sq[0], sq[1]);
+      place(clone("dh_hall"), K.x, K.z, yaw, -0.3);
+      take(K.x, K.z, 14);
+      const d = V(K.x + Math.sin(yaw) * 17, 0, K.z + Math.cos(yaw) * 17);
+      d.y = groundAt(d.x, d.z);
+      hall = { door: d, yaw, pos: V(K.x, groundAt(K.x, K.z), K.z) };
+      homes.push({ door: d, yaw, beds: 4, zone: villageZone });
+      // The two braziers by its door are part of the model; their light is not.
+      for (const side of [-1, 1]) {
+        const lx = K.x + Math.sin(yaw) * 16.3 + Math.cos(yaw) * side * 3.4;
+        const lz = K.z + Math.cos(yaw) * 16.3 - Math.sin(yaw) * side * 3.4;
+        lamp(lx, groundAt(lx, lz) + 2.6, lz, 18);
+      }
+    }
+    // The square: a fire and two tables.
+    addFire(sq[0], sq[1], villageZone);
+    for (const side of [-1, 1]) {
+      const [tx, tz] = at(side * 8, 4);
+      addTable(tx, tz, Math.atan2(px, pz), villageZone);
+    }
+    // Houses in an arc round the square, doors in.
+    const houses = [[-30, -10, "dh_longhouse"], [30, -10, "dh_longhouse"],
+                    [-56, -4, "dh_hut"], [56, -4, "dh_hut"], [-13, -30, "dh_hut"], [13, -30, "dh_hut"],
+                    [-38, -36, "dh_hut"], [38, -36, "dh_hut"], [-64, -28, "dh_hut"], [64, -28, "dh_hut"],
+                    [-56, 30, "dh_hut"], [56, 30, "dh_hut"], [-74, 6, "dh_longhouse"], [74, 6, "dh_longhouse"],
+                    [-36, 50, "dh_tent"], [36, 50, "dh_tent"], [-24, 56, "dh_tent"]];
+    for (const [along, out, kind] of houses) {
+      const [x, z] = atc(along, out);
+      const r = kind === "dh_longhouse" ? 9 : kind === "dh_tent" ? 3 : 3.6;
+      const s0 = site(x, z, r, { reach: 10, flat: 1.4, minY: seaLevel + 2 });
+      if (!s0) continue;
+      const toSq = facing(s0.x, s0.z, sq[0], sq[1]);
+      if (kind === "dh_longhouse") {
+        // A hall's doors are in its gables: turn it end-on to the square.
+        build(kind, s0.x, s0.z, toSq, r, { doorOut: 8.3, beds: 6, zone: villageZone, torch: false });
+      } else if (kind === "dh_tent") {
+        place(clone(kind), s0.x, s0.z, toSq, 0);
+        take(s0.x, s0.z, 3);
+      } else {
+        build(kind, s0.x, s0.z, toSq, r, { doorOut: 3.2, beds: 3, zone: villageZone, torch: false });
+      }
+    }
+    // The shore: a jetty, the boats, the racks and the net shed.
+    {
+      const [jx, jz] = at(0, H.r + 2);
+      const jetty = clone("berk_dock");
+      jetty.position.set(jx, Math.max(groundAt(jx, jz), seaLevel) + 0.2, jz);
+      jetty.rotation.y = -seaA + Math.PI / 2;
+      statics.push(jetty);
+      take(jx, jz, 8);
+      lamp(jx, seaLevel + 3.5, jz, 14);
+      addTorch(...at(-6, H.r - 6));
+      for (const [along, out] of [[16, 26], [-18, 34]]) {
+        const [bx, bz] = at(along, H.r + out);
+        if (groundAt(bx, bz) > seaLevel - 2) continue;
+        const boat = clone("boat_supply");
+        boat.position.set(bx, seaLevel - 0.6, bz);
+        boat.rotation.y = -seaA + Math.PI / 2 + along * 0.004;
+        boat.scale.setScalar(0.8);
+        statics.push(boat);
+      }
+    }
+    for (const along of [-40, -30, 26, 36, 46]) {
+      const [x, z] = at(along, H.r - 18);
+      const s0 = site(x, z, 3, { reach: 8, flat: 1.4, minY: seaLevel + 1.5 });
+      if (!s0) continue;
+      const yaw = Math.atan2(px, pz);
+      place(clone("dh_fishrack"), s0.x, s0.z, yaw, 0);
+      take(s0.x, s0.z, 3);
+      workAt(s0.x - sx * 1.3, s0.z - sz * 1.3, Math.atan2(sx, sz), villageZone);
+    }
+    {
+      const [x, z] = at(-14, H.r - 22);
+      const s0 = site(x, z, 5.5, { reach: 10, flat: 1.4, minY: seaLevel + 1.5 });
+      if (s0) {
+        const yaw = Math.atan2(sx, sz) + Math.PI / 2;
+        build("dh_shed", s0.x, s0.z, yaw, 5.5, { torch: false });
+        workAt(s0.x, s0.z, yaw, villageZone);
+        workAt(s0.x + px * 2, s0.z + pz * 2, yaw + Math.PI, villageZone);
+      }
+    }
+    // Woodpile and stores behind the houses.
+    let r1 = 11;
+    const rnd = () => ((r1 = (r1 * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 16; i++) {
+      const [x, z] = at((rnd() - 0.5) * 120, -40 - rnd() * 25);
+      if (!free(x, z, 1.3) || flatFor(x, z, 1.3) > 1.2) continue;
+      place(clone(i % 3 ? "rig_crate" : "rig_barrel"), x, z, rnd() * TAU, 0.02);
+      take(x, z, 1.3);
+      if (i % 4 === 0) workAt(x + 1.5, z, rnd() * TAU, villageZone, "stoop");
+    }
+    // The night watch's round: the square, the shore, the hall.
+    const round = [at(0, 20), at(-40, 30), at(-50, 0), at(-20, -40), at(20, -40), at(50, 0), at(40, 30)]
+      .map(([x, z]) => onGround(x, z));
+    villageWatch.push(round);
+  }
+
 
   // --- the rim: towers, ballistae, palisade ----------------------------------------------
   const towers = [];
@@ -576,6 +641,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     const t = clone("dh_watchtower");
     place(t, best.x, best.z, -best.a + Math.PI / 2, -0.3);
     towers.push({ pos: onGround(best.x, best.z), a: best.a });
+    lamp(best.x, groundAt(best.x, best.z) + 9.5, best.z, 16);     // a lantern on the deck
   }
   const ballistae = [];
   for (let i = 0; i < 3; i++) {
@@ -640,6 +706,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   // How a man gets from one place to another: across the floor in a line
   // (round the smelter, not through it), along a terrace by the road.
   const route = (zone, from, to) => {
+    if (zone?.kind === "village") return [to.clone()];
     if (!zone || zone.kind === "floor") {
       const ax = from.x - cx, az = from.z - cz, bx = to.x - cx, bz = to.z - cz;
       const dx = bx - ax, dz = bz - az;
@@ -676,55 +743,65 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   });
 
   // --- who is here, and what they do -----------------------------------------------
-  // The WATCH holds posts round the clock: towers, ballistae, the lean-tos on
-  // the terraces. PATROLS walk the cage ring and the road, torches in hand
-  // after dark. Everybody else is CREW: a bunk, and a day's work.
+  // Not an army standing in a ring. A working island of about fifty: the
+  // yard crew and the villagers have homes and a day; a handful hold posts
+  // round the clock — the towers, the yard gate, the ballistae, the chief's
+  // door — and three walk rounds, with torches after dark.
   for (const t of towers) {
     const yaw = Math.atan2(t.pos.x - cx, t.pos.z - cz);   // looking out
     hunters.add({ kind: "archer", role: "watch", pos: V(t.pos.x, t.pos.y + 7.9, t.pos.z), facing: yaw, post: "tower" });
   }
+  for (const t of [...yardTowers, ...overTowers]) {
+    // Looking down into the yard.
+    const yaw = Math.atan2(cx - t.pos.x, cz - t.pos.z);
+    hunters.add({ kind: "archer", role: "watch", pos: V(t.pos.x, t.pos.y + 7.9, t.pos.z), facing: yaw, post: "tower" });
+  }
+  for (const side of [-1, 1]) {
+    const g = gateAt(side * gateHalf * 0.55);
+    hunters.add({ kind: "spear", role: "watch", pos: g, facing: Math.atan2(g.x - cx, g.z - cz),
+                  post: "yard gate", torch: true });
+  }
   for (const b of ballistae) {
     const [x, z] = [b.pos.x - Math.cos(b.a) * 3, b.pos.z - Math.sin(b.a) * 3];
     hunters.add({ kind: "spear", role: "watch", pos: onGround(x, z), facing: Math.atan2(Math.cos(b.a), Math.sin(b.a)),
-                  post: "ballista", ballista: b, torch: true });
+                  post: "ballista", ballista: b });
   }
   for (const l of leantos) {
     hunters.add({ kind: "archer", role: "watch", pos: l.post, facing: l.yaw, seat: l.seat, post: "terrace" });
   }
-  // Floor patrols round the cage ring, the yard and the halls.
-  for (let i = 0; i < 6; i++) {
-    const a0 = gateA + i * TAU / 6;
-    const r = L.floorR * (i % 2 ? 0.4 : 0.72);
+  if (hall) {
+    for (const side of [-1, 1]) {
+      const p = hall.door.clone().add(V(Math.cos(hall.yaw) * side * 2.6, 0, -Math.sin(hall.yaw) * side * 2.6));
+      p.y = groundAt(p.x, p.z);
+      hunters.add({ kind: "spear", role: "watch", pos: p, facing: hall.yaw, post: "chief's door", torch: true });
+    }
+  }
+  // Rounds: one man walking the cages, one on the road, one in the village.
+  {
     const route = [];
-    for (let k = 0; k <= 5; k++) route.push(onGround(...polar(a0 + k * 0.18, r + (k % 2) * 10)));
-    for (let k = 5; k >= 0; k--) route.push(onGround(...polar(a0 + k * 0.18, r - 6)));
-    hunters.add({ kind: "spear", role: "patrol", route, post: "pit floor" });
+    for (let k = 0; k < 12; k++) route.push(onGround(...polar(gateA + 0.35 + k * (TAU - 0.7) / 11, L.floorR * 0.5)));
+    hunters.add({ kind: "spear", role: "patrol", route: route.concat(route.slice(0, -1).reverse()), post: "yard" });
   }
-  // Road patrols: up and down a stretch of each terrace.
-  for (let k = 0; k < Math.min(3, L.turns); k++) {
-    for (let j = 0; j < 2; j++) {
-      const a0 = gateA + 0.8 + j * Math.PI + k * 0.7;
-      const route = [];
-      for (let q = 0; q <= 6; q++) {
-        const a = a0 + q * 0.16;
-        const p = L.roadAt(k, Math.atan2(Math.sin(a), Math.cos(a)));
-        route.push(onGround(p.x, p.z));
-      }
-      const back = route.slice(0, -1).reverse();
-      hunters.add({ kind: "spear", role: "patrol", route: route.concat(back), post: `terrace ${k + 1}` });
+  {
+    const route = [];
+    for (let q = 0; q <= 8; q++) {
+      const a = gateA + 0.6 + q * 0.14;
+      const p = L.roadAt(1, Math.atan2(Math.sin(a), Math.cos(a)));
+      route.push(onGround(p.x, p.z));
     }
+    hunters.add({ kind: "spear", role: "patrol", route: route.concat(route.slice(0, -1).reverse()), post: "road" });
   }
-  // The crews. A hall sleeps nine, a hut three on the floor and two on a
-  // terrace; one in four of them is an archer.
-  let n = 0;
+  for (const round of villageWatch) hunters.add({ kind: "spear", role: "patrol", route: round, post: "village" });
+  // The ones who live here. A barracks sleeps the yard crew; a village house
+  // its family's men; the chief's hall the chief and his own.
   for (const h of homes) {
-    const beds = h.beds >= 12 ? 8 : h.beds === 4 ? 3 : h.beds === 3 ? 2 : 1;
-    for (let b = 0; b < beds && hunters.men.length < 170; b++) {
-      hunters.add({ kind: n++ % 4 === 3 ? "archer" : "spear", role: "crew", home: h, post: "crew" });
+    const beds = h.beds >= 12 ? 8 : h.beds >= 6 ? 3 : h.beds >= 4 ? 3 : 2;
+    for (let b = 0; b < beds; b++) {
+      hunters.add({ kind: b === 1 && h.zone === yardZone ? "archer" : "spear", role: "crew", home: h, post: "crew" });
     }
   }
-  // Start the day where it is: men who should be asleep are, and the rest
-  // are scattered about their work rather than all walking out of one door.
+  // Start the day where it is: the men are about their work, not all walking
+  // out of one door.
   for (const m of hunters.men) {
     if (m.role !== "crew") continue;
     const w = camp.works.filter((x) => x.zone === m.zone);

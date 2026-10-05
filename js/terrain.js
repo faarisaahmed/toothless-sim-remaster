@@ -639,6 +639,31 @@ function smax(a, b, k) {
   return lerp(b, a, t) + k * t * (1 - t);
 }
 
+// ---------------------------------------------------------------------------
+// Ground people have levelled. Dragon Hunter Island is a quarry pit with the
+// cages in it, but the people who work it live somewhere: a cove cut into
+// the outer slope beside the channel, at the water, for the harbour village,
+// and a raised knoll at the back of it for the chief's hall. Each pad holds
+// the ground at its height inside r and lets it go over `edge`, so it reads
+// as a shelf dug into the hill. hunterbase.js builds on these by name.
+// ---------------------------------------------------------------------------
+const DHI_X = 2900, DHI_Z = 3800;
+const pad = (name, bearing, dist, r, edge, h) =>
+  ({ name, x: DHI_X + Math.cos(bearing) * dist, z: DHI_Z + Math.sin(bearing) * dist, r, edge, h });
+export const PADS = [
+  pad("harbour", 1.45, 615, 88, 110, 7),
+  pad("hall", 1.42, 538, 22, 26, 19),
+];
+function padWeight(x, z) {
+  let w = 0;
+  for (const p of PADS) {
+    const d = Math.hypot(x - p.x, z - p.z);
+    if (d < p.r + p.edge) w = Math.max(w, 1 - smoothstep(d, p.r, p.r + p.edge));
+  }
+  return w;
+}
+export { padWeight };
+
 export function terrainHeight(x, z) {
   const w = warp(x, z);
   const px = w.x, pz = w.z;
@@ -927,6 +952,16 @@ export function terrainHeight(x, z) {
   // lift every beach, dock, boat and building that places.js has already stood
   // on the ground — this touches water and nothing else, so nothing that was
   // placed on land can move.
+  // Levelled ground, last, so nothing above can put a stratum or a crag
+  // through the middle of a village.
+  for (const p of PADS) {
+    const dx = x - p.x, dz = z - p.z;
+    if (Math.abs(dx) > p.r + p.edge || Math.abs(dz) > p.r + p.edge) continue;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    const w = 1 - smoothstep(d, p.r, p.r + p.edge);
+    if (w > 0) h = lerp(h, p.h + noise2(x * 0.02 + 7.7, z * 0.02 - 2.2) * 0.35, w * w * (3 - 2 * w));
+  }
+
   if (h < SEA_LEVEL && h > SEA_LEVEL - SHOAL_TAPER * 2.8) {
     const d = SEA_LEVEL - h;
     h = SEA_LEVEL - d * (1 + SHOAL_STEEP * Math.exp(-(d * d) / (SHOAL_TAPER * SHOAL_TAPER)));
@@ -1095,6 +1130,8 @@ export function fertility(x, z, h, slope) {
     const dd = Math.hypot(x - isl.x, z - isl.z) / isl.r;
     f *= smoothstep(dd, isl.crater.inner + 0.03, isl.crater.inner + 0.13);
   }
+  // Cleared for the village: trodden ground, a little grass, no wood.
+  f *= 1 - padWeight(x, z) * 0.85;
   // Conifers root on ground you would need hands to climb. The old cutoff put
   // the tree line at about 42 degrees, which on a relief-1.0 island is most of
   // it, so the wood was pushed off the hills and onto the valley floors.

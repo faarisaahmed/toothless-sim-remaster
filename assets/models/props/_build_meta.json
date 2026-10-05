@@ -362,6 +362,33 @@
   ],
   "tris": 1702
  },
+ "dh_fishrack.glb": {
+  "anchor": "ground",
+  "budget": 16000,
+  "cls": "medium",
+  "detail": 1.6,
+  "min": [
+   -2.7,
+   -0.015,
+   -0.94
+  ],
+  "nodes": [
+   "dh_fishrack"
+  ],
+  "note": "a drying rack: two A-frames and poles hung with split fish, 5 m long",
+  "size": [
+   5.4,
+   2.33,
+   1.881
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "hide",
+   "leather"
+  ],
+  "tris": 1272
+ },
  "dh_forge.glb": {
   "anchor": "ground",
   "budget": 110000,
@@ -390,6 +417,37 @@
    "ember"
   ],
   "tris": 20426
+ },
+ "dh_hall.glb": {
+  "anchor": "ground",
+  "budget": 110000,
+  "cls": "hero",
+  "detail": 2.1,
+  "min": [
+   -5.141,
+   0.0,
+   -14.51
+  ],
+  "nodes": [
+   "dh_hall",
+   "flame"
+  ],
+  "note": "the chief's hall: 24 x 9 m, high roof, a porch on the +Z gable with carved posts, dragon-head finials, shields along the walls",
+  "size": [
+   10.286,
+   10.276,
+   31.228
+  ],
+  "slots": [
+   "wood",
+   "wood_dark",
+   "stone",
+   "iron",
+   "cloth",
+   "hide",
+   "ember"
+  ],
+  "tris": 62249
  },
  "dh_hunter.glb": {
   "anchor": "ground",
