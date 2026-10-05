@@ -150,6 +150,8 @@ assets/audio/official_music/
 # tools/music/build.py fetches on first run, and its intermediate renders.
 tools/music/GeneralUser-GS.sf2
 tools/music/_work/
+# Solo previews of the two themes, for listening; build.py --solo remakes them.
+tools/music/solo/
 
 # macOS
 .DS_Store
