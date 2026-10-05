@@ -41,8 +41,21 @@ const FAR_LOD = 2600;          // beyond this the ground colour carries it
 const AREA_PER_TREE = 95;
 const TILE_TREE_CAP = 9000;
 
-const GRASS_COUNT = 11000;
+const GRASS_COUNT = 11000;       // the most the near grass ever draws
 const GRASS_RADIUS = 55;
+// The Grass setting. Low and Medium are the near grass alone, Low a thinner,
+// shorter-reaching version of it. Medium and Ultra add the GPU field
+// (grassfield.js), out to 400 m and to about 3 km.
+export const GRASS_LEVELS = {
+  low:    { count: 5000,  radius: 38, rings: 0 },
+  medium: { count: 11000, radius: 55, rings: 3 },
+  ultra:  { count: 11000, radius: 55, rings: 6 },
+};
+/** Old saves stored grass as true / false. */
+export function grassLevel(v) {
+  if (v === true) return "medium";
+  return GRASS_LEVELS[v] ? v : "off";
+}
 const GRASS_CEILING = 140;     // metres AGL above which grass is sub-pixel
 const GRASS_MOVE = 16;         // re-scatter after the camera has moved this far
 
@@ -315,8 +328,9 @@ export function createFlora(scene, opts = {}) {
   // close enough to the ground for a stutter to be obvious. It bought detail
   // that only exists inside 55 m and below 140 m, which in a flying game is a
   // place you are for a second and a half at a time.
-  // true, or "ultra" for the GPU field out to the horizon (grassfield.js).
-  const useGrass = !!opts.grass;
+  // "off" | "low" | "medium" | "ultra" — see GRASS_LEVELS.
+  let level = GRASS_LEVELS[grassLevel(opts.grass)] || null;
+  const useGrass = !!level;
   // Live, not fixed: the graphics settings move these while you fly.
   let NEAR = opts.nearLod ?? NEAR_LOD;
   let FAR = opts.farLod ?? FAR_LOD;
@@ -556,12 +570,13 @@ export function createFlora(scene, opts = {}) {
   let grassOn = useGrass;
   if (useGrass) buildGrass();
 
-  // Ultra: grass to the horizon, placed on the GPU. Only possible when the
+  // Medium and Ultra: grass far out, placed on the GPU. Only possible when the
   // world handed over the height field and the vegetation paint to read.
   const field = opts.field ? createGrassField({
     ...opts.field, texture: blades, sway: uniforms,
   }) : null;
-  let fieldWanted = opts.grass === "ultra";
+  let fieldWanted = (level?.rings ?? 0) > 0;
+  field?.setRings(level?.rings ?? 0);
   if (field) {
     root.add(field.root);
     field.setEnabled(fieldWanted);
@@ -571,17 +586,19 @@ export function createFlora(scene, opts = {}) {
   let grassCursor = 0, grassPending = false, grassWritten = 0;
 
   function scatterGrassChunk(centre) {
-    const CHUNK = GRASS_COUNT / 4;
-    const end = Math.min(GRASS_COUNT, grassCursor + CHUNK);
+    const COUNT = level?.count ?? GRASS_COUNT;
+    const RADIUS = level?.radius ?? GRASS_RADIUS;
+    const CHUNK = Math.ceil(COUNT / 4);
+    const end = Math.min(COUNT, grassCursor + CHUNK);
     for (let i = grassCursor; i < end; i++) {
       // Golden-angle spiral: even coverage with no clumping and no rejection
       // loop, which matters because this runs inside a frame. It does leave
       // faint spiral arms visible on flat ground, so the radius gets a hash of
       // jitter — enough to break the pattern, not enough to clump.
-      const t = (i + 0.5) / GRASS_COUNT;
+      const t = (i + 0.5) / COUNT;
       const j1 = ((i * 0.6180339887) % 1) - 0.5;
       const j2 = ((i * 0.7548776662) % 1) - 0.5;
-      const r = Math.sqrt(t) * GRASS_RADIUS + j1 * 1.6;
+      const r = Math.sqrt(t) * RADIUS + j1 * 1.6;
       const a = i * 2.399963 + j2 * 0.35;
       const x = centre.x + Math.cos(a) * r;
       const z = centre.z + Math.sin(a) * r;
@@ -604,9 +621,9 @@ export function createFlora(scene, opts = {}) {
     }
     grassCursor = end;
     grass.instanceMatrix.needsUpdate = true;
-    if (grassCursor >= GRASS_COUNT) {
+    if (grassCursor >= COUNT) {
       grassPending = false;
-      grass.count = GRASS_COUNT;
+      grass.count = COUNT;
     } else {
       grass.count = Math.max(grass.count, grassCursor);
     }
@@ -662,12 +679,18 @@ export function createFlora(scene, opts = {}) {
     /** Where trees turn into cards, and where cards stop being drawn. */
     setLod(near, far) { NEAR = near; FAR = far; },
 
-    /** false, true, or "ultra" — the near grass plus the field to the horizon. */
-    setGrass(on) {
-      grassOn = !!on;
-      if (grassOn) { buildGrass(); grassAt.set(1e9, 0, 1e9); }
-      else if (grass) grass.visible = false;
-      fieldWanted = on === "ultra";
+    /** "off" | "low" | "medium" | "ultra" (true / false from old saves). */
+    setGrass(v) {
+      level = GRASS_LEVELS[grassLevel(v)] || null;
+      grassOn = !!level;
+      if (grassOn) {
+        buildGrass();
+        // Re-scatter from scratch at the new count and reach.
+        grass.count = 0;
+        grassAt.set(1e9, 0, 1e9);
+      } else if (grass) grass.visible = false;
+      fieldWanted = (level?.rings ?? 0) > 0;
+      field?.setRings(level?.rings ?? 0);
       field?.setEnabled(fieldWanted && this.enabled);
       this.hasGrass = grassOn;
     },

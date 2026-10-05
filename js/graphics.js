@@ -26,15 +26,15 @@ const STORE = "nightalone.graphics.v1";
 export const PRESETS = {
   low: {
     fpsCap: 60, resScale: "auto", maxDpr: 1, shadows: "off", terrain: "low",
-    trees: "low", grass: false, bloom: false, reflections: "low", clouds: "low",
+    trees: "low", grass: "off", bloom: false, reflections: "low", clouds: "low",
   },
   medium: {
     fpsCap: 60, resScale: "auto", maxDpr: 1.5, shadows: "low", terrain: "medium",
-    trees: "medium", grass: false, bloom: true, reflections: "medium", clouds: "medium",
+    trees: "medium", grass: "off", bloom: true, reflections: "medium", clouds: "medium",
   },
   high: {
     fpsCap: 60, resScale: "auto", maxDpr: 2, shadows: "high", terrain: "high",
-    trees: "high", grass: true, bloom: true, reflections: "high", clouds: "high",
+    trees: "high", grass: "medium", bloom: true, reflections: "high", clouds: "high",
   },
   ultra: {
     fpsCap: 0, resScale: "auto", maxDpr: 2, shadows: "ultra", terrain: "ultra",
@@ -69,6 +69,9 @@ try {
   const raw = JSON.parse(localStorage.getItem(STORE) || "null");
   if (raw && typeof raw === "object") state = { ...DEFAULTS, ...raw };
 } catch { /* private mode, or junk in storage — defaults it is */ }
+// Grass was On/Off before it had levels.
+if (state.grass === true) state.grass = "medium";
+else if (state.grass === false) state.grass = "off";
 // "Auto" is re-resolved every launch, so a save made on one machine does not
 // carry a laptop's settings onto a desktop or the other way round.
 if (state.preset === "auto") Object.assign(state, PRESETS[TIER]);
@@ -120,7 +123,7 @@ export const graphics = {
       raise("trees", ["low", "medium", "high", "ultra"], "high");
       raise("clouds", ["low", "medium", "high", "ultra"], "high");
       raise("reflections", ["low", "medium", "high"], "high");
-      if (!state.grass) { state.grass = true; changed.push("grass"); }
+      raise("grass", ["off", "low", "medium", "ultra"], "medium");
       if (!state.bloom) { state.bloom = true; changed.push("bloom"); }
       if (changed.length > 1) { state.preset = "custom"; changed.push("preset"); }
     }
@@ -215,11 +218,13 @@ export const GRAPHICS_OPTIONS = [
   },
   {
     id: "grass", section: "Graphics", glyph: "&#8270;", label: "Grass",
-    ...step("grass", [false, true, "ultra"], ["Off", "On", "Ultra"],
-      () => state.grass === "ultra"
-        ? "Grass on every meadow out to three kilometres, drawn on the GPU. Heavy"
-        : state.grass ? "Blades underfoot when you land or fly low"
-        : "No grass. The ground texture carries it"),
+    ...step("grass", ["off", "low", "medium", "ultra"], ["Off", "Low", "Medium", "Ultra"],
+      () => ({
+        off: "No grass. The ground texture carries it",
+        low: "Grass underfoot, close round you when you land or fly low",
+        medium: "Thicker grass underfoot, and on the meadows out to 400 m",
+        ultra: "Grass on every meadow out to three kilometres. Heavy",
+      })[state.grass] ?? ""),
   },
   {
     id: "reflections", section: "Graphics", glyph: "&#8776;", label: "Water reflections",

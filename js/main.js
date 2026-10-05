@@ -140,7 +140,7 @@ const QUALITY = {
   reflectEvery: LEVELS.reflections[GFX.reflections] ?? 2,
   treeNear: LEVELS.trees[GFX.trees]?.near,
   treeFar: LEVELS.trees[GFX.trees]?.far,
-  grass: GFX.grass === "ultra" ? "ultra" : !!GFX.grass,
+  grass: GFX.grass,
   terrainDetail: GFX.terrain,
   minScale: graphics.scaleBounds()[0],
   maxScale: graphics.scaleBounds()[1],
