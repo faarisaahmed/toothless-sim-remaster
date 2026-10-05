@@ -11,6 +11,7 @@ import { createSurf } from "./surf.js";
 import { createFlora } from "./flora.js";
 import { createSky } from "./sky.js";
 import { createRain, thunder } from "./rain.js";
+import { createPhotoreal, sweepPhotoreal } from "./photoreal.js";
 
 // ---------------------------------------------------------------------------
 // The world.
@@ -160,7 +161,14 @@ export function setupWorld(scene, renderer, quality = {}) {
   // lines across the archipelago, visible from the air, impossible to unsee.
   geo.computeVertexNormals();
 
+  // Photoreal's terrain shadows and sky occlusion are baked from these same
+  // heights, so the shadow of a ridge falls from the ridge the mesh has.
+  const photoreal = renderer
+    ? createPhotoreal(renderer, { heights, verts, size: TERRAIN_SIZE })
+    : null;
+
   const groundMat = makeTerrainMaterial({}, SEA_LEVEL);
+  let sweepT = 0;
 
   // -------------------------------------------------------------------------
   // Cut the terrain into tiles.
@@ -405,6 +413,13 @@ export function setupWorld(scene, renderer, quality = {}) {
     setTrees({ near, far }) { flora.setLod(near, far); },
     setGrass(on) { flora.setGrass(on); },
     setReflectionEvery(n) { ocean.setReflectionEvery(n); },
+    /** Terrain shadows, sky occlusion, height haze, and the terrain's own extras. */
+    setPhotoreal(on) {
+      photoreal?.setEnabled(on);
+      if (scene.fog && "height" in scene.fog) scene.fog.height = on ? 380 : 0;
+      if (on) { photoreal?.update(sunDir); sweepPhotoreal(scene); }
+    },
+    photoreal,
     toggleGrid() { grid.visible = !grid.visible; return grid.visible; },
     toggleWireframe() {
       groundMat.wireframe = !groundMat.wireframe;
@@ -439,6 +454,13 @@ export function setupWorld(scene, renderer, quality = {}) {
       const rainNow = sky.state?.rain ?? 0;
       const wu = groundMat.userData.uniforms.uWet;
       wu.value += (rainNow - wu.value) * Math.min(1, dt * (rainNow > wu.value ? 0.25 : 0.04));
+      if (photoreal?.enabled) {
+        photoreal.update(sunDir);
+        // Things arrive after the switch — the dragon's model, a camp built
+        // for a chapter — so look again now and then.
+        sweepT += dt;
+        if (sweepT > 3) { sweepT = 0; sweepPhotoreal(scene); }
+      }
       detail.update(focus, dt);
       ocean.update(focus, dt);
       surfSpray.update(focus, dt);

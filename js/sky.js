@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { HeightFog, patchFogChunks } from "./photoreal.js";
 import { WEATHER_GLSL, CLOUD_BASE, CLOUD_TOP, VOLUME_FAR, WEATHER_TILE } from "./clouds.js";
 import { WIND_BEARING } from "./terrain.js";
 import { createStars } from "./stars.js";
@@ -433,7 +434,10 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
   moonHalo.frustumCulled = false;
   scene.add(moonHalo);
 
-  scene.fog = new THREE.FogExp2(0x8fb2cf, BASE_FOG);
+  // A FogExp2 that can also be given a height, for Photoreal's aerial
+  // perspective (photoreal.js). At height 0 it is exactly the old fog.
+  patchFogChunks();
+  scene.fog = new HeightFog(0x8fb2cf, BASE_FOG);
 
   // --- environment map --------------------------------------------------------
   const pmrem = new THREE.PMREMGenerator(renderer);

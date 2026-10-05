@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { patchShader } from "./photoreal.js";
 
 // ---------------------------------------------------------------------------
 // The ground.
@@ -198,6 +199,59 @@ const FRAG_PARS = /* glsl */`
     return normalize( vec3( m.x + n.x, m.z + n.y, m.y + n.z ) );
   }
 
+  // Photoreal: erosion. Every slope on a real island is scored by the water
+  // that runs down it — gullies a few metres to a few tens of metres apart,
+  // following the fall line, ridged between. That pattern is most of what
+  // makes a hillside read as land rather than as a smooth surface with a
+  // photograph on it, and the 13 m mesh cannot carry it.
+  //
+  // It is a normal perturbation and a cavity term. A noise image is stretched
+  // long along a direction and differentiated across it, which gives parallel
+  // grooves; three fixed directions sixty degrees apart are blended by how
+  // well each lines up with the fall line here. Fixed directions, not one
+  // rotated to fit: rotating the lookup per pixel by a direction that wanders
+  // swirls the pattern into knots wherever the slope curves.
+  float gCavity;
+  vec3 erode( vec3 n, vec2 p, float dist ) {
+    gCavity = 0.0;
+    float steep = 1.0 - n.y;
+    // A from-the-air feature. Close in, the photographs carry the ground and
+    // a 40 m gully drawn over them reads as paint.
+    float far = smoothstep( 40.0, 450.0, dist );
+    if ( steep < 0.03 || far < 0.01 ) return n;
+    vec2 fall = normalize( n.xz + 1e-5 );
+    vec2 grad = vec2( 0.0 );
+    float wsum = 0.0, cav = 0.0;
+    for ( int k = 0; k < 3; k++ ) {
+      float a = float( k ) * 1.0472 + 0.3;
+      vec2 dk = vec2( cos( a ), sin( a ) );
+      vec2 pk = vec2( -dk.y, dk.x );
+      float w = pow( abs( dot( dk, fall ) ), 5.0 );
+      if ( w < 0.03 ) continue;
+      vec2 q = vec2( dot( p, pk ), dot( p, dk ) * 0.3 );
+      // Two octaves: ravines some 60 m apart, runnels inside them. Read
+      // through a deep mip bias, because the photographs are full of pebbles
+      // and what is wanted from them is only their broad light and dark.
+      vec2 qa = q * 0.0021, qb = q * 0.0093 + 0.31;
+      float g0 = texture2D( tScreeD, qa, 3.5 ).g;
+      float g1 = texture2D( tScreeD, qa + vec2( 5.0 * 0.0021, 0.0 ), 3.5 ).g;
+      float f0 = texture2D( tHeathD, qb, 2.5 ).g;
+      float f1 = texture2D( tHeathD, qb + vec2( 1.6 * 0.0093, 0.0 ), 2.5 ).g;
+      float dg = ( g1 - g0 ) * uInvMean[1].g / 5.0 + ( f1 - f0 ) * uInvMean[6].g * 0.5 / 1.6;
+      grad += pk * dg * w;
+      cav += ( ( g0 * uInvMean[1].g - 1.0 ) + ( f0 * uInvMean[6].g - 1.0 ) * 0.4 ) * w;
+      wsum += w;
+    }
+    if ( wsum < 1e-3 ) return n;
+    grad /= wsum;
+    cav /= wsum;
+    // Not every slope is cut as deep: softer rock, more water, older ground.
+    float vary = texture2D( tRockD, p * 0.00083 + 0.27, 2.0 ).g * uInvMean[0].g;
+    float k = smoothstep( 0.03, 0.35, steep ) * far * clamp( vary * vary, 0.15, 1.4 );
+    gCavity = clamp( cav, -1.0, 1.0 ) * k;
+    return normalize( n - vec3( grad.x, 0.0, grad.y ) * 9.0 * k );
+  }
+
   // Triplanar. Weights are the normal raised to a power and normalised, so a
   // face pointing up is pure top-down and a vertical face is a mix of the two
   // side projections; the power keeps the seam between them narrow.
@@ -239,6 +293,10 @@ const FRAG_PARS = /* glsl */`
 // and a world-space normal that <normal_fragment_maps> is then replaced to use.
 const FRAG_MAIN = /* glsl */`
   vec3 gN = normalize( vWNrm );
+  gCavity = 0.0;
+  #ifndef TERRAIN_LQ
+    if ( uPR > 0.5 ) gN = erode( gN, vWPos.xz, length( vWPos - cameraPosition ) );
+  #endif
   float slope = clamp( ( 1.0 - gN.y ) * 2.3, 0.0, 1.0 );
   float dist = length( vWPos - cameraPosition );
 
@@ -277,7 +335,18 @@ const FRAG_MAIN = /* glsl */`
     // Steep ground is rock whatever the vertex data thinks it is; the line
     // where it starts is broken up by the blotch field so it follows no contour.
     float rockLo = 0.40 + ( blotch - 1.0 ) * 0.12;
-    float wRock  = smoothstep( rockLo, rockLo + 0.34, slope );
+    float rockW = 0.34;
+    #ifndef TERRAIN_LQ
+      // Photoreal: rock does not fade into turf, it breaks through it. The
+      // rock photo's own light and dark decide which bits of a slope are
+      // outcrop, and the edge is pulled in tight.
+      if ( uPR > 0.5 ) {
+        float rh = texture2D( tRockD, TURN * vWPos.xz * 0.019 + 0.13 ).g * uInvMean[0].g;
+        rockLo += ( 0.9 - rh ) * 0.2;
+        rockW = 0.2;
+      }
+    #endif
+    float wRock  = smoothstep( rockLo, rockLo + rockW, slope );
     // Snow holds on steep ground where the paint says it lies thick.
     wRock *= 1.0 - smoothstep( 0.3, 0.9, vSurf.z ) * 0.75;
     float open   = 1.0 - wRock;
@@ -295,6 +364,20 @@ const FRAG_MAIN = /* glsl */`
     if ( wRock > 0.004 ) {
       vec3 c = norm( triD( tRockD, vWPos, bw, uTileA.x ), 0 );
       vec3 rn = triN( tRockN, vWPos, bw, gN, uTileA.x );
+      #ifndef TERRAIN_LQ
+        // Photoreal: crags. The same rock relief a hundred metres to the
+        // tile, so a cliff has buttresses and ledges at the scale it is seen
+        // from the air, not only at the scale you could touch.
+        if ( uPR > 0.5 ) {
+          float S = uTileA.x * 0.085;
+          vec3 mx = texture2D( tRockN, vWPos.zy * S + 0.71 ).xyz * 2.0 - 1.0;
+          vec3 mz = texture2D( tRockN, vWPos.xy * S + 0.71 ).xyz * 2.0 - 1.0;
+          vec3 my = texture2D( tRockN, TURN * vWPos.xz * S + 0.71 ).xyz * 2.0 - 1.0;
+          vec3 crag = normalize( vec3( mx.z, mx.y, mx.x ) * bw.x + vec3( my.x, my.z, my.y ) * bw.y
+                               + vec3( mz.x, mz.y, mz.z ) * bw.z + gN * 0.6 );
+          rn = normalize( rn + ( crag - gN ) * 1.1 );
+        }
+      #endif
       // Water staining: dark vertical streaks down a cliff face, where runoff
       // has followed the same line for a thousand years. Read off the scree
       // photo stretched forty-to-one in height, and only on the vertical faces.
@@ -394,6 +477,10 @@ const FRAG_MAIN = /* glsl */`
   // islands are not one flat wash of vertex colour.
   albedo *= mix( 1.0, 0.82 + blotch * 0.2, 1.0 - detail * 0.6 );
 
+  // Photoreal: the gullies are darker — wetter, shadowed, where the soil
+  // and the scree collect — and the ribs between them are bleached.
+  albedo *= 1.0 + gCavity * 0.14;
+
   // The wet band. Everything the tide has been over in the last few hours is
   // darker and much smoother than the dry sand a metre above it, and getting
   // that one line right does more for a beach than the sand texture does.
@@ -462,12 +549,15 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
       .replace("#include <normal_fragment_maps>",
         "normal = normalize( ( viewMatrix * vec4( wNormal, 0.0 ) ).xyz );")
       .replace("#include <roughnessmap_fragment>", "float roughnessFactor = rough;");
+    // Terrain shadows and sky occlusion, live behind uPR.
+    patchShader(shader);
     mat.userData.shader = shader;
   };
   // Any two materials whose onBeforeCompile produce different code need
   // different cache keys or three hands the second one the first one's program.
-  mat.customProgramCacheKey = () => `terrain-triplanar-v3${mat.defines?.TERRAIN_LQ ? "-lq" : ""}`;
+  mat.customProgramCacheKey = () => `terrain-triplanar-v4pr${mat.defines?.TERRAIN_LQ ? "-lq" : ""}`;
   mat.userData.uniforms = uniforms;
+  mat.userData.pr = true;     // patchShader above; the scene sweep leaves it be
   if (tex && Object.keys(tex).length) applyGround(mat, tex);
   return mat;
 }

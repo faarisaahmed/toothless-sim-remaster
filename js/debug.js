@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { music, TRACKS, CREDITS } from "./audio.js";
+import { graphics } from "./graphics.js";
 
 // Master control panel. Backtick opens it, Escape closes. Everything here is a
 // dev tool — it mutates live state directly rather than going through gameplay.
@@ -804,6 +805,15 @@ export function setupDebugConsole(ctx) {
         if (args[0] === "flow") { sky.setFlow(num(args[1], 0)); return log(`flow ${args[1]} h/s`); }
         sky.setTime(num(args[0], 12), { transition: num(args[1], 0) });
         log(`time ${args[0]}`);
+      },
+    },
+
+    photoreal: {
+      help: "photoreal [on|off] — the live-action look (Settings → Graphics → Photoreal)",
+      run(args) {
+        const v = args[0] === undefined ? !graphics.get("photoreal") : args[0] === "on";
+        graphics.setPhotoreal(v);
+        log(`photoreal ${onOff(v)}`);
       },
     },
 

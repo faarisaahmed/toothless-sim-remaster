@@ -44,6 +44,12 @@ const GradeShader = {
     uSunUv:   { value: new THREE.Vector2(0.5, 0.5) },
     uSunGlare:{ value: new THREE.Vector3(0, 0, 0) },
     uAspect:  { value: 1.6 },
+    // Photoreal's camera: a linear exposure trim, a little sharpening (a real
+    // lens and sensor resolve edges; a scaled-down render softens them), and
+    // the faint colour fringing every real lens has toward the corners.
+    uExposure:{ value: 1.0 },
+    uSharpen: { value: 0.0 },
+    uFringe:  { value: 0.0 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -61,6 +67,7 @@ const GradeShader = {
     uniform vec2 uSunUv;
     uniform vec3 uSunGlare;
     uniform float uAspect;
+    uniform float uExposure, uSharpen, uFringe;
     varying vec2 vUv;
 
     // Cheap hash grain. Deterministic per pixel per frame, no texture fetch.
@@ -72,6 +79,35 @@ const GradeShader = {
 
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
+
+      if (uSharpen > 0.0 || uFringe > 0.0) {
+        vec2 px = 1.0 / vec2(textureSize(tDiffuse, 0));
+        if (uFringe > 0.0) {
+          // Lateral chromatic aberration: red pushed out, blue pulled in,
+          // growing with the square of the distance from the centre.
+          vec2 dc = (vUv - 0.5);
+          vec2 off = dc * dot(dc, dc) * uFringe;
+          c.r = texture2D(tDiffuse, vUv + off).r;
+          c.b = texture2D(tDiffuse, vUv - off).b;
+        }
+        if (uSharpen > 0.0) {
+          // Unsharp mask on luminance only, in a compressed space so it does
+          // not ring round the sun. Clamped, so an edge gets crisper and never
+          // grows a halo.
+          vec3 n = texture2D(tDiffuse, vUv + vec2(px.x, 0.0)).rgb + texture2D(tDiffuse, vUv - vec2(px.x, 0.0)).rgb
+                 + texture2D(tDiffuse, vUv + vec2(0.0, px.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, px.y)).rgb;
+          vec3 W = vec3(0.2126, 0.7152, 0.0722);
+          float l0 = dot(c.rgb, W);
+          float lc = l0 / (1.0 + l0);
+          float ln = dot(n * 0.25, W);
+          ln = ln / (1.0 + ln);
+          float d = clamp((lc - ln) * uSharpen, -0.08, 0.08);
+          float lt = clamp(lc + d, 0.0, 0.999);
+          float l1 = lt / (1.0 - lt);
+          c.rgb *= l1 / max(l0, 1e-4);
+        }
+      }
+      c.rgb *= uExposure;
 
       // The sun in the lens: a soft glare round it, a six-point starburst
       // from the aperture, and a few dim ghosts strung back through the
@@ -218,6 +254,9 @@ export function setupPost(renderer, scene, camera, opts = {}) {
     if (opts.tint.mix !== undefined) grade.uniforms.uMix.value = opts.tint.mix;
   }
   composer.addPass(grade);
+  const vignette0 = grade.uniforms.uVignette.value;
+  const grain0 = grade.uniforms.uGrain.value;
+  const bloom0 = bloom ? { strength: bloom.strength, radius: bloom.radius } : null;
 
   composer.addPass(new OutputPass());
 
@@ -263,6 +302,28 @@ export function setupPost(renderer, scene, camera, opts = {}) {
       if (Math.abs(r - basePixelRatio) < 1e-3) return;
       basePixelRatio = r;
       applyScale();
+    },
+    /**
+     * Photoreal's camera. AgX instead of ACES: ACES pushes bright colour to
+     * pure hues and crushes the shadow end, which is a large part of why a
+     * render reads as a render. AgX rolls highlights to white the way film
+     * does and keeps the colour in the shade. It is a little flatter, so the
+     * grade makes up some contrast and the exposure is trimmed to match.
+     */
+    setPhotoreal(on) {
+      const u = grade.uniforms;
+      renderer.toneMapping = on ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
+      u.uExposure.value = on ? 1.32 : 1.0;
+      u.uSharpen.value = on ? 1.6 : 0.0;
+      u.uFringe.value = on ? 0.006 : 0.0;
+      u.uVignette.value = on ? 0.42 : vignette0;
+      u.uGrain.value = on ? 0.016 : grain0;
+      if (bloom) {
+        // Softer, wider and lower: in a lens it is the veil round every bright
+        // thing, not a glow round the fire alone.
+        bloom.strength = on ? 0.5 : bloom0.strength;
+        bloom.radius = on ? 0.75 : bloom0.radius;
+      }
     },
     /** Bloom costs a five-target mip chain whether or not anything is bright. */
     setBloom(on) { if (bloom) bloom.enabled = !!on; },

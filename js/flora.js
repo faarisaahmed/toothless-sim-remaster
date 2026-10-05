@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { addPhotoreal } from "./photoreal.js";
 import { terrainHeight, terrainNormal, fertility, islandAt, fbm, noise2,
          SEA_LEVEL, TERRAIN_SIZE, WIND_BEARING } from "./terrain.js";
 
@@ -262,14 +263,37 @@ const SWAY_MAIN = /* glsl */`
   transformed.xz += windLocal * sway * uGust * lever * lever * 0.016;
 `;
 
+// Photoreal's forest. No two trees in a real wood are the same green: age,
+// light and soil put each one a few percent yellower, bluer, darker. And a
+// conifer is dark inside — the light gets a branch or two deep and no further,
+// so the tips glow and the crown round the trunk is nearly black. Both were
+// missing, and a hillside of identically lit cones is a hillside of plastic.
+// uPR (photoreal.js) switches it, so off is the forest exactly as it was.
+const TREE_VERT = /* glsl */`
+  {
+    float th = fract( sin( dot( iPos.xz, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
+    float tk = fract( th * 7.31 );
+    vFlTint = vec3( 0.86 + th * 0.3, 0.88 + tk * 0.22, 0.8 + ( 1.0 - th ) * 0.3 ) * ( 0.82 + tk * 0.3 );
+    vFlAo = 1.0;
+    #ifdef FLORA_TREE
+    float rad = length( position.xz );
+    vFlAo = mix( 0.42, 1.08, smoothstep( 0.15, 2.2, rad ) ) * mix( 0.72, 1.0, smoothstep( 1.0, 9.0, position.y ) );
+    #endif
+  }
+`;
+
 function addSway(material, uniforms) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\n" + SWAY_PARS)
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\n" + SWAY_MAIN);
+      .replace("#include <common>", "#include <common>\n" + SWAY_PARS + "\nvarying vec3 vFlTint;\nvarying float vFlAo;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\n" + SWAY_MAIN + TREE_VERT);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vFlTint;\nvarying float vFlAo;")
+      .replace("#include <map_fragment>",
+        "#include <map_fragment>\n  if ( uPR > 0.5 ) diffuseColor.rgb *= vFlTint * vFlAo;");
   };
-  material.customProgramCacheKey = () => "flora-sway-v1";
+  material.customProgramCacheKey = () => "flora-sway-v2";
   return material;
 }
 
@@ -330,6 +354,11 @@ export function createFlora(scene, opts = {}) {
     map: blades, alphaTest: 0.35, side: THREE.DoubleSide,
     roughness: 0.95, metalness: 0,
   }), uniforms);
+  // Shadowed by the mountains, and dimmed in the hollows, under Photoreal: a
+  // sunlit forest in a valley the sun left an hour ago is the first thing the
+  // eye catches as wrong.
+  for (const m of [barkMat, needleMat, cardMat]) m.defines = { ...m.defines, FLORA_TREE: 1 };
+  for (const m of [barkMat, needleMat, cardMat, boulderMat, grassMat]) addPhotoreal(m);
 
   // Geometry is shared across every tile — the tiles differ in where the trees
   // are, not in what a tree is.
