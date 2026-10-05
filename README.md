@@ -298,9 +298,28 @@ waypoint there together so the two can never drift apart.
 
 ## Music
 
-Four ambient beds, one per kind of scene: the title, the prologue's one firelit
-room, the open archipelago, and the one story beat where being heard is the
-mechanic. They crossfade, they loop, and `M` mutes.
+An original score, written for this game: six tracks built on two themes, so
+the whole game sounds like one piece of music in six moods. They crossfade,
+they loop seamlessly, and `M` mutes.
+
+- **The Emberwing theme** — the hero's tune. D Dorian, 6/8, its hook a fiddle's
+  open strings thrown up a twelfth and held like a horn call. It turns up dark
+  (Dorian), bright (the same tune in Mixolydian), as a jig, and as a war song.
+- **The Hearth theme** — a slow polska in G with the raised fourth of
+  Norwegian fiddle music, for the small and the warm.
+
+The roots are Scandinavian and Celtic: modal melody, drones, jig and polska
+rhythms, ornamented whistle and fiddle lines (cuts and rolls), a kulning-style
+high call, bodhrán, the pipes used sparingly.
+
+| Track | File | Where |
+| --- | --- | --- |
+| Emberwing (Title) | `emberwing-title.mp3` | Title screen |
+| The Hearth | `the-hearth.mp3` | The prologue |
+| Emberwing (Flight) | `emberwing-flight.mp3` | The archipelago |
+| Emberwing Jig | `emberwing-jig.mp3` | Flying flat out |
+| Emberwing (Raid) | `emberwing-raid.mp3` | The raid |
+| Held Breath | `held-breath.mp3` | Being seen |
 
 Browsers refuse to make a sound until the player has interacted with the page,
 so the first track does not start on load — it starts on your first click or
@@ -310,22 +329,27 @@ In the debug console, `music` prints what is playing, `music <name>` switches to
 it, `music vol <0-1>` sets the level and `music off` stops it. The level and the
 mute survive a reload.
 
+### Rebuilding it
+
+The score is code. `tools/music/score.py` holds the notes, `engine.py` performs
+and mixes them, and
+
+    python3 tools/music/build.py            # all six, ~2-3 minutes
+    python3 tools/music/build.py flight     # just one
+    python3 tools/music/build.py --solo     # the two themes alone, dry
+
+renders every track through fluidsynth with the GeneralUser GS soundfont
+(fetched on first run; it is 32 MB and gitignored), mixes it with a
+convolution hall, EQ, compression and a limiter, and cuts a seamless loop. It
+prints each loop length; those are the `to` values in `js/audio.js`'s `TRACKS`.
+Needs `pip3 install --user mido numpy scipy` and `brew install fluid-synth ffmpeg`.
+
 ### Credits
 
-Music by **[Kevin MacLeod](https://incompetech.com/)** — licensed under
-[Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
-Free of charge and free of royalties; the licence's one condition is this
-credit, so please keep it if you fork this.
-
-| Track | Where |
-| --- | --- |
-| Lightless Dawn | Title screen |
-| Folk Round | The prologue |
-| Windswept | The archipelago |
-| Long Note Two | The rig, and being seen |
-
-The files in `assets/audio/music/` are re-encoded to 96 kbps to keep the repo
-down from 47 MB to 14; the originals are at incompetech.com.
+Music composed for this game. Instruments from the
+[GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS) soundfont by
+S. Christian Collins, used under the GeneralUser GS License v2.0 — see
+`assets/audio/music/CREDITS.txt`.
 
 ## Performance
 

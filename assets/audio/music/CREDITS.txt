@@ -1,19 +1,26 @@
-Music for dragon-flying-sim
-===========================
+Music for Night Alone (dragon-flying-sim)
+=========================================
 
-All four tracks are by Kevin MacLeod (https://incompetech.com/) and are
-licensed under Creative Commons: By Attribution 4.0 International (CC BY 4.0).
+All six tracks are original compositions written for this game. No melody,
+motif or arrangement is taken from any existing tune or film score.
 
-    https://creativecommons.org/licenses/by/4.0/
+    emberwing-title.mp3    "Emberwing (Title)"   — title screen
+    the-hearth.mp3         "The Hearth"          — the prologue
+    emberwing-flight.mp3   "Emberwing (Flight)"  — the archipelago
+    emberwing-jig.mp3      "Emberwing Jig"       — flying flat out
+    emberwing-raid.mp3     "Emberwing (Raid)"    — the raid
+    held-breath.mp3        "Held Breath"         — being seen
 
-The licence is free of charge and free of royalties. Its one condition is
-attribution, so this file, the ID3 tags on each MP3, and the credit in the
-project README all need to survive any fork or redistribution.
+They are generated from source: the notes are in tools/music/score.py and
+`python3 tools/music/build.py` rebuilds every file here.
 
-    lightless-dawn.mp3   "Lightless Dawn"    — title screen
-    folk-round.mp3       "Folk Round"        — the prologue
-    windswept.mp3        "Windswept"         — the archipelago
-    long-note-two.mp3    "Long Note Two"     — the rig, and being seen
+Instruments
+-----------
+Rendered with the GeneralUser GS SoundFont bank by S. Christian Collins,
+https://github.com/mrbumpy409/GeneralUser-GS — GeneralUser GS License v2.0:
+"You may use GeneralUser GS without restriction for your own music creation,
+private or commercial." Attribution is not required by that licence; it is
+given here anyway.
 
-The files here are re-encoded to 96 kbps MP3 for the web. The 320 kbps
-originals are available from incompetech.com.
+Encoded as 160 kbps CBR MP3 (constant bit rate keeps seeking exact, which the
+seamless loop in js/audio.js relies on).
