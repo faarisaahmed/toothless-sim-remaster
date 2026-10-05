@@ -289,7 +289,38 @@ export function setupWorld(scene, renderer, quality = {}) {
   // -------------------------------------------------------------------------
   // Forests
   // -------------------------------------------------------------------------
+  // The vegetation paint per terrain vertex, for the Ultra grass field to
+  // read on the GPU: grows / sand / snow, the same numbers the ground shader
+  // blends its textures by.
+  const surfBytes = new Uint8Array(verts * verts * 4);
+  for (let i = 0; i < verts * verts; i++) {
+    surfBytes[i * 4] = Math.round(Math.min(1, Math.max(0, surf[i * 3])) * 255);
+    surfBytes[i * 4 + 1] = Math.round(Math.min(1, Math.max(0, surf[i * 3 + 1])) * 255);
+    surfBytes[i * 4 + 2] = Math.round(Math.min(1, Math.max(0, surf[i * 3 + 2])) * 255);
+    surfBytes[i * 4 + 3] = 255;
+  }
+  const surfTex = new THREE.DataTexture(surfBytes, verts, verts);
+  surfTex.magFilter = surfTex.minFilter = THREE.LinearFilter;
+  surfTex.needsUpdate = true;
+  // And the ground's colour, so the grass is the green of the turf it is on.
+  // Stored sRGB for precision in the darks; sampling decodes it to linear.
+  const colBytes = new Uint8Array(verts * verts * 4);
+  const enc = (v) => Math.round(255 * (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055));
+  for (let i = 0; i < verts * verts; i++) {
+    colBytes[i * 4] = enc(Math.min(1, Math.max(0, colors[i * 3])));
+    colBytes[i * 4 + 1] = enc(Math.min(1, Math.max(0, colors[i * 3 + 1])));
+    colBytes[i * 4 + 2] = enc(Math.min(1, Math.max(0, colors[i * 3 + 2])));
+    colBytes[i * 4 + 3] = 255;
+  }
+  const colourTex = new THREE.DataTexture(colBytes, verts, verts);
+  colourTex.colorSpace = THREE.SRGBColorSpace;
+  colourTex.magFilter = colourTex.minFilter = THREE.LinearFilter;
+  colourTex.needsUpdate = true;
+
   const flora = createFlora(scene, {
+    field: photoreal ? {
+      heightTex: photoreal.textures.height, surfTex, colourTex, verts, size: TERRAIN_SIZE,
+    } : null,
     grass: q.grass,
     nearLod: q.treeNear,
     farLod: q.treeFar,

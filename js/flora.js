@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { addPhotoreal } from "./photoreal.js";
+import { createGrassField } from "./grassfield.js";
 import { terrainHeight, terrainNormal, fertility, islandAt, fbm, noise2,
          SEA_LEVEL, TERRAIN_SIZE, WIND_BEARING } from "./terrain.js";
 
@@ -314,7 +315,8 @@ export function createFlora(scene, opts = {}) {
   // close enough to the ground for a stutter to be obvious. It bought detail
   // that only exists inside 55 m and below 140 m, which in a flying game is a
   // place you are for a second and a half at a time.
-  const useGrass = opts.grass === true;
+  // true, or "ultra" for the GPU field out to the horizon (grassfield.js).
+  const useGrass = !!opts.grass;
   // Live, not fixed: the graphics settings move these while you fly.
   let NEAR = opts.nearLod ?? NEAR_LOD;
   let FAR = opts.farLod ?? FAR_LOD;
@@ -554,6 +556,17 @@ export function createFlora(scene, opts = {}) {
   let grassOn = useGrass;
   if (useGrass) buildGrass();
 
+  // Ultra: grass to the horizon, placed on the GPU. Only possible when the
+  // world handed over the height field and the vegetation paint to read.
+  const field = opts.field ? createGrassField({
+    ...opts.field, texture: blades, sway: uniforms,
+  }) : null;
+  let fieldWanted = opts.grass === "ultra";
+  if (field) {
+    root.add(field.root);
+    field.setEnabled(fieldWanted);
+  }
+
   const grassAt = new THREE.Vector3(1e9, 0, 1e9);
   let grassCursor = 0, grassPending = false, grassWritten = 0;
 
@@ -631,6 +644,7 @@ export function createFlora(scene, opts = {}) {
       const agl = focus.y - Math.max(ground, SEA_LEVEL);
       const wantGrass = agl < GRASS_CEILING && ground > SEA_LEVEL + 3;
       grass.visible = wantGrass;
+      field?.update(focus, wantGrass && grass.count > 0);
       if (!wantGrass) return;
 
       if (!grassPending && Math.hypot(focus.x - grassAt.x, focus.z - grassAt.z) > GRASS_MOVE) {
@@ -648,12 +662,16 @@ export function createFlora(scene, opts = {}) {
     /** Where trees turn into cards, and where cards stop being drawn. */
     setLod(near, far) { NEAR = near; FAR = far; },
 
+    /** false, true, or "ultra" — the near grass plus the field to the horizon. */
     setGrass(on) {
       grassOn = !!on;
       if (grassOn) { buildGrass(); grassAt.set(1e9, 0, 1e9); }
       else if (grass) grass.visible = false;
+      fieldWanted = on === "ultra";
+      field?.setEnabled(fieldWanted && this.enabled);
       this.hasGrass = grassOn;
     },
+    field,
 
     enabled: true,
     /** Debug console switch. Hides everything scattered without unbuilding it. */
@@ -662,6 +680,7 @@ export function createFlora(scene, opts = {}) {
       for (const tile of tiles) { tile.near.visible = false; tile.far.visible = false; }
       if (boulderMesh) boulderMesh.visible = v;
       if (grass) grass.visible = false;
+      field?.setEnabled(v && fieldWanted);
     },
 
     dispose() {
