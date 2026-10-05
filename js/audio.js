@@ -13,99 +13,73 @@
 //      at the bottom flush it the moment anything is clicked or pressed.
 //
 //   2. An <audio> element that loops by setting currentTime back to 0 gives you
-//      an audible seam. These are long ambient beds where the seam lands in
-//      silence, so plain `loop` is honest enough and costs nothing.
+//      an audible seam: a gap, and the reverb tail cut off. These tracks have
+//      music running straight through the loop point, so they loop inside a
+//      window instead — see "The score" below.
 //
 // Crossfades run off their own interval rather than the render loop, because
 // the title screen and the prologue do not share one with the flight scene, and
 // music that stops fading when a scene changes is worse than no fade at all.
 //
-// --- Two sets of music, and why -------------------------------------------
+// --- The score -------------------------------------------------------------
 //
-// SCORE      John Powell's How to Train Your Dragon score, in
-//            assets/audio/official_music/. It is what the game should sound
-//            like and it is not ours to redistribute, so that folder is in
-//            .gitignore and never reaches the repo or the Pages deploy. This
-//            is a personal project; the score is for playing it at home.
+// Every track is original, written for this game and built from source by
+// tools/music/build.py: the notes are in tools/music/score.py, rendered
+// through the GeneralUser GS soundfont and mixed in code. Two themes run
+// through all six — the Emberwing theme (the hero's tune, D Dorian, 6/8: a
+// fiddle's open strings thrown up a twelfth and held) and the Hearth theme
+// (a slow polska in G with a Norwegian raised fourth) — so the game sounds
+// like one piece of music in six moods rather than six library tracks.
 //
-// LICENSED   Kevin MacLeod (incompetech.com) under Creative Commons
-//            Attribution 4.0 — free of charge, free of royalties, one
-//            condition, which is the credit. Attribution is in the README, in
-//            the ID3 tags and in CREDITS below.
-//
-// The score wins where it exists and the licensed set is the fallback, decided
-// per track by whether the file loads. That is not a build flag or a host
-// check: on this machine the score is there and plays, on Pages the request
-// 404s and the CC track takes over, and both are the correct behaviour for
-// where they are running. `music.usingScore()` says which happened.
-//
-// Cue points matter more than usual here. A film score is written to a scene,
-// so the useful part of a track is often a minute in — the fast Viking theme
-// in This Is Berk starts at 1:05, Test Drive does not open up until 1:25 —
-// and dropping in at 0:00 for a moment that wants the big tune gets you the
-// quiet introduction to it instead. So a track may name a window and loop
-// inside it. The numbers below were measured off the files rather than
-// guessed — `python3 tools/soundtrack.py` prints the energy profile the cue
-// points were read off, and is how to re-pick them if a file changes.
+// Each file is one loop plus a second and a half of its own beginning. The
+// build renders the loop three times back to back and cuts the middle copy,
+// so the first sample of the file already has the reverb tail of the last bar
+// in it, and the audio past `to` is the same music as the audio past 0. That
+// is what makes a seamless loop possible on a plain <audio> element: when the
+// playhead passes `to` it jumps back by exactly one loop — overshoot included —
+// and the music either side of the jump is identical. `to` is the loop length
+// the build printed, to the sample; change the score and re-copy the numbers.
 // ---------------------------------------------------------------------------
 
-const BASE  = "./assets/audio/music/";
-const SCORE = "./assets/audio/official_music/";
-
-/** Encode a filename for a URL without mangling the directory separators. */
-const url = (dir, file) => dir + encodeURIComponent(file);
+const BASE = "./assets/audio/music/";
 
 export const CREDITS = {
-  licence: "Creative Commons Attribution 4.0 (CC BY 4.0)",
-  artist: "Kevin MacLeod",
-  url: "https://incompetech.com/",
+  artist: "Original score for Night Alone",
+  licence: "instruments from the GeneralUser GS soundfont by S. Christian Collins",
+  url: "assets/audio/music/CREDITS.txt",
 };
 
 /**
  * id -> what to play, and what each one is for.
  *
- * `score` is the film cue and wins when the file is there. `from`/`to` are
- * seconds and, when given, the track loops inside that window instead of over
- * the whole thing. `file` is the CC-BY fallback that ships.
+ * `from`/`to` are seconds: the track loops inside that window. `gain` sets
+ * the balance between tracks — the files are mastered to known loudness
+ * (noted per track, in LUFS) and the gains put them where they belong
+ * relative to each other and to the sound effects.
  */
 export const TRACKS = {
-  // Slow, dark, unhurried. The save slots are read over the top of it, so this
-  // wants the quiet opening of This Is Berk and none of what comes after.
-  title: {
-    file: "lightless-dawn.mp3", gain: 0.85,
-    score: "This Is Berk.mp3", from: 0, to: 62,
-  },
-  // Small and warm, for one room lit by one fire.
-  prologue: {
-    file: "folk-round.mp3", gain: 0.70,
-    score: "Romantic Flight (From How To Train Your Dragon Music From The Motion Picture).mp3",
-    from: 0, to: 44,
-  },
-  // Drifting and open — the archipelago, and most of the game. Test Drive
-  // spends its first minute building, which is exactly the right shape for
-  // flying around not doing anything in particular.
-  flight: {
-    file: "windswept.mp3", gain: 0.60,
-    score: "Test Drive (From How To Train Your Dragon Music From The Motion Picture).mp3",
-    from: 0, to: 84,
-  },
-  // Flat out. Test Drive from 1:25, which is where it opens up and stays open
-  // until it ends — the loudest sixty seconds on any of these files.
-  flatout: {
-    file: "windswept.mp3", gain: 0.72,
-    score: "Test Drive (From How To Train Your Dragon Music From The Motion Picture).mp3",
-    from: 85, to: 145,
-  },
-  // The raid. The fast Viking theme, 1:05 to 2:15.
-  raid: {
-    file: "long-note-two.mp3", gain: 0.80,
-    score: "This Is Berk.mp3", from: 65, to: 135,
-  },
-  // Sparse and held. For the beats where being seen is the thing at stake —
-  // and deliberately left on the licensed track, because none of the three
-  // score cues is sparse and forcing one of them into the role would be worse
-  // than the right piece of library music.
-  tension: { file: "long-note-two.mp3", gain: 0.75 },
+  // Dark to hopeful. The Emberwing theme alone on a fiddle over a drone, its
+  // second half on a whistle as the strings come in, then the whole tune again
+  // on horns in Mixolydian — the minor third lifted — before the dark returns.
+  // -17 LUFS.
+  title: { file: "emberwing-title.mp3", gain: 0.56, from: 0, to: 88.32 },
+  // Small and warm, for one room lit by one fire: the Hearth theme on fiddle,
+  // then whistle with the fiddle under it, harp and a cello. -18 LUFS.
+  prologue: { file: "the-hearth.mp3", gain: 0.56, from: 0, to: 80.64 },
+  // The archipelago, and most of the game, so it breathes: harp, the theme on
+  // whistle, the Hearth theme on fiddle, the theme in full, a high call over
+  // nothing, the Hearth theme on the strings, the peak, and the harp again.
+  // 2:40 before it repeats. -16 LUFS.
+  flight: { file: "emberwing-flight.mp3", gain: 0.56, from: 0, to: 160.0 },
+  // Flat out: the theme as a jig at 112, a second jig of its own, bodhrán,
+  // and the theme in Mixolydian as the top of the climb. -16 LUFS.
+  flatout: { file: "emberwing-jig.mp3", gain: 0.67, from: 0, to: 90.24 },
+  // The raid: taiko in 3+3+2, a low ostinato, the theme as a war song in the
+  // brass, a fiddle reel, the pipes. -15.5 LUFS.
+  raid: { file: "emberwing-raid.mp3", gain: 0.67, from: 0, to: 106.88 },
+  // Sparse and held, for the beats where being seen is the thing at stake.
+  // A drone, glassy harmonics, a heartbeat, the call in pieces. -19 LUFS.
+  tension: { file: "held-breath.mp3", gain: 0.45, from: 0, to: 97.92 },
 };
 
 const STORE_VOL  = "na.music.volume";
@@ -133,52 +107,34 @@ const fades    = new Map();   // id -> { to, rate }
 let currentId  = null;
 let ticker     = null;
 
-const scored = new Map();     // id -> true if the film cue loaded, false if not
-
 function element(id) {
   let el = elements.get(id);
   if (el) return el;
   const track = TRACKS[id];
   if (!track) { console.warn(`music: no track "${id}"`); return null; }
 
-  // Ask for the score first. If it is not on this machine the request fails
-  // and `error` swaps in the licensed track — which is how the same build
-  // sounds like the film here and still has music on Pages. `tried` stops the
-  // handler recursing when the fallback is missing too.
-  const first = track.score ? url(SCORE, track.score) : BASE + track.file;
-  el = new Audio(first);
+  el = new Audio(BASE + track.file);
   el.loop = false;             // the window loop below does it instead
   el.preload = "auto";
   el.volume = 0;
-  scored.set(id, !!track.score);
-
-  let tried = 0;
-  el.addEventListener("error", () => {
-    tried++;
-    if (tried === 1 && track.score) {
-      // Expected on any machine without the score. Not a warning.
-      scored.set(id, false);
-      el.src = BASE + track.file;
-      el.load();
-      if (currentId === id && unlocked) el.play().catch(() => {});
-    } else if (tried > 1 || !track.score) {
-      console.warn(`music: could not load ${track.file}`);
-    }
-  });
+  el.addEventListener("error", () => console.warn(`music: could not load ${track.file}`));
 
   // --- The window loop ---------------------------------------------------
-  // `loop` on the element restarts at 0, which for a cue that begins a minute
-  // in means the big tune plays once and then drops back to its own quiet
-  // introduction and stays there. So the loop is done by hand, between `from`
-  // and `to`, and it is done on BOTH events: `timeupdate` catches the end of
-  // the window and `ended` catches a track whose window runs to the last
-  // sample, where timeupdate may never fire again.
+  // Done by hand rather than with `loop`, which restarts at 0 with a gap and
+  // throws away the reverb tail. `timeupdate` only fires every 15-250 ms, so
+  // the playhead is always somewhat past `to` when we notice; jumping back by
+  // exactly one loop length (to `from` plus the overshoot) keeps the music
+  // continuous, because the file holds the same music either side of `to`.
+  // `ended` catches a background tab whose timeupdates were throttled past
+  // the end of the file.
   const wrap = () => {
     const t = trackWindow(id);
     if (!t) return;
-    if (el.currentTime >= t.to - 0.05 || el.currentTime < t.from - 0.5) {
+    const now = el.currentTime;
+    if (now >= t.to) {
+      el.currentTime = t.from + Math.min(now - t.to, t.to - t.from);
+    } else if (now < t.from - 0.5) {
       el.currentTime = t.from;
-      if (el.paused && currentId === id) el.play().catch(() => {});
     }
   };
   el.addEventListener("timeupdate", wrap);
@@ -192,16 +148,10 @@ function element(id) {
   return el;
 }
 
-/**
- * The from/to window for a track, or null for "play the whole thing".
- *
- * Only applies to the score: the cue points were measured against those files
- * and mean nothing on the licensed ones, which are already the right length
- * and shape for what they are doing.
- */
+/** The from/to window for a track, or null for "play the whole thing". */
 function trackWindow(id) {
   const t = TRACKS[id];
-  if (!t || !scored.get(id) || t.from == null || t.to == null) return null;
+  if (!t || t.from == null || t.to == null) return null;
   return { from: t.from, to: t.to };
 }
 
@@ -250,9 +200,6 @@ export const music = {
   get volume()  { return master; },
   get muted()   { return muted; },
   get ready()   { return unlocked; },
-  /** Whether a given id is playing the film cue or the licensed fallback. */
-  usingScore(id = currentId) { return scored.get(id) === true; },
-
   /**
    * Bring up `id` and take everything else down. Calling it with the track
    * that is already playing is a no-op, so a scene may call it every frame.
@@ -271,8 +218,8 @@ export const music = {
     currentId = id;
     if (el.paused) {
       el.volume = 0;
-      // Into the window, not to 0. A cue that starts at 1:25 has to START at
-      // 1:25 the first time as well as on every loop.
+      // Into the window, not to 0, in case a track's loop starts later than
+      // its file does.
       const w = trackWindow(id);
       if (w) { try { el.currentTime = w.from; } catch { /* not seekable yet */ } }
       // play() rejects if the gesture has expired or the file 404s. Neither is

@@ -141,11 +141,15 @@ vite.config.ts.timestamp-*
 # The film soundtrack, kept locally and never published.
 #
 # assets/audio/official_music/ is John Powell's HTTYD score, pulled out of
-# custom Beat Saber maps. It is used for local playtesting only: this is a
-# personal project and that music is not ours to redistribute, so it must not
-# reach the GitHub repo or the Pages deploy. Everything in assets/audio/music/
-# is the CC-BY set that ships instead — see its CREDITS.txt.
+# custom Beat Saber maps. Nothing in the game references it any more — the
+# game plays its own original score from assets/audio/music/ — but if a copy
+# is still on disk it must not reach the GitHub repo or the Pages deploy.
 assets/audio/official_music/
+
+# The soundtrack's build inputs and scratch: the 32 MB soundfont, which
+# tools/music/build.py fetches on first run, and its intermediate renders.
+tools/music/GeneralUser-GS.sf2
+tools/music/_work/
 
 # macOS
 .DS_Store
