@@ -455,6 +455,8 @@ let rigReady = false;
 let lastLookAt = 0;   // when the player last moved the look stick or mouse
 
 const world = setupWorld(scene, renderer, QUALITY);
+// Trees pick their level of detail round the camera, not the dragon.
+world.flora.setViewer?.(camera);
 // Land past the edge of the chart. Silhouettes only — see horizon.js. Built
 // here rather than inside setupWorld because it is not part of the world in the
 // sense the rest of that file means: nothing samples it, nothing collides with

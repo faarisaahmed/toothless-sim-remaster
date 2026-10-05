@@ -24,10 +24,15 @@ the pause menu (Journal, Settings, Restart chapter, Save & quit).
 
 ## Graphics
 
-Settings → Graphics. A preset (Auto picks one from the GPU, then Low / Medium /
-High / Ultra), plus each setting on its own: frame-rate limit (30 / 60 /
-unlimited), render resolution (auto or fixed), shadows, terrain detail, forest
-draw distance, grass, water reflections, clouds, glow, and an FPS counter.
+Settings → Graphics. One-click presets along the top — **Auto** (picked from
+the GPU), **Low**, **Medium**, **High**, **Max** (everything up; the Ultra
+preset) — with a **Custom** lamp that lights once you change any single option.
+Under them, each setting on its own, every value shown at once so one click
+picks it: frame-rate limit (30 / 60 / unlimited), render resolution (auto or
+fixed), shadows, terrain detail, forest draw distance, grass, water
+reflections, clouds, glow, and an FPS counter. On a keyboard or pad, up / down
+moves between rows, left / right steps the value (stopping at the ends), and
+Enter / confirm steps forward and wraps round.
 
 Grass is Off / Low / Medium / Ultra. Low is a thin patch round you when you
 land or fly low. Medium is thicker underfoot, plus grass on the meadows out to
@@ -61,6 +66,34 @@ Settings → World (time of day, length of a day, weather). Debug console:
 Terrain detail above Low streams finer ground chunks around the dragon, built on
 Web Workers (`js/terrainlod.js`, `js/terrainworker.js`); Low keeps the single
 13 m sheet and a cheaper ground shader.
+
+## The forest
+
+The trees are the north-Atlantic wood the archipelago is drawn from. The species
+are Norway spruce, Scots pine, silver birch, rowan, sessile oak, juniper, and
+wind pines shorn flat on the exposed headlands. Each one is grown from a seeded
+skeleton of branches and leaf cards (`js/trees.js`), with three to four unique
+variants per species, and each tree is also scaled, turned and tinted on its
+own. Bark, leaves, needles and berries are all painted on canvases at load.
+
+Where they grow is in `js/forest.js`:
+- spruce in the dark fertile valleys
+- pine and birch on the drier slopes
+- oak, birch and rowan in the warm lowland hollows
+- juniper and stunted birch near the treeline
+- wind pines on headlands open to the gale
+
+They grow in stands, not mixed at random.
+
+Each tree has three levels of detail by distance from the camera:
+- **Hero:** every branch and leaf, within about 60–130 m.
+- **Mid:** trunk, limbs and fewer, larger leaves, out to the forest draw
+  distance.
+- **Imposter:** the hero model photographed from the side and from above into
+  an atlas at load, drawn as three cards.
+
+Debug: `window.__na.world.flora.forest.showcase(x, z)` lines every variant up
+in a row.
 
 ## Controls
 
