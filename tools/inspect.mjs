@@ -36,7 +36,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PORT = 9335;
+// Its own DevTools port, so several of these can run side by side (--cdp).
+const PORT = Number((() => { const i = process.argv.indexOf("--cdp"); return i >= 0 ? process.argv[i + 1] : 9335; })());
 
 const argv = process.argv.slice(2);
 const arg = (name, dflt) => {
