@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { terrainHeight, terrainNormal, fertility, islandAt, fbm, noise2,
+import { terrainHeight, fertility, islandAt, fbm, noise2,
          SEA_LEVEL, TERRAIN_SIZE, WIND_BEARING } from "./terrain.js";
 import { buildKinds, buildTextures, bakeImposters, SPECIES_NAMES } from "./trees.js";
 import { addPhotoreal } from "./photoreal.js";
@@ -42,7 +42,10 @@ const TILES = 16;
 const TILE = TERRAIN_SIZE / TILES;
 const CELL = 64;                              // lookup grid for the near LODs
 const GN = Math.ceil(TERRAIN_SIZE / CELL);
-const AREA_PER_TREE = 95;
+// Was 95 when the archipelago had 24 km2 of land. It has 37 now, and a tree
+// per 95 m2 of it came to 133k trees and a 3.1 s scatter; 115 keeps the woods
+// closed and the scatter near what it was.
+const AREA_PER_TREE = 115;
 const TILE_TREE_CAP = 9000;
 
 // Per-species tint over the leaf texture: r, g, b multipliers and lightness.
@@ -291,7 +294,21 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
           const z = z0 + gz + jz * spacing;
           const h = terrainHeight(x, z);
           if (h < SEA_LEVEL + 5) continue;
-          terrainNormal(x, z, 7, nrm);
+          // Slope only ever lowers fertility, so a spot that fails on flat
+          // ground fails on any slope too -- and the four height samples a
+          // normal costs are a good part of a candidate. Same trees, same
+          // boulders (those want jx > 0.86 and always take the full path).
+          if (jx <= 0.86) {
+            const f0 = fertility(x, z, h, 0);
+            if (f0 < 0.16 || jx * 0.9 + 0.1 > f0 * 1.15) continue;
+          }
+          // Forward differences off the height already in hand: two samples
+          // instead of four, on a quarter of a million candidates.
+          {
+            const nx = h - terrainHeight(x + 7, z), nz = h - terrainHeight(x, z + 7);
+            const len = Math.hypot(nx, 7, nz);
+            nrm.x = nx / len; nrm.y = 7 / len; nrm.z = nz / len;
+          }
           const slope = Math.min(1, (1 - nrm.y) * 2.6);
           const f = fertility(x, z, h, slope);
           if (f < 0.16) {
