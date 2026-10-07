@@ -158,7 +158,18 @@ const FRAG_MAIN = /* glsl */`
   float mac = vnoise( vPW.xz * 0.018 ) * 0.6 + vnoise( vPW.xz * 0.061 + 7.0 ) * 0.4;
   albedo *= mix( vec3( 0.8, 0.82, 0.86 ), vec3( 1.12, 1.06, 0.98 ), mac );
   albedo *= mix( 1.0, arm.r, 0.6 );                 // the photos' own AO
-  float rough = clamp( arm.g * ( 1.0 - vMask.y * 0.6 ), 0.25, 1.0 );
+  // The old gullies (vMask.z): a century of leaf litter, needles and moss over
+  // the stone. The photograph's own light and shade stay — the stones still
+  // show through as lumps — but the colour goes to loam and moss, and the cut
+  // faces keep their rock.
+  float wood = clamp( vMask.z, 0.0, 1.0 ) * ( 1.0 - wR * 0.75 );
+  if ( wood > 0.0 ) {
+    float lum = dot( G.rgb * bG + S.rgb * bS + R.rgb * bR, vec3( 0.33 ) );
+    float mossy = smoothstep( 0.35, 0.75, vnoise( vPW.xz * 0.11 ) * 0.7 + vnoise( vPW.xz * 0.5 + 3.0 ) * 0.3 );
+    vec3 litter = mix( vec3( 0.17, 0.11, 0.062 ), vec3( 0.09, 0.13, 0.042 ), mossy );
+    albedo = mix( albedo, litter * ( 0.6 + lum * 1.4 ) * vColor.rgb, wood * 0.92 );
+  }
+  float rough = clamp( arm.g * ( 1.0 - vMask.y * 0.6 ) + wood * 0.15, 0.25, 1.0 );
   diffuseColor.rgb = albedo;
 `;
 
@@ -192,7 +203,7 @@ export function makePitMaterial() {
       .replace("#include <normal_fragment_maps>", "normal = normalize( ( viewMatrix * vec4( wN, 0.0 ) ).xyz );")
       .replace("#include <roughnessmap_fragment>", "float roughnessFactor = rough;");
   };
-  mat.customProgramCacheKey = () => "pit-ground-v4";
+  mat.customProgramCacheKey = () => "pit-ground-v5";
   // Drawn in front of the terrain it lies on.
   mat.polygonOffset = true;
   mat.polygonOffsetFactor = -2;
