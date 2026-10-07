@@ -248,7 +248,9 @@ export function createPitWood(scene, { groundAt = terrainHeight, sky = null } = 
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = uTime;
       sh.vertexShader = sh.vertexShader
-        .replace("#include <common>", "#include <common>\nuniform float uTime;")
+        .replace("#include <common>", "#include <common>\nuniform float uTime;\nvarying float vCamD;")
+        .replace("#include <project_vertex>", `#include <project_vertex>
+          vCamD = distance( ( modelMatrix * instanceMatrix * vec4( transformed, 1.0 ) ).xyz, cameraPosition );`)
         .replace("#include <begin_vertex>", `#include <begin_vertex>
           {
             vec3 ip = vec3( instanceMatrix[3][0], 0.0, instanceMatrix[3][2] );
@@ -257,7 +259,12 @@ export function createPitWood(scene, { groundAt = terrainHeight, sky = null } = 
             transformed.x += ( sin( ph ) + sin( ph * 2.3 + 1.1 ) * 0.35 ) * k;
             transformed.z += cos( ph * 0.8 + 0.7 ) * k * 0.6;
           }`);
-      sh.fragmentShader = sh.fragmentShader.replace("normal *= faceDirection;", "");
+      // Leaves right in front of the lens dissolve, so a camera following him
+      // down a gully looks past the bush he is pushing through, not into it.
+      sh.fragmentShader = sh.fragmentShader.replace("normal *= faceDirection;", "")
+        .replace("#include <common>", "#include <common>\nvarying float vCamD;")
+        .replace("#include <alphatest_fragment>", `#include <alphatest_fragment>
+          if ( smoothstep( 1.6, 3.6, vCamD ) < fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) ) discard;`);
     };
     mat.customProgramCacheKey = () => key;
     return addPhotoreal(mat);

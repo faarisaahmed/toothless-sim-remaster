@@ -372,18 +372,21 @@ export function mission1(ctx) {
     {
       id: "rig-look",
       objective: "Get a look at the cages.",
-      sub: "Stay dark and quiet. Glide. Watch for <b>?</b> — and never be the <b>!</b>",
+      sub: "Stay out of sight. Watch for <b>?</b> — and never be the <b>!</b>",
       enter(g) {
         g.setWaypoint(SITES.rig.clone().setY(RIG.y + 40), "The cages");
         music.play("tension", { fade: 4 });
         this._t = 0;
+        // The way in that works, said once: the open sky over the pit is the
+        // one place every tower is looking (terrain.js pitPaths).
+        setTimeout(() => g.toast("Wooded gullies run down into the pit. Land outside the rim and go in on foot.", 4200), 2500);
       },
       update(dt, g, c) {
         const h = c.hunters;
         const d = game.flatDist(SITES.rig);
         if (h && h.alarm > 0) {
           this._t = 0;
-          g.setObjective(this.objective, "They've seen you. Get out of sight and let them settle.");
+          g.setObjective(this.objective, "They've seen you. Get into the trees and let them settle.");
           return;
         }
         if (d < 200) this._t += dt;
