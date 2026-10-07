@@ -44,6 +44,7 @@ import { createAim } from "./aim.js";
 import { createSurfaces } from "./surfaces.js";
 import { createGroundBody } from "./groundbody.js";
 import { createBaseDetail } from "./basedetail.js";
+import { createSpeedFx } from "./speedfx.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -476,6 +477,9 @@ const world = setupWorld(scene, renderer, QUALITY);
 // Everything he can stand on: the terrain, and every place that registers its
 // geometry (surfaces.js). The ground body and the gait both ask this.
 const surfaces = createSurfaces((x, z) => world.getHeightAt(x, z), world.seaLevel);
+// Streaks in the air and the vapour cone: speed you can see (speedfx.js).
+const speedFx = createSpeedFx(scene);
+let shake = 0;
 // Trees pick their level of detail round the camera, not the dragon.
 world.flora.setViewer?.(camera);
 // Land past the edge of the chart. Silhouettes only — see horizon.js. Built
@@ -721,7 +725,8 @@ function updateHud() {
              : mode === "drop"  ? "Dropping"
              : mode === "recover" ? "Pulling up"
              : controls.isTrimming() ? "Trim · double-tap to commit"
-             : flatOut ? "Flat Out"
+             : controls.isTurbo?.() ? (controls.getSpeed() > 343 ? "TURBO · supersonic" : "TURBO")
+             : flatOut ? "Flat Out · double-tap for turbo"
              : `Flat Out · ${keymap.label(keymap.keysFor("burst")[0])}`;
   if (line !== shownBurst) {
     hudBurst.textContent = line;
@@ -2690,7 +2695,8 @@ function frame() {
     const dist = grounded ? 15 : tuning.distBase + DIST_SPEED * speedT;
 
     const wantFov = fovForAspect(
-      tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT, camera.aspect);
+      tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT
+      + (grounded ? 0 : (controls.getTurboT?.() ?? 0) * 14), camera.aspect);
     camera.fov += (wantFov - camera.fov) * damp(FOV_LAMBDA, dt);
     camera.updateProjectionMatrix();
 
@@ -2827,6 +2833,17 @@ function frame() {
   if (camPin) {
     camera.position.copy(camPin.from);
     camera.lookAt(camPin.look);
+  }
+  // Speed cues, after the camera is placed so the streaks wrap round it.
+  if (speedFx.update(dt, camera, dragon, !grounded && !game.cine)) {
+    // The crack of the sound barrier.
+    pad.rumble.pulse(1, 1, 0.45);
+    shake = 1;
+  }
+  if (shake > 0.001 && !camPin) {
+    camera.position.x += (Math.random() - 0.5) * shake * 0.6;
+    camera.position.y += (Math.random() - 0.5) * shake * 0.6;
+    shake *= Math.exp(-dt * 6);
   }
   updateGrade();
   post.render(dt);

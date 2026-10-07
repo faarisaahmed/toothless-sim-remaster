@@ -291,6 +291,19 @@ set the strength, `padsens <n>` and `padsens invert` tune the right stick, and
 
 ## How fast he is
 
+**Turbo.** Double-tap and hold flat out (or hold sprint with it) to go past the
+canon top speed: through the sound barrier to 1,600 mph (715 m/s). It winds up
+over a few seconds. The speeds are honest: the HUD reads what he actually
+covers, measured at 335 m/s flat out and about 710 m/s in turbo.
+
+**Seeing speed.** At altitude over open sea, nothing near the camera moves, so
+any speed looks slow. `js/speedfx.js` adds:
+- Streaks of air fixed in the world around the camera. They pass at his true
+  speed, from about 200 mph up.
+- A vapour cone past Mach 1.
+- A shock ring, a thump and a camera shake at the moment he crosses it.
+- An FOV punch in turbo.
+
 The numbers are the franchise's rather than invented. DreamWorks publish the
 Night Fury at 26 ft long and 45 ft across the wings — 7.9 m and 13.7 m — and the
 GLB measures 8.6 × 15.1 at scale 1, so he flies at scale 1 and one world unit is
