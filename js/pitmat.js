@@ -60,6 +60,7 @@ const FRAG_PARS = /* glsl */`
   uniform sampler2D tGD, tGN, tGA, tSD, tSN, tSA, tRD, tRN, tRA;
   uniform vec3 uTile;            // 1/tile: ground, scree, rock
   uniform vec3 uTint;            // the island's basalt, multiplied in
+  uniform vec2 uFade;            // the handover band, same as terrainmat's uHoleFade
   const mat2 TURN = mat2( 0.8253, -0.5646, 0.5646, 0.8253 );
 
   vec3 pnorm( vec3 t ) { return t * 2.0 - 1.0; }
@@ -116,6 +117,8 @@ const FRAG_PARS = /* glsl */`
 `;
 
 const FRAG_MAIN = /* glsl */`
+  // Near only: past the handover the island terrain draws these pixels.
+  if ( fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) < smoothstep( uFade.x, uFade.y, distance( vPW, cameraPosition ) ) ) discard;
   vec3 gn = normalize( vPN );
   float dist = length( vPW - cameraPosition );
   float far = smoothstep( 25.0, 160.0, dist );
@@ -174,6 +177,7 @@ export function makePitMaterial() {
     uTile: { value: new THREE.Vector3(1 / SETS.ground.tile, 1 / SETS.scree.tile, 1 / SETS.rock.tile) },
     // Basalt country: the photographs are warm, the island is dark grey.
     uTint: { value: new THREE.Vector3(0.62, 0.64, 0.68) },
+    uFade: { value: new THREE.Vector2(70, 150) },
   };
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   mat.onBeforeCompile = (shader) => {
@@ -188,7 +192,7 @@ export function makePitMaterial() {
       .replace("#include <normal_fragment_maps>", "normal = normalize( ( viewMatrix * vec4( wN, 0.0 ) ).xyz );")
       .replace("#include <roughnessmap_fragment>", "float roughnessFactor = rough;");
   };
-  mat.customProgramCacheKey = () => "pit-ground-v3";
+  mat.customProgramCacheKey = () => "pit-ground-v4";
   // Drawn in front of the terrain it lies on.
   mat.polygonOffset = true;
   mat.polygonOffsetFactor = -2;
