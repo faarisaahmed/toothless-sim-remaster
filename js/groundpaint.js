@@ -179,15 +179,15 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
         // Mud collects in the hollows and where the noise says it is wet.
         const hollow = clamp(-curv / (CURV_SPAN * 0.6), 0, 1);
         const wet = smoothstep(n1 + hollow * 0.8 + n3 * 0.15, 0.2, 0.75);
-        mix(PIT_MUD, inPit * tread * wet);
+        mix(PIT_MUD, inPit * tread * wet * 0.3);
         // Gravel in drifts and along the edges of the treads.
         const grav = smoothstep(n2 + n3 * 0.3 - wet * 0.6, 0.25, 0.7);
-        mix(PIT_GRAVEL, inPit * tread * grav * 0.8);
+        mix(PIT_GRAVEL, inPit * tread * grav * 0.25);
         // Moss and turf where traffic does not reach: against the risers, on
         // the rubble, at the edge of the floor.
         const quiet = smoothstep(slope, 0.12, 0.3) * tread + smoothstep(n1 - n2 * 0.5, 0.35, 0.8) * 0.6;
         const moss = clamp(quiet * (1 - wet) * (0.5 + 0.5 * n3), 0, 1);
-        mix(PIT_MOSS, inPit * moss * 0.75);
+        mix(PIT_MOSS, inPit * moss * 0.25);
         veg = lerp(veg * (1 - inPit), moss * 0.55, inPit);
         // The trodden earth reads best through the fine-grained sand layer:
         // the scree photograph is a field of fist-sized stones.

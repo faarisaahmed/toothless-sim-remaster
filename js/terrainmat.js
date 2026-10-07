@@ -160,6 +160,11 @@ const FRAG_PARS = /* glsl */`
   uniform vec2 uDetailFade;   // near detail ends, far detail ends
   uniform float uSeaLevel;
   uniform float uWet;         // rain: 0 dry .. 1 soaked
+  // A hole: where a finer ground of its own lies over the terrain (the
+  // hunters' pit, basedetail.js), the terrain is not drawn at all — two
+  // surfaces a few centimetres apart fight for every pixel, and the coarse
+  // one's long triangles poke up through the fine one in every hollow.
+  uniform vec3 uHole;         // x, z, radius (0 = none)
 
   // The second read of every layer is this much larger and turned by this much,
   // so its repeat never lines up with the first one's.
@@ -292,6 +297,7 @@ const FRAG_PARS = /* glsl */`
 // Everything below runs in place of <map_fragment>, and writes both the albedo
 // and a world-space normal that <normal_fragment_maps> is then replaced to use.
 const FRAG_MAIN = /* glsl */`
+  if ( uHole.z > 0.0 && distance( vWPos.xz, uHole.xy ) < uHole.z ) discard;
   vec3 gN = normalize( vWNrm );
   gCavity = 0.0;
   #ifndef TERRAIN_LQ
@@ -523,6 +529,7 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
     uDetailFade: { value: new THREE.Vector2(2600, 6000) },
     uSeaLevel: { value: seaLevel },
     uWet: { value: 0 },
+    uHole: { value: new THREE.Vector3(0, 0, 0) },
   };
 
   const mat = new THREE.MeshStandardMaterial({

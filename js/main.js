@@ -1808,6 +1808,8 @@ const placesBuilt = (async () => {
   if (pit) {
     baseDetail = createBaseDetail(scene, { layout: pit, surfaces, groundTex: world.ready });
     surfaces.register(baseDetail.ground, { friction: 0.8 });
+    // The terrain under it is not drawn (terrainmat.js uHole).
+    world.groundTiles[0]?.material.userData.uniforms?.uHole.value.copy(baseDetail.hole);
     world.excludeFromReflection(baseDetail.root);
   }
   // NOT added to the reflection skip list, though they look like they should

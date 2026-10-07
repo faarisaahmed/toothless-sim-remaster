@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { terrainHeight, noise2, fbm } from "./terrain.js";
-import { paintGround, CURV_SPAN } from "./groundpaint.js";
-import { makeTerrainMaterial, applyGround } from "./terrainmat.js";
+import { makePitMaterial } from "./pitmat.js";
 import { addPhotoreal } from "./photoreal.js";
 
 // ---------------------------------------------------------------------------
@@ -33,8 +32,8 @@ import { addPhotoreal } from "./photoreal.js";
 //   puddles      standing water in the low spots, mirror-dark
 // ---------------------------------------------------------------------------
 
-const SPACING = 1.0;        // metres between the ground mesh's vertices
-const R_GROUND = 150;       // how far out from the centre the fine ground goes
+const SPACING = 1.5;        // metres between the ground mesh's vertices
+const R_GROUND = 392;       // the whole pit, floor to the foot of the rim
 const CELL = 32;            // clutter chunks, for culling by distance
 const lerp = THREE.MathUtils.lerp;
 const smoothstep = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -236,30 +235,29 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
   // Low spots for standing water, chosen before the relief so the relief can
   // dish them out.
   const pools = [];
-  for (let i = 0; i < 46; i++) {
+  for (let i = 0; i < 12; i++) {
     const a = r() * Math.PI * 2, rr = 20 + Math.sqrt(r()) * (L.floorR - 20);
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
     // Puddles live on the tracks, mostly: that is where the ground is churned.
-    if (trackDist(x, z) > 6 && r() < 0.7) { i--; continue; }
-    pools.push({ x, z, s: 0.6 + r() * 1.6, rot: r() * Math.PI });
+    if (trackDist(x, z) > 3) { i--; continue; }
+    pools.push({ x, z, s: 0.5 + r() * 1.1, rot: r() * Math.PI });
   }
 
-  /** The small relief, in metres above the height field. */
+  /** The small relief, in metres above the height field: broken rock. */
   function micro(x, z) {
-    let m = noise2(x * 0.45 + 2.2, z * 0.45 - 1.1) * 0.06 + noise2(x * 1.3 - 4.4, z * 1.3 + 3.3) * 0.022
-          + noise2(x * 0.16 + 9.9, z * 0.16 + 0.7) * 0.09;
-    // Tracks: a compacted bed with two ruts in it and churn either side.
+    // Ridged noise: sharp crests and flat hollows, the shape of fractured
+    // stone rather than of soil.
+    const rid = (f, a) => (1 - Math.abs(noise2(x * f, z * f))) * a;
+    // Nothing finer than about four vertices (6 m): a shorter ripple than the
+    // mesh can carry aliases into a lattice in the lighting. The texture's own
+    // normal maps do everything finer.
+    let m = (noise2(x * 0.15 + 3.7, z * 0.15 - 1.9) * 0.5 + 0.5) * 0.18 + noise2(x * 0.07 + 9.9, z * 0.07 + 0.7) * 0.12;
+    // The tracks are worn smooth.
     const td = trackDist(x, z);
-    if (td < 3.2) {
-      const bed = 1 - smoothstep(td, 1.6, 3.2);
-      m -= bed * 0.05;
-      const rut = Math.exp(-((td - 0.85) ** 2) / 0.03);
-      m -= rut * 0.08;
-      m += smoothstep(td, 1.4, 2.0) * (1 - smoothstep(td, 2.2, 3.2)) * (0.04 + noise2(x * 2.1, z * 2.1) * 0.03);
-    }
+    if (td < 3.0) m *= 0.35 + 0.65 * smoothstep(td, 1.2, 3.0);
     for (const p of pools) {
       const d = Math.hypot(x - p.x, z - p.z) / (p.s * 1.25);
-      if (d < 1.4) m -= (1 - smoothstep(d, 0.4, 1.4)) * 0.1;
+      if (d < 1.4) m -= (1 - smoothstep(d, 0.4, 1.4)) * 0.12;
     }
     return m;
   }
@@ -301,54 +299,92 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
     }
   }
 
-  const pos = [], col = [], srf = [], idx = [];
+  // Vertex shading and masks. Colour: cavities darker, crests lighter, and a
+  // slow wander of tone so the floor is not one stone. Mask: x is where the
+  // talus lies (the foot of a face), y is wet.
+  const pos = [], col = [], msk = [];
   const vid = new Int32Array(N * N).fill(-1);
-  const paint = new Float32Array(6);
-  const span = Math.round(CURV_SPAN / SPACING);
+  const at = (ii, jj, fallback) => { const kk = clamp(jj, 0, N - 1) * N + clamp(ii, 0, N - 1); return inside[kk] ? H[kk] : fallback; };
+  const CS = 4;                                  // cells to the curvature ring
   for (let j = 0; j < N; j++) {
     for (let i = 0; i < N; i++) {
       const k = j * N + i;
       if (!inside[k]) continue;
       const x = x0 + i * SPACING, z = z0 + j * SPACING, h = H[k];
-      const g = (ii, jj) => { const kk = clamp(jj, 0, N - 1) * N + clamp(ii, 0, N - 1); return inside[kk] ? H[kk] : h; };
-      const slope = Math.min(1, Math.hypot(g(i + 1, j) - g(i - 1, j), g(i, j + 1) - g(i, j - 1)) / (2 * SPACING * 2.2) * 3);
-      const curv = h - (g(i - span, j) + g(i + span, j) + g(i, j - span) + g(i, j + span)) / 4;
-      paintGround(x, z, base[k], Math.min(1, slope), curv, paint, 0);
-      // The fine relief shades itself: ruts and hollows darker and wetter.
-      const fine = (h - base[k]) - 0.06;
-      const dark = clamp(1 + fine * 3.2, 0.62, 1.12);
+      const curv = h - (at(i - CS, j, h) + at(i + CS, j, h) + at(i, j - CS, h) + at(i, j + CS, h)) / 4;
+      const ao = clamp(1 + curv * 0.55, 0.55, 1.15);
+      const tone = 0.9 + noise2(x * 0.013 + 4.4, z * 0.013 - 2.2) * 0.12 + noise2(x * 0.06, z * 0.06) * 0.05;
+      // Talus: low ground with a face rising just outward of it.
+      const d = Math.hypot(x - cx, z - cz) || 1;
+      const ux = (x - cx) / d, uz = (z - cz) / d;
+      const ahead = at(i + Math.round(ux * 3), j + Math.round(uz * 3), h) - h;
+      const sl = Math.hypot(at(i + 1, j, h) - at(i - 1, j, h), at(i, j + 1, h) - at(i, j - 1, h)) / (2 * SPACING);
+      const talus = clamp(smoothstep(ahead, 0.8, 4.5) * (1 - smoothstep(sl, 0.55, 0.9))
+        + (noise2(x * 0.08 - 3.3, z * 0.08 + 6.6) - 0.35) * 0.6 * smoothstep(ahead, 0.3, 2.0), 0, 1);
+      let wet = 0;
+      for (const p of pools) { const dd = Math.hypot(x - p.x, z - p.z) / p.s; if (dd < 2) wet = Math.max(wet, 1 - smoothstep(dd, 0.8, 2)); }
       vid[k] = pos.length / 3;
       pos.push(x, h, z);
-      col.push(paint[0] * dark, paint[1] * dark, paint[2] * dark);
-      srf.push(paint[3], paint[4], paint[5]);
+      const c = ao * tone * (1 - wet * 0.35);
+      col.push(c, c * 0.99, c * 0.97);
+      msk.push(talus, wet, 0);
     }
   }
-  for (let j = 0; j < N - 1; j++) {
-    for (let i = 0; i < N - 1; i++) {
-      const a = vid[j * N + i], b = vid[(j + 1) * N + i], c = vid[(j + 1) * N + i + 1], d = vid[j * N + i + 1];
-      if (a < 0 || b < 0 || c < 0 || d < 0) continue;
-      const ax = x0 + i * SPACING + SPACING / 2 - cx, az = z0 + j * SPACING + SPACING / 2 - cz;
-      if (Math.hypot(ax, az) > R_GROUND) continue;
-      idx.push(a, b, d, b, c, d);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  geo.setAttribute("aSurf", new THREE.Float32BufferAttribute(srf, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  geo.computeBoundingSphere();
-  const groundMat = makeTerrainMaterial({}, 0);
-  // Drawn in front of the terrain it lies on, whatever the depth buffer thinks.
-  groundMat.polygonOffset = true;
-  groundMat.polygonOffsetFactor = -2;
-  groundMat.polygonOffsetUnits = -4;
-  groundTex?.then((t) => t && applyGround(groundMat, t));
-  const ground = new THREE.Mesh(geo, groundMat);
+
+  // Tiles, so the half of the pit behind the camera is not drawn.
+  const groundMat = makePitMaterial();
+  const ground = new THREE.Group();
   ground.name = "pit-ground";
-  ground.receiveShadow = true;
   root.add(ground);
+  const TILE_N = 64;                             // cells per tile side
+  const posA = new Float32Array(pos), colA = new Float32Array(col), mskA = new Float32Array(msk);
+  for (let tj = 0; tj < N - 1; tj += TILE_N) {
+    for (let ti = 0; ti < N - 1; ti += TILE_N) {
+      const idx = [];
+      for (let j = tj; j < Math.min(N - 1, tj + TILE_N); j++) {
+        for (let i = ti; i < Math.min(N - 1, ti + TILE_N); i++) {
+          const a = vid[j * N + i], b = vid[(j + 1) * N + i], c = vid[(j + 1) * N + i + 1], d = vid[j * N + i + 1];
+          if (a < 0 || b < 0 || c < 0 || d < 0) continue;
+          const ax = x0 + (i + 0.5) * SPACING - cx, az = z0 + (j + 0.5) * SPACING - cz;
+          if (Math.hypot(ax, az) > R_GROUND) continue;
+          idx.push(a, b, d, b, c, d);
+        }
+      }
+      if (!idx.length) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(posA, 3));
+      g.setAttribute("color", new THREE.BufferAttribute(colA, 3));
+      g.setAttribute("aMask", new THREE.BufferAttribute(mskA, 3));
+      g.setIndex(idx);
+      ground.add(new THREE.Mesh(g, groundMat));
+    }
+  }
+  // Normals across the whole sheet at once, so tiles do not seam.
+  {
+    const nrm = new Float32Array(posA.length);
+    const add = (a, b, c) => {
+      const ax = posA[a * 3], ay = posA[a * 3 + 1], az = posA[a * 3 + 2];
+      const e1x = posA[b * 3] - ax, e1y = posA[b * 3 + 1] - ay, e1z = posA[b * 3 + 2] - az;
+      const e2x = posA[c * 3] - ax, e2y = posA[c * 3 + 1] - ay, e2z = posA[c * 3 + 2] - az;
+      const nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+      for (const v of [a, b, c]) { nrm[v * 3] += nx; nrm[v * 3 + 1] += ny; nrm[v * 3 + 2] += nz; }
+    };
+    for (const m of ground.children) {
+      const I = m.geometry.index.array;
+      for (let t = 0; t < I.length; t += 3) add(I[t], I[t + 1], I[t + 2]);
+    }
+    for (let v = 0; v < nrm.length; v += 3) {
+      const l = Math.hypot(nrm[v], nrm[v + 1], nrm[v + 2]) || 1;
+      if (nrm[v + 1] < 0) { nrm[v] = -nrm[v]; nrm[v + 1] = -nrm[v + 1]; nrm[v + 2] = -nrm[v + 2]; }
+      nrm[v] /= l; nrm[v + 1] /= l; nrm[v + 2] /= l;
+    }
+    const nAttr = new THREE.BufferAttribute(nrm, 3);
+    for (const m of ground.children) {
+      m.geometry.setAttribute("normal", nAttr);
+      m.geometry.computeBoundingSphere();
+      m.receiveShadow = true;
+    }
+  }
 
   // Height and normal of the fine ground, for everything placed on it.
   function groundAt(x, z) {
@@ -407,7 +443,7 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
   const kind = (name, geo, mat, { shadow = false, far = 110 } = {}) => { KINDS[name] = { geo, mat, shadow, far }; };
   for (let v = 0; v < 4; v++) kind(`pebble${v}`, stoneGeometry(11 + v * 7, 0, 0.55), stoneMat, { far: 70 });
   for (let v = 0; v < 4; v++) kind(`rock${v}`, stoneGeometry(41 + v * 13, 1, 0.62), stoneMat, { shadow: true, far: 160 });
-  for (let v = 0; v < 3; v++) kind(`boulder${v}`, stoneGeometry(91 + v * 17, 2, 0.7), stoneMat, { shadow: true, far: 400 });
+  for (let v = 0; v < 3; v++) kind(`boulder${v}`, stoneGeometry(91 + v * 17, 2, 0.58), stoneMat, { shadow: true, far: 400 });
   const alphaCut = (m) => {
     m.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace("normal *= faceDirection;", "");
@@ -478,15 +514,15 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
     const edge = td > 1.2 && td < 3.5 ? 1 : 0;
     const sl = slopeAt(x, z);
     const patchy = fbm(x * 0.08, z * 0.08, 2) * 0.5 + 0.5;
-    const dens = 0.45 + edge * 0.8 + smoothstep(sl, 0.05, 0.3) * 0.8 + patchy * 0.6;
+    const dens = 0.03 + edge * 0.28 + smoothstep(sl, 0.08, 0.35) * 0.45 * patchy;
     if (r() > dens) return;
-    const n = 1 + Math.floor(r() * 3);
+    const n = 1 + Math.floor(r() * 2);
     for (let i = 0; i < n; i++) {
       const s = 0.05 + Math.pow(r(), 2.0) * 0.24;
       put(`pebble${Math.floor(r() * 4)}`, x + (r() - 0.5) * 0.9, z + (r() - 0.5) * 0.9, s,
         { sink: 0.12, color: stoneColour(r() < 0.3 ? 1 : 0) });
     }
-  }, 1.1, R_GROUND - 4);
+  }, 1.1, 170);
 
   // Rocks and boulders: aprons of fallen rubble at the foot of every riser,
   // and a few strays across the floor.
@@ -497,11 +533,11 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
     const ux = (x - cx) / (d || 1), uz = (z - cz) / (d || 1);
     const ahead = groundAt(x + ux * 4, z + uz * 4) - h;
     const foot = smoothstep(ahead, 1.5, 6) * (1 - smoothstep(sl, 0.4, 0.8));
-    const stray = (d < RFLOOR ? 0.05 : 0.07) * (0.5 + (fbm(x * 0.03 + 1, z * 0.03 - 2, 2) * 0.5 + 0.5));
-    if (r() > foot * 0.85 + stray) return;
+    const stray = 0.012 * (0.5 + (fbm(x * 0.03 + 1, z * 0.03 - 2, 2) * 0.5 + 0.5));
+    if (r() > foot * 0.55 + stray) return;
     if (trackDist(x, z) < 2.2) return;
     const big = r() < 0.07 + foot * 0.06;
-    if (big) put(`boulder${Math.floor(r() * 3)}`, x, z, 0.7 + r() * 1.6, { sink: 0.3, color: stoneColour(r() < 0.4 ? 1 : 0), stretch: 0.8 + r() * 0.5 });
+    if (big) put(`boulder${Math.floor(r() * 3)}`, x, z, 0.6 + Math.pow(r(), 1.5) * 1.0, { sink: 0.35, color: stoneColour(r() < 0.4 ? 1 : 0), stretch: 0.85 + r() * 0.35 });
     else put(`rock${Math.floor(r() * 4)}`, x, z, 0.15 + Math.pow(r(), 1.6) * 0.5, { sink: 0.18, color: stoneColour(r() < 0.4 ? 1 : 0), stretch: 0.8 + r() * 0.5 });
   }, 1.8, R_GROUND - 3);
 
@@ -515,33 +551,13 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
     const wild = smoothstep(d, RFLOOR - 40, RFLOOR) + smoothstep(sl, 0.06, 0.3) * 0.8
                + (fbm(x * 0.05 + 3, z * 0.05 - 9, 2) * 0.5 + 0.5) * 0.35;
     const dens = clamp(wild * (1 - yard * 0.85), 0, 1) * (sl > 0.75 ? 0 : 1);
-    if (r() > dens * 0.55) return;
+    if (r() > dens * 0.2) return;
     const pick = r();
     const y = r() * Math.PI * 2;
-    if (pick < 0.42) put("tuft", x, z, 0.35 + r() * 0.35, { sink: 0.05, tiltToGround: false, yaw: y });
-    else if (pick < 0.8) put("heather", x, z, 0.45 + r() * 0.5, { sink: 0.08, tiltToGround: false, yaw: y, stretch: 1.2 + r() * 0.5 });
+    if (pick < 0.6) put("tuft", x, z, 0.35 + r() * 0.35, { sink: 0.05, tiltToGround: false, yaw: y });
+    else if (pick < 0.88) put("heather", x, z, 0.45 + r() * 0.5, { sink: 0.08, tiltToGround: false, yaw: y, stretch: 1.2 + r() * 0.5 });
     else put("gorse", x, z, 0.7 + r() * 0.8, { sink: 0.1, tiltToGround: false, yaw: y });
   }, 1.6, R_GROUND - 3);
-
-  // Wood: offcuts and the odd log, near where people work.
-  for (let i = 0; i < 260; i++) {
-    const a = r() * Math.PI * 2, d = 12 + Math.sqrt(r()) * (RFLOOR - 15);
-    const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
-    if (trackDist(x, z) < 1.5) continue;
-    // Prefer the ground near a building.
-    let nearB = false;
-    for (let k = 0; k < 6 && !nearB; k++) {
-      const b = k * 1.05;
-      if (blocked(x + Math.cos(b) * 5, z + Math.sin(b) * 5, groundAt(x, z))) nearB = true;
-    }
-    if (!nearB && r() < 0.75) continue;
-    if (r() < 0.3) {
-      const rad = 0.18 + r() * 0.14;
-      put("log", x, z, rad, { sink: -0.4, dims: [1.5 + r() * 2.5, rad * 2, rad * 2] });
-    } else {
-      put("plank", x, z, 0.06, { sink: -0.5, dims: [1.2 + r() * 1.8, 1, 1] });
-    }
-  }
 
   // Puddles, in the hollows dished out for them.
   pools.forEach((p, i) => {
@@ -590,6 +606,8 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
     root,
     ground,
     groundAt,
+    /** Where the terrain under this ground should not be drawn: x, z, radius. */
+    hole: new THREE.Vector3(cx, cz, R_GROUND - 3),
     /** Debug: show only pieces whose kind name matches. */
     only(re) { for (const c of chunks.values()) for (const m of c.meshes) m.userData.hide = !re.test(m.name); },
     /** Show each chunk's pieces only out to their own distance. */
