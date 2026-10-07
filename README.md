@@ -131,30 +131,37 @@ is the test bench: one full beat as a filmstrip.
 
 ## The hunters' pit, up close
 
-The pit is shaped in `js/terrain.js`.
-- The terraces are no longer perfect rings. They wander, bulge and slump.
-- Each riser is cut differently: some sheer, some broken back into spoil.
-- Talus is banked at the foot of every riser, and the treads are lumpy.
-- The floor rolls gently, with spoil heaps.
+**Shape.** The pit is shaped in `js/terrain.js`:
+- The terraces wander rather than forming perfect rings.
+- Risers are cut differently from one another.
+- Talus (fallen rubble) piles at the foot of the risers.
+- The floor rolls gently.
 
-The ground paint in `js/groundpaint.js` turns the floor into a patchwork:
-churned mud in the hollows, drifts of gravel, and moss and turf wherever no one
-walks.
+**Ground mesh.** `js/basedetail.js` adds its own ground over the whole pit: a
+1.5 m mesh carrying gentle rock relief and smooth worn tracks. The terrain under
+it is not drawn (`uHole` in `js/terrainmat.js`), so the two never fight. His
+feet stand on this mesh.
 
-Up close, `js/basedetail.js` adds a metre-spaced ground mesh over the floor and
-the first terrace. It carries the small relief the terrain is too coarse for:
-cart tracks with ruts, churned edges, potholes and lumps. Like the terrain it's
-painted with `paintGround`, and his feet stand on it.
+**Material.** The ground uses `js/pitmat.js`, built from three photographed
+2K CC0 surfaces from Poly Haven, stored in `assets/textures/pit/`:
 
-On top of that, scattered by what the ground is like there:
-- Tens of thousands of pebbles, thickest along the track edges.
-- Rock aprons and fallen boulders at the foot of the risers.
-- Heather, gorse and wiry grass where no one treads.
-- Planks and logs near the buildings.
-- Puddles in the low spots.
+| Surface | Texture | Used for |
+| --- | --- | --- |
+| Stony packed ground | `rocks_ground_02` | treads and floor |
+| Angular rubble | `gray_rocks` | the talus banks |
+| Fractured block rock | `dry_riverbed_rock` | the cut faces, triplanar |
 
-Clutter is chunked and drawn by distance.
+- Layers meet by height, so rubble fills the hollows and rock breaks through.
+- Reads are randomised so the photographs never visibly repeat.
+- Everything is tinted to the island's dark basalt.
 
+**Clutter is kept sparse:**
+- Pebbles along the track edges.
+- Rocks and a few boulders at the foot of the faces.
+- Occasional tufts, heather and gorse.
+- A handful of puddles on the tracks.
+
+## Landing and standing
 
 On the ground he's a physical body (`js/groundbody.js`): mass carried on four
 spring-damped legs.
@@ -180,6 +187,8 @@ tests stay fast thanks to a BVH (`three-mesh-bvh`).
 **Edges.** With two feet or fewer holding him and his weight off them, he tips
 over the edge. After a moment of falling he opens his wings.
 
+
+## On foot
 
 The walking is built from how big cats and other four-legged animals actually
 move (`js/gait.js`). Toothless was animated from a panther and a dog, and his
