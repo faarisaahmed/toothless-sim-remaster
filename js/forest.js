@@ -45,6 +45,18 @@ const GN = Math.ceil(TERRAIN_SIZE / CELL);
 const AREA_PER_TREE = 95;
 const TILE_TREE_CAP = 9000;
 
+// Per-species tint over the leaf texture: r, g, b multipliers and lightness.
+const SPECIES_TINT = {
+  spruce:   [0.86, 0.96, 1.06, 0.88],
+  pine:     [1.0, 0.98, 0.94, 0.95],
+  birch:    [1.12, 1.08, 0.8, 1.12],
+  rowan:    [1.02, 1.02, 0.9, 1.0],
+  oak:      [1.08, 1.0, 0.82, 0.96],
+  juniper:  [0.9, 0.98, 1.08, 0.92],
+  windpine: [1.0, 0.96, 0.92, 0.9],
+};
+const lerp = THREE.MathUtils.lerp;
+
 const KIND_SWAY_H = { spruce: 18, pine: 16, birch: 14, rowan: 8, oak: 12, juniper: 3.5, windpine: 8 };
 
 const hash = (x, z, s) => {
@@ -327,11 +339,28 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
         m4.toArray(MAT, count * 16);
         KIND[count] = kind;
 
-        // Each tree its own green: lighter, yellower or bluer by a few percent,
-        // warmer down low, colder up high.
+        // Each tree its own green, in three layers so a wood matches without
+        // being uniform:
+        //   the STAND   — a slow field: one hillside a little yellower and
+        //                 drier, the next bluer and darker, as soil and age go;
+        //   the SPECIES — birch bright and yellow-green, spruce near-black
+        //                 blue-green, pine grey-olive, oak warm, rowan between;
+        //   the TREE    — its own lightness and hue, enough that two
+        //                 neighbours are plainly different trees.
+        // A few birches and rowans are already turning, the way a northern
+        // wood always has one or two going early.
         const warm = fbm(s.x * 0.004, s.z * 0.004, 2) * 0.5 + 0.5;
-        const lv = 0.86 + r3 * 0.28 + (s.f - 0.5) * 0.1;
-        col.setRGB(lv * (0.94 + warm * 0.1 + (r2 - 0.5) * 0.08), lv * (0.98 + (r1 - 0.5) * 0.06), lv * (1.02 - warm * 0.08 + (r3 - 0.5) * 0.06));
+        const stand = fbm(s.x * 0.0021 + 17.3, s.z * 0.0021 - 4.1, 2);   // -1..1
+        const SP = SPECIES_TINT[sp];
+        const lv = (0.78 + r3 * 0.44) * SP[3] * (1 + (s.f - 0.5) * 0.12);
+        const hue = stand * 0.09 + (r2 - 0.5) * 0.14 + (warm - 0.5) * 0.08;   // + yellow, - blue
+        let cr = SP[0] * (1 + hue * 1.1), cg = SP[1] * (1 + hue * 0.25 + (r1 - 0.5) * 0.06), cb = SP[2] * (1 - hue * 1.3);
+        if ((sp === "birch" || sp === "rowan") && r1 > 0.94) {
+          // Turning early: gold on a birch, orange-red on a rowan.
+          const k = 0.5 + r3 * 0.5;
+          cr = lerp(cr, sp === "birch" ? 1.55 : 1.7, k); cg = lerp(cg, sp === "birch" ? 1.25 : 0.75, k); cb = lerp(cb, 0.35, k);
+        }
+        col.setRGB(lv * cr, lv * cg, lv * cb);
         TINT[count * 3] = col.r; TINT[count * 3 + 1] = col.g; TINT[count * 3 + 2] = col.b;
 
         const gx = Math.min(GN - 1, Math.max(0, Math.floor((s.x + TERRAIN_SIZE / 2) / CELL)));
