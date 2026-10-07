@@ -155,6 +155,12 @@ feet stand on this mesh.
 - Reads are randomised so the photographs never visibly repeat.
 - Everything is tinted to the island's dark basalt.
 
+**Near only.** The rock is only drawn near the camera. Between 70 and 150 m it
+dithers over to the island terrain material (`uHoleFade` / `uFade`): each
+material draws exactly the pixels the other leaves out. From the air, the same
+photograph repeated across the whole pit would read as a grid, while the terrain
+material is built to be seen from far off.
+
 **Clutter is kept sparse:**
 - Pebbles along the track edges.
 - Rocks and a few boulders at the foot of the faces.

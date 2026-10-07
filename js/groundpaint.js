@@ -54,8 +54,8 @@ const SNOW       = lin(0xe6edf2);
 const ASH        = lin(0x7d7462);
 const CHAR       = lin(0x2b2620);
 // The hunters' pit: packed road and the cut rock between its terraces.
-const PIT_ROAD   = lin(0x6a5c4a);
-const PIT_ROCK   = lin(0x2e2b28);
+const PIT_ROAD   = lin(0x5a5752);
+const PIT_ROCK   = lin(0x2a2928);
 // The pit's ground up close: wet, churned mud where water and feet collect,
 // grey gravel where it has been spread or washed clean, and the turf and moss
 // that come back wherever nobody walks.

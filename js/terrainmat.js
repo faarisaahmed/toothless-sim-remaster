@@ -165,6 +165,14 @@ const FRAG_PARS = /* glsl */`
   // surfaces a few centimetres apart fight for every pixel, and the coarse
   // one's long triangles poke up through the fine one in every hollow.
   uniform vec3 uHole;         // x, z, radius (0 = none)
+  // ...but only near the camera. Further out, the terrain is drawn after all
+  // and the fine ground is not: up close the pit's photographed rock is the
+  // detail, from the air the same photograph repeated a hundred times reads
+  // as a grid, and this material — built to be seen from a distance — is
+  // what the rest of the archipelago looks like. The two hand over through a
+  // dither in this distance band, each drawing exactly the pixels the other
+  // does not (pitmat.js uses the same pattern, complemented).
+  uniform vec2 uHoleFade;     // metres from the camera: start, end
 
   // The second read of every layer is this much larger and turned by this much,
   // so its repeat never lines up with the first one's.
@@ -297,7 +305,10 @@ const FRAG_PARS = /* glsl */`
 // Everything below runs in place of <map_fragment>, and writes both the albedo
 // and a world-space normal that <normal_fragment_maps> is then replaced to use.
 const FRAG_MAIN = /* glsl */`
-  if ( uHole.z > 0.0 && distance( vWPos.xz, uHole.xy ) < uHole.z ) discard;
+  if ( uHole.z > 0.0 && distance( vWPos.xz, uHole.xy ) < uHole.z ) {
+    float handover = smoothstep( uHoleFade.x, uHoleFade.y, distance( vWPos, cameraPosition ) );
+    if ( fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) >= handover ) discard;
+  }
   vec3 gN = normalize( vWNrm );
   gCavity = 0.0;
   #ifndef TERRAIN_LQ
@@ -530,6 +541,7 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
     uSeaLevel: { value: seaLevel },
     uWet: { value: 0 },
     uHole: { value: new THREE.Vector3(0, 0, 0) },
+    uHoleFade: { value: new THREE.Vector2(70, 150) },
   };
 
   const mat = new THREE.MeshStandardMaterial({
@@ -562,7 +574,7 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
   };
   // Any two materials whose onBeforeCompile produce different code need
   // different cache keys or three hands the second one the first one's program.
-  mat.customProgramCacheKey = () => `terrain-triplanar-v4pr${mat.defines?.TERRAIN_LQ ? "-lq" : ""}`;
+  mat.customProgramCacheKey = () => `terrain-triplanar-v5pr${mat.defines?.TERRAIN_LQ ? "-lq" : ""}`;
   mat.userData.uniforms = uniforms;
   mat.userData.pr = true;     // patchShader above; the scene sweep leaves it be
   if (tex && Object.keys(tex).length) applyGround(mat, tex);
