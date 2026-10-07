@@ -59,14 +59,29 @@ const SLOT_COLOUR = {
   skin: 0xb98a6e, leather: 0x3a2a1e,
 };
 
-const SIGHT = 520;           // m — nobody sees past this, in full daylight
+const SIGHT = 340;           // m — nobody notices him past this, in full daylight
 const ARCHER_RANGE = 380;    // m — and nobody shoots past this
 const ARROW_SPEED = 95;      // m/s
 const ARROW_DAMAGE = 7;
-const ALARM_TIME = 22;       // s the island stays roused after the last sighting
+const ALARM_TIME = 14;       // s the island stays roused after the last sighting
 const HEARING = 120;         // m — a loud dragon is heard inside this
 const WAKE_RANGE = 170;      // m — an alarm this close to his door gets a sleeper up
 const MOON = 0.04;           // what there is to see by at midnight away from a fire
+// Where a man looks. Straight ahead he sees clearly for about fifty degrees
+// either side; out to seventy he catches movement and little else; behind him
+// he is blind. He scans the ground, not the sky: well above eye level he has
+// to happen to look up.
+const FOV_CLEAR = 0.85;      // rad either side of his facing
+const FOV_EDGE = 1.22;       // rad — the corner of his eye ends here
+const LOOK_UP = 0.5;         // rad above level before he stops looking
+// The meter. Below NOTICE he has not noticed anything; between it and 1 he is
+// suspicious; at 1 he has him.
+const NOTICE = 0.3;
+const RATE = 1.35;           // meter per second at full visibility
+const FORGET = 0.13;         // ...and what it loses per second when he sees nothing
+const SHOUT = 150;           // m — a man who has him brings the others within this
+const SEARCH_TIME = [4, 7];  // s he pokes about where he thought it was, then gives up
+const INVESTIGATE_MAX = 25;  // s he walks toward something before he loses interest
 
 /** How much a man is paying attention, by what he is doing. */
 const ATTN = { sleep: 0, eat: 0.32, sit: 0.4, chat: 0.38, work: 0.42, tend: 0.5, stoop: 0.3,
@@ -125,7 +140,12 @@ const rand = (a, b) => a + Math.random() * (b - a);
  *   camp          where the crews live and work (hunterbase.js): {fires, tables,
  *                 works, piles, homes, route(zone, from, to) -> [Vector3...]}
  */
-export async function createHunters(scene, { getHeightAt, getLights = () => [], onArrowHit = () => {}, camp = null } = {}) {
+export async function createHunters(scene, { getHeightAt, getLights = () => [], onArrowHit = () => {}, camp = null,
+                                              cover = null } = {}) {
+  // Things that block a sight line besides the ground: buildings (set by the
+  // caller once they are solid — main.js), and how thick the wood is at a
+  // point (0..1), which thins it rather than cutting it.
+  let occluder = null;
   const loader = new GLTFLoader();
   const kits = {};
   for (const k of KITS) {
@@ -245,6 +265,10 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
       seat, home, zone: home?.zone ?? null, torchAtNight: torch || role === "patrol",
       walk: 0, speed: 1.5 + Math.random() * 0.4,
       awareness: 0, state: "calm",
+      // What he is looking into: where he saw something or heard it, how long
+      // since he last had eyes on the dragon, and his clock in this state.
+      poi: new THREE.Vector3(), hasPoi: false, stateT: 0, lostT: 99, searchYaw: 0, searchFor: 5,
+      mobile: null, trans: 1, los: false, vis: 0,
       reload: 1.5 + Math.random() * 2.5, draw: 0,
       ko: 0, koT: 0,
       alerted: 0,
@@ -445,16 +469,49 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
   }
 
   // --- seeing ----------------------------------------------------------------
-  function lineOfSight(from, to) {
-    const steps = 9;
+  /**
+   * How much of the dragon gets through from `from` to `to`: 0 when the
+   * ground or a building is in the way, 1 across open ground, and in between
+   * through trees. The line is walked in steps of about five metres, and
+   * every step that passes through a crown or among the trunks lets less
+   * through (exponential in the wood's density there). A dragon on the floor
+   * of a wooded gully is all but invisible from the rim; one flying over the
+   * treetops is not hidden at all.
+   */
+  function sightLine(from, to) {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const d = Math.hypot(dx, dy, dz);
+    const steps = Math.max(6, Math.min(48, Math.ceil(d / 5)));
+    const seg = d / steps;
+    let trans = 1;
     for (let i = 1; i < steps; i++) {
       const t = i / steps;
-      const x = from.x + (to.x - from.x) * t;
-      const y = from.y + (to.y - from.y) * t;
-      const z = from.z + (to.z - from.z) * t;
-      if (getHeightAt(x, z) > y + 1.5) return false;
+      const x = from.x + dx * t, y = from.y + dy * t, z = from.z + dz * t;
+      const g = getHeightAt(x, z);
+      // The last few metres to a dragon on the ground may graze it: a ridge
+      // of soil under his chin does not hide him.
+      if (g > y + (d * (1 - t) < 4 ? 1.6 : 0.4)) return 0;
+      if (cover) {
+        const c = cover(x, z);
+        if (c > 0.02) {
+          const agl = y - g;
+          const top = 5 + 13 * c;          // the canopy's height, roughly
+          if (agl < top) {
+            // Crowns are thicker than the trunk zone under them.
+            const k = agl < 2.6 ? 0.06 : 0.12;
+            trans *= Math.exp(-c * k * seg);
+            if (trans < 0.02) return 0;
+          }
+        }
+      }
     }
-    return true;
+    // Undergrowth: ferns and bushes round a dragon lying low in them.
+    if (cover) {
+      const c = cover(to.x, to.z);
+      if (c > 0.02 && to.y - getHeightAt(to.x, to.z) < 2.6) trans *= 1 - 0.5 * c;
+    }
+    if (trans > 0.02 && occluder && occluder(from, to)) return 0;
+    return trans;
   }
 
   function lightAt(p, night) {
@@ -496,12 +553,52 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
 
   // --- per frame ------------------------------------------------------------
   const _eye = new THREE.Vector3();
+  const _step = new THREE.Vector3();
+
+  /** Can he leave where he stands? A man on a tower deck or a roof stays put. */
+  function mobileNow(man) {
+    return man.role !== "watch" || man.post !== "tower"
+      ? Math.abs(getHeightAt(man.pos.x, man.pos.z) - man.pos.y) < 2.2
+      : false;
+  }
+
+  /** Something caught his attention at `at`: stop and look that way. */
+  function notice(man, at, level) {
+    man.poi.copy(at);
+    man.hasPoi = true;
+    man.awareness = Math.max(man.awareness, level);
+    if (man.state === "calm" || man.state === "search") { man.state = "suspicious"; man.stateT = 0; }
+  }
+
+  /** Walk straight at the point he is looking into. False when he cannot go
+   *  further — there, or the ground ahead is a drop or a wall. */
+  function walkToward(man, at, dt, speed) {
+    const dx = at.x - man.pos.x, dz = at.z - man.pos.z;
+    const dl = Math.hypot(dx, dz);
+    man.wantYaw = Math.atan2(dx, dz);
+    if (dl < 3) return false;
+    const step = Math.min(dl, speed * dt);
+    _step.set(man.pos.x + (dx / dl) * step, 0, man.pos.z + (dz / dl) * step);
+    const g = getHeightAt(_step.x, _step.z);
+    // A metre up for every metre on is a scramble, and he is not going to.
+    // (Read ahead, so he stops at the lip rather than over it.)
+    const ahead = getHeightAt(man.pos.x + (dx / dl) * 2.5, man.pos.z + (dz / dl) * 2.5);
+    if (Math.abs(ahead - man.pos.y) > 2.2 || Math.abs(g - man.pos.y) > step * 1.2 + 0.3) return false;
+    man.pos.set(_step.x, g, _step.z);
+    man.moving = true;
+    return true;
+  }
+
   /**
-   * @param {object} t   the dragon: { pos, vel, loud, hidden }
+   * @param {object} t   the dragon: { pos, vel, loud, hidden, speedT,
+   *                     grounded (on his feet), move (0 still .. 1 flat out),
+   *                     noise (metres his footfalls carry, on foot) }
    * @param {number} night  0 day .. 1 night
    * @param {number} h      the hour, 0..24
+   * @param {number} haze   0..1, how much of the daylight range the weather
+   *                        leaves (fog, rain)
    */
-  function update(dt, t, night = 0, h = hour) {
+  function update(dt, t, night = 0, h = hour, haze = 1) {
     time += dt;
     hour = h;
     alarm = Math.max(0, alarm - dt);
@@ -509,32 +606,52 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
     const dark = night > 0.5;
     // How lit the dragon is: the same for every man, so once.
     const tLight = t && !t.hidden ? lightAt(t.pos, night) : 0;
+    // How much of him there is to see. Flying, wings out, he is fourteen
+    // metres of black against the sky; on his feet he is a big cat, and a
+    // still one is a rock until it moves.
+    const size = t?.grounded ? 0.55 : 1;
+    const motion = t?.grounded ? 0.45 + 0.55 * Math.min(1, t.move ?? 0) : 0.85 + 0.15 * (t?.speedT ?? 0);
 
     for (const man of men) {
       if (man.ko > 0) {
         man.ko = Math.max(0, man.ko - dt);
         man.koT = Math.min(1, man.koT + dt * 3);
-        if (man.ko === 0) man.awareness = 0.8;   // gets up wondering what hit him
+        // Gets up wondering what hit him, and has a look round where he fell.
+        if (man.ko === 0) { notice(man, man.pos, 0.5); man.state = "search"; man.stateT = 0; man.searchFor = 6; man.searchYaw = man.yaw; }
         continue;
       }
       man.koT = Math.max(0, man.koT - dt * 2);
       man.torch = dark && man.torchAtNight && !man.inside;
+      man.stateT += dt;
 
-      // --- awareness --------------------------------------------------------
+      // --- what he sees -----------------------------------------------------
       let vis = 0;
       if (t && !t.hidden && !man.inside) {
         const eye = _eye.copy(man.pos); eye.y += man.sit > 0.5 ? 1.0 : 1.65;
         const d = eye.distanceTo(t.pos);
-        const attention = Math.max(ATTN[man.act] ?? 0.6, man.awareness > 0.5 || alarm > 0 ? 0.9 : 0);
+        const keen = man.state !== "calm";
+        // Half asleep over his supper, or watching for it. Once something is
+        // up he is looking properly.
+        const attention = Math.max(ATTN[man.act] ?? 0.6, keen ? 1 : 0);
         if (d < SIGHT && attention > 0) {
           const light = tLight;
           // How far he can see depends on how lit the dragon is: a few dozen
-          // metres in the dark, the whole pit by day or over a fire.
-          const range = SIGHT * (0.12 + 0.88 * light);
-          const toX = t.pos.x - man.pos.x, toZ = t.pos.z - man.pos.z;
+          // metres in the dark, the whole pit by day or over a fire — and the
+          // weather takes its share.
+          const range = SIGHT * (0.12 + 0.88 * light) * haze;
+          const toX = t.pos.x - eye.x, toZ = t.pos.z - eye.z;
+          const flat = Math.hypot(toX, toZ);
           const bearing = Math.atan2(toX, toZ);
           const off = Math.abs(Math.atan2(Math.sin(bearing - man.yaw), Math.cos(bearing - man.yaw)));
-          const fov = man.awareness > 0.5 || alarm > 0 ? 1 : off < 0.95 ? 1 : off < 1.7 ? 0.3 : 0;
+          // A man who knows something is about looks wider; nobody has eyes
+          // in the back of his head.
+          const clear = keen ? FOV_CLEAR + 0.25 : FOV_CLEAR, edge = keen ? FOV_EDGE + 0.3 : FOV_EDGE;
+          let fov = off < clear ? 1 : off < edge ? 0.35 * (1 - (off - clear) / (edge - clear)) : 0;
+          // ...and he scans the ground, not the sky.
+          const elev = Math.atan2(t.pos.y - eye.y, flat);
+          if (!keen && elev > LOOK_UP) fov *= 1 - 0.7 * THREE.MathUtils.smoothstep(elev, LOOK_UP, 1.2);
+          // Right behind him, he hears it breathe.
+          if (d < 5) fov = Math.max(fov, 0.5);
           // A man standing in firelight is blind to the dark beyond it.
           // (His own light changes slowly — he walks — so it is re-read about
           // once a second rather than every frame for every man.)
@@ -543,50 +660,117 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
             man.lightT = 0.8 + Math.random() * 0.4;
           }
           const dazzle = dark && light < 0.3 && (man.ownLight ?? 0) > 0.55 ? 0.4 : 1;
-          const heard = t.loud && d < HEARING ? 0.3 * (1 - d / HEARING) : 0;
+          // Heard rather than seen: wingbeats in the air, a gallop on the
+          // ground. No facing needed, but he only knows roughly where.
+          const loudR = t.grounded ? (t.noise ?? 0) : t.loud ? HEARING : 0;
+          const heard = loudR > 0 && d < loudR ? 0.5 * (1 - d / loudR) : 0;
           let seen = 0;
           if ((d < range && fov > 0) || heard > 0) {
-            // The sight line is twelve height samples; the dragon moves a few
-            // metres between checks at four a second, which nobody can see.
+            // The sight line is a few dozen height and wood samples; the
+            // dragon moves a few metres between checks at four a second,
+            // which nobody can see.
             if ((man.losT = (man.losT ?? 0) - dt) <= 0) {
-              man.los = lineOfSight(eye, t.pos);
+              man.trans = sightLine(eye, t.pos);
               man.losT = 0.2 + Math.random() * 0.1;
             }
-            if (man.los) {
-              if (d < range) seen = light * 0.9 * Math.pow(1 - d / range, 0.7) * fov * dazzle;
-              // Close enough and he cannot be missed — if he is looking.
-              if (d < (dark ? 9 : 24) && fov >= 1) seen = Math.max(seen, 0.8);
+            man.los = man.trans > 0;
+            if (man.los && d < range) {
+              const near = d < 10 ? 1 : Math.pow(Math.max(0, 1 - (d - 10) / (range - 10)), 1.4);
+              seen = light * fov * near * size * motion * man.trans * dazzle;
             }
           }
-          vis = Math.min(1.5, (seen + heard) * attention * 1.6);
+          vis = (seen * 1.7 + heard * (man.los ? 1 : 0.6)) * attention;
+          if (heard > 0 && seen < 0.05 && man.awareness < NOTICE) notice(man, t.pos, man.awareness);
         }
       }
-      const rise = vis > 0.15 ? vis * 1.1 : -0.3;
-      man.awareness = THREE.MathUtils.clamp(man.awareness + rise * dt,
-        alarm > 0 && !man.inside ? 0.55 : 0, 1.6);
+      man.vis = vis;
+      const sees = vis > 0.12;
+      man.awareness += (vis * RATE - (sees ? 0 : man.state === "alert" ? FORGET * 0.6 : FORGET)) * dt;
+      man.awareness = THREE.MathUtils.clamp(man.awareness, 0, 1.6);
+      if (sees) { man.poi.copy(t.pos); man.hasPoi = true; man.lostT = 0; } else man.lostT += dt;
+
+      // --- what he makes of it ------------------------------------------------
+      // calm -> suspicious (stop, turn, "?") -> investigate (walk to where it
+      // was) -> search (poke about) -> give up; or, if the meter fills, alert.
+      // Dim on purpose: he gives up quickly, he looks where it WAS, and a
+      // noise somewhere else is more interesting than a shadow he half saw.
       const was = man.state;
-      man.state = man.awareness >= 1 ? "alert" : man.awareness >= 0.5 ? "suspicious" : "calm";
+      if (man.awareness >= 1 && sees) {
+        man.state = "alert";
+      } else if (man.state === "alert") {
+        if (man.awareness < 1) {
+          man.state = (man.mobile ??= mobileNow(man)) ? "investigate" : "suspicious";
+          man.stateT = 0;
+        }
+      } else if (man.state === "calm") {
+        if (man.awareness >= NOTICE) { man.state = "suspicious"; man.stateT = 0; if (!man.hasPoi && t) man.poi.copy(t.pos); }
+      } else if (man.state === "suspicious") {
+        if (man.awareness < 0.1 && man.stateT > 1) man.state = "calm";
+        else if (!sees && man.stateT > 1.8) {
+          man.mobile ??= mobileNow(man);
+          if (man.mobile && man.pos.distanceTo(man.poi) > 4) { man.state = "investigate"; man.stateT = 0; }
+          else if (man.stateT > 4.5) { man.state = "calm"; man.awareness = Math.min(man.awareness, 0.15); }
+        }
+      } else if (man.state === "investigate") {
+        // He keeps the meter up while he is going to look; he is not going to
+        // forget on the way.
+        man.awareness = Math.max(man.awareness, 0.32);
+        if (man.stateT > INVESTIGATE_MAX || man.arrived) {
+          man.state = "search"; man.stateT = 0; man.arrived = false;
+          man.searchYaw = man.yaw; man.searchFor = rand(...SEARCH_TIME);
+        }
+      } else if (man.state === "search") {
+        man.awareness = Math.max(man.awareness, 0.3 * (1 - man.stateT / man.searchFor));
+        if (man.stateT > man.searchFor) {
+          // Must have been the wind. Back to it.
+          man.state = "calm"; man.awareness = 0; man.hasPoi = false;
+          man.steps.length = 0; man.path.length = 0; man.planned = false;
+        }
+      }
       if (man.state === "alert") {
         alarm = ALARM_TIME;
         lastSeenAt.copy(t.pos);
         man.alerted = 2;
-        if (was !== "alert") seenNow.push(man);
+        if (was !== "alert") {
+          seenNow.push(man);
+          // He shouts, and the men in earshot come to look — at where he
+          // says it is, not where it is by the time they get there.
+          for (const o of men) {
+            if (o === man || o.ko > 0 || o.state === "alert") continue;
+            const dd = o.pos.distanceTo(man.pos);
+            if (o.inside ? o.home.door.distanceTo(man.pos) < WAKE_RANGE : dd < SHOUT) {
+              notice(o, t.pos, 0.75);
+              o.state = "suspicious"; o.stateT = 0;
+            }
+          }
+        }
       }
 
-      // --- what he is doing ---------------------------------------------------
-      // An alarm gets the sleepers up only if it is near enough to hear the
-      // shouting; the far side of the pit sleeps through a scare on this one.
-      const near = !man.inside || man.home.door.distanceTo(lastSeenAt) < WAKE_RANGE;
-      live(man, dt, (alarm > 0 && near) || man.state !== "calm");
+      // --- what he does about it ----------------------------------------------
+      man.arrived = false;
+      if (man.state === "calm") {
+        live(man, dt, false);
+      } else if (man.inside || man.state === "suspicious" || man.state === "alert") {
+        // Stop everything and look. The sleepers come out first.
+        live(man, dt, true);
+      } else {
+        man.moving = false;
+        man.act = "roused";
+        if (man.state === "investigate") {
+          if (!walkToward(man, man.poi, dt, man.speed * 1.2)) man.arrived = true;
+        } else {
+          // Searching: turns this way and that, takes a step or two.
+          man.wantYaw = man.searchYaw + Math.sin(man.stateT * 1.25 + man.phase) * 1.5;
+        }
+      }
       let wantYaw = man.wantYaw;
-      if (man.state !== "calm" && t && !man.inside) {
-        const look = man.state === "alert" ? t.pos : lastSeenAt.lengthSq() > 0 ? lastSeenAt : t.pos;
+      if ((man.state === "suspicious" || man.state === "alert") && !man.inside) {
+        const look = man.state === "alert" && sees ? t.pos : man.poi;
         wantYaw = Math.atan2(look.x - man.pos.x, look.z - man.pos.z);
-      } else if (alarm > 0 && lastSeenAt.lengthSq() > 0 && !man.inside) {
-        wantYaw = Math.atan2(lastSeenAt.x - man.pos.x, lastSeenAt.z - man.pos.z);
       }
       const dy = Math.atan2(Math.sin(wantYaw - man.yaw), Math.cos(wantYaw - man.yaw));
-      man.yaw += dy * Math.min(1, dt * (man.state === "alert" ? 8 : 3));
+      const turnRate = man.state === "alert" ? 8 : man.state === "suspicious" ? 2.2 : 3;
+      man.yaw += dy * Math.min(1, dt * turnRate);
       if (man.moving) man.walk += dt * man.speed * 3.2;
       else man.walk += (Math.round(man.walk / Math.PI) * Math.PI - man.walk) * Math.min(1, dt * 6);
       const sitting = !man.moving && (man.act === "eat" || man.act === "sit");
@@ -768,11 +952,47 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
     },
     /** Tail-strike: put a man down for a while. */
     knockOut(man, seconds = 45) { man.ko = seconds; man.awareness = 0; man.state = "calm"; },
-    raiseAlarm(at) { alarm = ALARM_TIME; if (at) lastSeenAt.copy(at); for (const m of men) if (!m.inside) m.awareness = Math.max(m.awareness, 0.6); },
+    raiseAlarm(at) {
+      alarm = ALARM_TIME;
+      if (at) lastSeenAt.copy(at);
+      for (const m of men) if (!m.inside && m.ko === 0) { notice(m, at ?? lastSeenAt, 0.75); m.state = "suspicious"; m.stateT = 0; }
+    },
+    /**
+     * A noise at `at` — a blast going off, something falling. Every man in
+     * earshot who is not already on to the dragon stops and looks that way,
+     * then goes to see. It is the point of the noise he goes to, not the
+     * dragon, which is how a shot into the rocks pulls a guard off his post.
+     * Returns how many came to look.
+     */
+    noise(at, radius = 110) {
+      let n = 0;
+      for (const m of men) {
+        if (m.ko > 0 || m.state === "alert") continue;
+        const d = m.inside ? m.home.door.distanceTo(at) : m.pos.distanceTo(at);
+        if (d > (m.inside ? radius * 0.5 : radius)) continue;
+        // Not quite where it was: a bang in a rock bowl comes off the walls.
+        _w.set(at.x + (Math.random() - 0.5) * d * 0.08, at.y, at.z + (Math.random() - 0.5) * d * 0.08);
+        notice(m, _w, Math.max(NOTICE + 0.05, 0.6 * (1 - d / radius) + NOTICE));
+        m.state = "suspicious"; m.stateT = Math.random() * 0.6;
+        n++;
+      }
+      return n;
+    },
+    /** What blocks a sight line besides the ground: (from, to) => bool. */
+    setOccluder(fn) { occluder = fn; },
+    /** Debug: how much of the dragon a man would see from where he stands. */
+    sightLine: (from, to) => sightLine(from, to),
     /** The hour he last read, and what a man is doing — for the console. */
     get hour() { return hour; },
     lightAt: (p, night) => lightAt(p, night),
-    calm() { alarm = 0; for (const m of men) m.awareness = 0; arrows.length = 0; },
+    calm() {
+      alarm = 0;
+      for (const m of men) {
+        m.awareness = 0; m.hasPoi = false; m.lostT = 99;
+        if (m.state !== "calm") { m.state = "calm"; m.steps.length = 0; m.path.length = 0; }
+      }
+      arrows.length = 0;
+    },
     clearArrows() { arrows.length = 0; },
     setVisible(v) { group.visible = v; },
   };
