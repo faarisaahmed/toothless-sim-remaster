@@ -41,6 +41,8 @@ import { tierSettings, createGovernor } from "./quality.js";
 import { graphics, LEVELS } from "./graphics.js";
 import * as keymap from "./keymap.js";
 import { createAim } from "./aim.js";
+import { createSurfaces } from "./surfaces.js";
+import { createGroundBody } from "./groundbody.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -470,6 +472,9 @@ const _lagV = new THREE.Vector3();
 let lastLookAt = 0;   // when the player last moved the look stick or mouse
 
 const world = setupWorld(scene, renderer, QUALITY);
+// Everything he can stand on: the terrain, and every place that registers its
+// geometry (surfaces.js). The ground body and the gait both ask this.
+const surfaces = createSurfaces((x, z) => world.getHeightAt(x, z), world.seaLevel);
 // Trees pick their level of detail round the camera, not the dragon.
 world.flora.setViewer?.(camera);
 // Land past the edge of the chart. Silhouettes only — see horizon.js. Built
@@ -1053,7 +1058,16 @@ let groundRig = null;          // bindDragon, built on first landing
 let openingWings = false;
 let walkYaw = 0, walkSpeed = 0, landHold = 0;
 let walkGearDebug = 1;
-let wingHeave = 0;             // the beat's body heave currently applied, metres         // debug: scales the ground speeds (window.__na.walkGear)
+let wingHeave = 0;             // the beat's body heave currently applied, metres
+// His body on the ground, as a body (groundbody.js). Feet from the rig's bind
+// pose, in the model's frame (nose at -z).
+const groundBody = createGroundBody({
+  surfaces,
+  feet: [{ x: -0.42, z: -1.88 }, { x: 0.42, z: -1.88 }, { x: -0.39, z: -0.86 }, { x: 0.39, z: -0.86 }],
+  hipY: 1.0,
+});
+const _landVel = new THREE.Vector3();
+let wasSupported = false;         // debug: scales the ground speeds (window.__na.walkGear)
 const walkKeys = { w: false, a: false, s: false, d: false, run: false };
 const LAND_AGL = 22;           // how low he has to be before landing is offered
 // ...and how slow. speedT is a fraction of his 750 mph top speed, so this is
@@ -1095,7 +1109,9 @@ const FOOT_CLEAR = 0.0;
 const FOOT_R = 3.2;            // m
 // Steeper than this and there is nowhere to stand. Refusing is better than
 // letting him land on a cliff face and stand at sixty degrees to the world.
-const LAND_SLOPE_MAX = 0.62;   // radians, ~36 degrees
+// With a real body (groundbody.js) he can come down on a steep slope and slide
+// or scrabble to a stop, so the limit is only for faces nobody could stand on.
+const LAND_SLOPE_MAX = 0.95;   // radians, ~54 degrees
 
 /**
  * The attitude of the ground under him, and how far his origin has to sit
@@ -1197,11 +1213,10 @@ function land() {
   // then rotating into it. `slopePitch` and `slopeRoll` were whatever was left
   // over from the last patch of ground he stood on, which on a fresh landing
   // several islands away is a completely arbitrary attitude to start from.
-  const att = groundAttitude(dragon.position.x, dragon.position.z,
-                             Math.sin(walkYaw), Math.cos(walkYaw));
-  settleFrom = { pitch: slopePitch, roll: slopeRoll, lift: slopeLift };
-  settleTo = att;
-  settleT = 0;
+  // He comes down as a body with the speed he had (the camera keeps a clean
+  // measure of it), and flares, runs out and settles from there.
+  _landVel.copy(camVel);
+  wasSupported = false;
 
   // Hand every bone back before the ground rig takes over. Both of these write
   // rest+delta every frame, so the moment they stop being called the pose
@@ -1211,6 +1226,7 @@ function land() {
   if (dragon) dragon.position.y -= wingHeave;   // take the beat's heave back out
   wingHeave = 0;
   flightRig?.release?.();
+  groundBody.begin(dragon, _landVel, walkYaw);
   // Ease, from wherever the beat left the wings — not a snap. This is the whole
   // landing animation: he drops, settles onto the slope, and the wings gather in
   // over about a second.
@@ -1687,7 +1703,8 @@ window.__na = {
   get grounded() { return grounded; },
   get speedT() { return controls?.getSpeedT() ?? -1; },
   getControls: () => controls,
-  aim, health, world,
+  aim, health, world, surfaces,
+  get groundBody() { return groundBody; },
   land, takeOff, fireBlast,
   /** Debug: a bone on the *player's* rig. The wild flights are clones and share
    *  every bone name, so a scene-wide search finds the wrong dragon. */
@@ -1779,6 +1796,10 @@ const placesBuilt = (async () => {
         })
       : null,
   ]);
+  // Roofs, decks, crates, cages, the top of the stack: solid to his feet.
+  const solid = surfaces.register(rig?.group) + surfaces.register(stack?.group)
+              + surfaces.register(camp?.group, { friction: 0.85 });
+  console.info(`surfaces: ${solid} solid meshes`);
   // NOT added to the reflection skip list, though they look like they should
   // be: both carry a pool of seven point lights, and hiding a light for the
   // mirror pass changes the scene's light count twice a frame, which makes
@@ -2325,108 +2346,58 @@ function frame() {
   // teleport onto the height field, and once he is down he sits on the slope
   // instead of standing upright on a hillside like a lamp post.
   if (dragon) {
-    const gh = world.getHeightAt(dragon.position.x, dragon.position.z);
-    const overLand = gh > world.seaLevel + 3;
+    // What is under him: terrain, or a roof, a deck, the top of the stack.
+    const ground = surfaces.at(dragon.position.x, dragon.position.z, dragon.position.y);
+    const gh = ground.y;
+    const overLand = ground.solid && gh > world.seaLevel + 0.5;
 
     if (grounded && !game.cine) {
-      // The lift matters here too: falling to `gh + 0.35` on a hillside means
-      // falling straight past the point where his downhill feet met the rock.
-      const deck = gh + FOOT_CLEAR + (settling && settleTo ? settleTo.lift : slopeLift);
+      // He is a body on four sprung legs now (groundbody.js): the flare, the
+      // touchdown, the run-out, the slope, the rock under one foot and the
+      // edge with nothing under it are all the same physics.
+      const turn = (walkKeys.a ? 1 : 0) - (walkKeys.d ? 1 : 0);
+      const running = walkKeys.run;
+      const along = Math.abs(walkSpeed);
+      const gearT = THREE.MathUtils.clamp((along - WALK_SPEED) / (RUN_SPEED - WALK_SPEED), 0, 1);
+      if (!groundBody.flaring) walkYaw += turn * THREE.MathUtils.lerp(WALK_TURN, RUN_TURN, gearT) * dt;
 
-      if (settling) {
-        // Fall onto it. Short, but it is the difference between arriving and
-        // being placed.
-        fallSpeed += GRAVITY * dt;
-        dragon.position.y -= fallSpeed * dt;
+      const fwd = (walkKeys.w ? 1 : 0) - (walkKeys.s ? 1 : 0);
+      // Backwards is always a shuffle. Nothing that size reverses at a run.
+      const gear = (fwd < 0 ? WALK_SPEED * 0.55 : (running ? RUN_SPEED : WALK_SPEED)) * walkGearDebug;
+      const nx = Math.sin(walkYaw), nz = Math.cos(walkYaw);
+      const want = { x: nx * fwd * gear, z: nz * fwd * gear };
+      const r = groundBody.step(dt, { want, accel: running ? RUN_ACCEL : WALK_ACCEL, yaw: walkYaw });
+      groundBody.apply(dragon);
+      settling = groundBody.flaring;
+      const v = groundBody.velocity;
+      walkSpeed = v.x * nx + v.z * nz;
+      slopePitch = groundBody.pitch; slopeRoll = groundBody.roll;
 
-        // Rotate into the hillside on the way down. An animal landing on a
-        // slope has its legs and its whole body already angled for the ground
-        // before it touches; arriving level and correcting afterwards is the
-        // single thing that made this look broken.
-        settleT = Math.min(1, settleT + dt * 2.2);
-        const k = settleT * settleT * (3 - 2 * settleT);
-        if (settleFrom && settleTo) {
-          slopePitch = THREE.MathUtils.lerp(settleFrom.pitch, settleTo.pitch, k);
-          slopeRoll = THREE.MathUtils.lerp(settleFrom.roll, settleTo.roll, k);
-          slopeLift = THREE.MathUtils.lerp(settleFrom.lift, settleTo.lift, k);
-        }
-        // Fold on the way DOWN, not once he has stopped. This is the drop, and a
-        // dragon flaring to land has his wings coming in through it — waiting
-        // for the thump meant a second and a half of him falling with his wings
-        // spread and then folding them while stood still, which reads as two
-        // separate animations rather than one landing.
+      // Touchdown: a thump scaled by how hard he came in.
+      if (r.supported && !wasSupported) {
+        pad.rumble.pulse(THREE.MathUtils.clamp(Math.abs(v.y) / 9 + 0.2, 0.25, 1), 1, 0.3);
+      }
+      wasSupported = r.supported;
+
+      // Off an edge with nothing under him, or onto open water: he opens his
+      // wings rather than falling. A short drop off a step is just a step.
+      const under = surfaces.at(dragon.position.x, dragon.position.z, dragon.position.y + 1);
+      // (Only once he has had his feet down: the drop of the landing itself is
+      // not "falling off" anything.)
+      if ((!groundBody.flaring && r.airborne > 0.55)
+          || (!under.solid && !groundBody.flaring && !r.supported)
+          || (!under.solid && dragon.position.y - under.y < 1.2)) {
+        takeOff();
+      } else if (groundBody.flaring) {
+        // Fold on the way DOWN, not once he has stopped.
         groundRig?.applyFold(sdt);
-        if (dragon.position.y <= deck) {
-          dragon.position.y = deck;
-          settling = false;
-          // Snap the last of the flare, so the first walking frame is not a
-          // discontinuity from a half-finished blend.
-          if (settleTo) {
-            slopePitch = settleTo.pitch;
-            slopeRoll = settleTo.roll;
-            slopeLift = settleTo.lift;
-          }
-          // Thump scaled by how hard he came in.
-          pad.rumble.pulse(THREE.MathUtils.clamp(fallSpeed / 22, 0.25, 1), 1, 0.3);
-          fallSpeed = 0;
-        }
-        dragon.rotation.order = "YXZ";
-        dragon.rotation.set(-slopePitch, walkYaw + Math.PI, slopeRoll);
       } else {
-        const turn = (walkKeys.a ? 1 : 0) - (walkKeys.d ? 1 : 0);
-        // Two gears, and the turn rate falls off as he picks up speed — mixed
-        // by how fast he is ACTUALLY going rather than by whether the key is
-        // down, so easing off the run tightens the turn back up on the way out
-        // of it instead of the moment the key is released.
-        const running = walkKeys.run;
-        const gearT = THREE.MathUtils.clamp(
-          (Math.abs(walkSpeed) - WALK_SPEED) / (RUN_SPEED - WALK_SPEED), 0, 1);
-        walkYaw += turn * THREE.MathUtils.lerp(WALK_TURN, RUN_TURN, gearT) * dt;
-
-        // Walking uphill is slower than walking down it.
-        const fwd = (walkKeys.w ? 1 : 0) - (walkKeys.s ? 1 : 0);
-        const grade = THREE.MathUtils.clamp(-slopePitch * 1.1, -0.28, 0.22);
-        // Backwards is always a shuffle. Nothing that size reverses at a run.
-        const gear = (fwd < 0 ? WALK_SPEED * 0.55 : (running ? RUN_SPEED : WALK_SPEED)) * walkGearDebug;
-        walkSpeed += (fwd * gear * (1 + grade) - walkSpeed) *
-          damp(running ? RUN_ACCEL : WALK_ACCEL, dt);
-
-        // His nose vector is (sin h, cos h), same convention as controls.js.
-        const nx = Math.sin(walkYaw), nz = Math.cos(walkYaw);
-        dragon.position.x += nx * walkSpeed * dt;
-        dragon.position.z += nz * walkSpeed * dt;
-
-        // Stick to the ground, but not instantly — a step up a rock should be a
-        // step, not a snap. `slopeLift` is what keeps the downhill half of him
-        // out of the rock once he is pitched over to match it.
-        const target = world.getHeightAt(dragon.position.x, dragon.position.z)
-                     + FOOT_CLEAR + slopeLift;
-        dragon.position.y += (target - dragon.position.y) * damp(11, dt);
-
-        // Sit on the slope. Sample the height field along his nose and across
-        // it; that is the surface he is standing on, so that is his attitude.
-        const att = groundAttitude(dragon.position.x, dragon.position.z, nx, nz);
-        slopePitch += (att.pitch - slopePitch) * damp(5, dt);
-        slopeRoll += (att.roll - slopeRoll) * damp(5, dt);
-        slopeLift += (att.lift - slopeLift) * damp(5, dt);
-
-        dragon.rotation.order = "YXZ";
-        dragon.rotation.set(-slopePitch, walkYaw + Math.PI, slopeRoll);
-
-        // Walked off the edge. He does the sensible thing rather than falling.
-        if (world.getHeightAt(dragon.position.x, dragon.position.z) <= world.seaLevel + 1) takeOff();
-
-        // setFold, not snapFold: this runs every frame he is on the ground, and
-        // snapping here is what pinned the fold at 1 and made land() and
-        // takeOff() unable to animate anything at all.
         groundRig?.setFold(1);
         const modelScale = dragon.scale.x || 1;
+        const feetTop = dragon.position.y + 1.4;
         groundRig?.update(sdt, {
-          groundAt: (x, z) => world.getHeightAt(x, z),
-          speed: Math.abs(walkSpeed) / modelScale,
-          // RUN_SPEED, not WALK_SPEED. The gait normalises against this, so
-          // handing it the walk figure while he is doing 12 m/s asks it for a
-          // stride three times over and he scrabbles.
+          groundAt: (x, z) => surfaces.heightAt(x, z, feetTop),
+          speed: groundBody.speed / modelScale,
           maxSpeed: RUN_SPEED / modelScale,
         });
         game.setPrompt(

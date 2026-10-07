@@ -129,7 +129,32 @@ The wing joint axes were measured on the rig, not guessed. `wingprobe.html`
 shows what each bone and axis does. `flightcheck.html?speed=0&climb=0&view=front|side|q`
 is the test bench: one full beat as a filmstrip.
 
-## On foot
+## Landing and standing
+
+On the ground he's a physical body (`js/groundbody.js`): mass carried on four
+spring-damped legs.
+
+**What he can stand on.** Each leg reaches down to the highest solid thing
+under its foot (`js/surfaces.js`). That means terrain, plus the real geometry
+of every place: hut roofs, decks, crates, cages, the top of the stack. Ray
+tests stay fast thanks to a BVH (`three-mesh-bvh`).
+
+**Coming down.**
+- He flares on the way down: the wings hold most of his weight, he sinks under
+  control, and he sheds forward speed.
+- His legs absorb the touchdown.
+- He runs out whatever speed is left.
+
+**Standing.**
+- His body sets itself to the plane of his footholds, so he tilts along a roof
+  or across a rock.
+- Grip is limited friction. A gentle slope holds him; one too steep for it
+  slides him down.
+- Anything taller than a step stops him.
+
+**Edges.** With two feet or fewer holding him and his weight off them, he tips
+over the edge. After a moment of falling he opens his wings.
+
 
 The walking is built from how big cats and other four-legged animals actually
 move (`js/gait.js`). Toothless was animated from a panther and a dog, and his
