@@ -5,6 +5,7 @@ import * as tex from "./textures.js";
 import * as input from "./input.js";
 import { setupTouch } from "./touch.js";
 import { bindDragon, noseSign } from "./dragonrig.js";
+const _floorP = new THREE.Vector3();
 import { music } from "./audio.js";
 import { setupPost } from "./postfx.js";
 
@@ -640,7 +641,8 @@ export function runPrologue(pad = null, save = null) {
         yaw -= turn * 2.2 * dt;
 
         if (Math.abs(walk) > 0.01) {
-          const speed = 2.3 * (walk > 0 ? 1 : 0.72);
+          // A walk, not a trot: it is one room, lit by one fire.
+          const speed = 1.8 * (walk > 0 ? 1 : 0.72);
           const step = walk * speed * dt;
           const nx = body.position.x + Math.sin(yaw) * step;
           const nz = body.position.z + Math.cos(yaw) * step;
@@ -667,7 +669,12 @@ export function runPrologue(pad = null, save = null) {
       lastPos.copy(body.position);
       groundSpeed += (moved / Math.max(dt, 1e-4) - groundSpeed) * (1 - Math.exp(-12 * dt));
 
-      if (pose) pose.update(dt, { speed: groundSpeed, maxSpeed: 2.3 });
+      // The floor is flat and he is standing on it, so the ground is wherever
+      // his body group is. With it the rig plants his feet (gait.js).
+      if (pose) {
+        const floorY = body.getWorldPosition(_floorP).y;
+        pose.update(dt, { speed: groundSpeed, maxSpeed: 2.3, groundAt: () => floorY });
+      }
 
       // --- Proximity --------------------------------------------------------
       near = null;

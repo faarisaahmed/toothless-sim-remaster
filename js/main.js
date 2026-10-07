@@ -1037,6 +1037,7 @@ let groundRig = null;          // bindDragon, built on first landing
 // which is what makes the wings sweep open instead of appearing open.
 let openingWings = false;
 let walkYaw = 0, walkSpeed = 0, landHold = 0;
+let walkGearDebug = 1;         // debug: scales the ground speeds (window.__na.walkGear)
 const walkKeys = { w: false, a: false, s: false, d: false, run: false };
 const LAND_AGL = 22;           // how low he has to be before landing is offered
 // ...and how slow. speedT is a fraction of his 750 mph top speed, so this is
@@ -1050,14 +1051,25 @@ const LAND_SPEED = 0.18;
 // hold sprint and he runs. Turning gets slower as he speeds up for the same
 // reason it does in the air: you cannot pivot on the spot at a canter, and
 // being able to would make the run feel like a cursor rather than an animal.
-const WALK_SPEED = 4.0;        // metres per second at a full stride
-const RUN_SPEED = 12.5;        // ...and at a run, holding sprint
-const WALK_TURN = 1.6;         // radians per second at a walk
-const RUN_TURN = 0.85;         // and at a full run
-const RUN_ACCEL = 2.1;         // how fast he winds up into it
-const WALK_ACCEL = 3.2;        // and how fast he answers at a walk
+//
+// The numbers come from his size. His hips are a metre up, and for any
+// quadruped that size the walk turns into a trot at about 2 m/s and the trot
+// into a gallop at about 5 (gait.js has the reasoning). So the plain key is a
+// ground-eating trot — what a dog or a big cat does to actually get somewhere —
+// and sprint is the full bounding gallop. He passes through the walk every time
+// he sets off or pulls up, and the gait shows it.
+const WALK_SPEED = 4.2;        // metres per second: a brisk trot
+const RUN_SPEED = 14.0;        // ...and the gallop, holding sprint
+const WALK_TURN = 2.5;         // radians per second at a trot
+const RUN_TURN = 1.15;         // and at a full gallop
+const RUN_ACCEL = 2.8;         // how fast he winds up into it
+const WALK_ACCEL = 5.0;        // and how fast he answers at a trot
 const GRAVITY = 26;            // m/s^2 during the drop onto the ground
-const FOOT_CLEAR = 0.35;       // where his feet sit relative to the height field
+// Where his origin sits relative to the height field. His feet are placed on
+// the ground by the gait's leg IK, so this is how low he carries his body: a
+// touch below his bind height, so the legs stand a little bent, like a cat's,
+// rather than locked straight.
+const FOOT_CLEAR = 0.0;
 // His footprint, fore-aft and across. The slope is sampled over this, and it is
 // also what decides how far the ORIGIN has to rise on a hillside: he pivots
 // about his origin, so on a slope the downhill end of a 3.2 m body drops
@@ -1663,6 +1675,7 @@ window.__na = {
    *  every bone name, so a scene-wide search finds the wrong dragon. */
   bone(n) { let f = null; dragon?.traverse((o) => { if (o.isBone && o.name === n) f = o; }); return f; },
   get walkSpeed() { return walkSpeed; },
+  set walkGear(v) { walkGearDebug = v; },
   get settling() { return settling; },
   /** Debug: put him somewhere. The archipelago is big and the rig is far out. */
   go(x, y, z) { if (dragon) dragon.position.set(x, y, z); },
@@ -2349,7 +2362,7 @@ function frame() {
         const fwd = (walkKeys.w ? 1 : 0) - (walkKeys.s ? 1 : 0);
         const grade = THREE.MathUtils.clamp(-slopePitch * 1.1, -0.28, 0.22);
         // Backwards is always a shuffle. Nothing that size reverses at a run.
-        const gear = fwd < 0 ? WALK_SPEED * 0.55 : (running ? RUN_SPEED : WALK_SPEED);
+        const gear = (fwd < 0 ? WALK_SPEED * 0.55 : (running ? RUN_SPEED : WALK_SPEED)) * walkGearDebug;
         walkSpeed += (fwd * gear * (1 + grade) - walkSpeed) *
           damp(running ? RUN_ACCEL : WALK_ACCEL, dt);
 
@@ -2384,6 +2397,7 @@ function frame() {
         groundRig?.setFold(1);
         const modelScale = dragon.scale.x || 1;
         groundRig?.update(sdt, {
+          groundAt: (x, z) => world.getHeightAt(x, z),
           speed: Math.abs(walkSpeed) / modelScale,
           // RUN_SPEED, not WALK_SPEED. The gait normalises against this, so
           // handing it the walk figure while he is doing 12 m/s asks it for a

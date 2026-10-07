@@ -63,6 +63,11 @@ const DRAG = arg("drag", "");
 // debug-console line, usually `cam`, which pins the camera so before and after
 // shots of a change are taken from exactly the same place.
 const VIEWS = arg("views", "");
+// `--burst N --burstms 120` with `--shot out.png`: after the eval, N frames
+// spaced burstms apart, to out-b00.png .. — for judging motion (a gait, a
+// landing) rather than a pose.
+const BURST = Number(arg("burst", 0));
+const BURST_MS = Number(arg("burstms", 120));
 
 // Device metrics. Sizes are CSS pixels, which is what the page sees, and the
 // dpr is what a real one of these reports.
@@ -241,7 +246,17 @@ try {
     }, null, 1);
   })()`);
 
-  if (VIEWS && SHOT) {
+  if (BURST && SHOT) {
+    await send("Page.enable");
+    for (let i = 0; i < BURST; i++) {
+      const t0 = Date.now();
+      const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+      const out = SHOT.replace(/\.png$/, "") + "-b" + String(i).padStart(2, "0") + ".jpg";
+      writeFileSync(out, Buffer.from(shot.data, "base64"));
+      await sleep(Math.max(0, BURST_MS - (Date.now() - t0)));
+    }
+    console.log(`burst of ${BURST} written to ${SHOT.replace(/\.png$/, "")}-bNN.jpg`);
+  } else if (VIEWS && SHOT) {
     await send("Page.enable");
     for (const v of VIEWS.split("|")) {
       const eq = v.indexOf("=");
