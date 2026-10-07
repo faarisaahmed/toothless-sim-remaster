@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gait Check — Night Alone</title>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  body { margin: 0; background: #20242c; color: #ddd; font: 13px system-ui, sans-serif; }
+  #strip { display: block; }
+  #note { position: fixed; top: 6px; left: 8px; }
+</style>
+</head>
+<body>
+<!--
+  The ground gait, on its own, where it can be judged.
+
+  The real rig and the real gait (js/dragonrig.js, js/gait.js), on a flat grey
+  floor with a 0.5 m grid, lit from the camera side, seen side-on. The dragon is
+  driven at a fixed speed and the page draws a filmstrip of frames at a fixed
+  time step, so foot slip, stride and body motion can be read off a still.
+
+    gaitcheck.html?v=4.2            speed in m/s (0 = standing)
+                  &frames=12&dt=0.04&cols=4&warm=3
+                  &turn=0.8         yaw rate, rad/s
+                  &slope=0.2        ground slope across his path, rise/run
+                  &view=side|front|top|q
+-->
+<div id="note"></div>
+<canvas id="strip"></canvas>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { bindDragon } from "./js/dragonrig.js";
+
+const q = new URLSearchParams(location.search);
+const V = +(q.get("v") ?? 4.2), FRAMES = +(q.get("frames") ?? 12), DT = +(q.get("dt") ?? 0.04);
+const COLS = +(q.get("cols") ?? 4), WARM = +(q.get("warm") ?? 3), TURN = +(q.get("turn") ?? 0);
+const SLOPE = +(q.get("slope") ?? 0), VIEW = q.get("view") ?? "side";
+const CW = +(q.get("cw") ?? 480), CH = +(q.get("ch") ?? 300), DIST = +(q.get("dist") ?? 7.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(CW, CH);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9aa3ad);
+const cam = new THREE.PerspectiveCamera(36, CW / CH, 0.1, 100);
+
+const groundAt = (x, z) => x * SLOPE;
+const floorGeo = new THREE.PlaneGeometry(400, 400, 1, 1).rotateX(-Math.PI / 2);
+floorGeo.translate(0, 0, 0);
+const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x8c8f88, roughness: 1 }));
+floor.rotation.z = Math.atan(SLOPE);
+floor.receiveShadow = true;
+scene.add(floor);
+const grid = new THREE.GridHelper(400, 800, 0x555a60, 0x6c7178);
+grid.rotation.z = Math.atan(SLOPE);
+grid.position.y = 0.003;
+scene.add(grid);
+scene.add(new THREE.HemisphereLight(0xdde8ff, 0x605848, 1.4));
+const sun = new THREE.DirectionalLight(0xffffff, 2.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 0.5, far: 40 });
+scene.add(sun, sun.target);
+
+const strip = document.getElementById("strip");
+strip.width = CW * COLS; strip.height = CH * Math.ceil(FRAMES / COLS);
+const sg = strip.getContext("2d");
+
+new GLTFLoader().load("./assets/models/dragon_rigged_hd.glb", (gltf) => {
+  const dragon = gltf.scene;
+  dragon.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  scene.add(dragon);
+  const rig = bindDragon(dragon);
+  rig.snapFold(1);
+
+  let yaw = 0, t = 0;
+  // Heading convention as main.js: nose along (sin h, cos h), model turned by h + PI.
+  function step(dt) {
+    yaw += TURN * dt;
+    dragon.position.x += Math.sin(yaw) * V * dt;
+    dragon.position.z += Math.cos(yaw) * V * dt;
+    dragon.position.y = groundAt(dragon.position.x, dragon.position.z) + +(q.get("clear") ?? 0);
+    dragon.rotation.set(0, yaw + Math.PI, 0, "YXZ");
+    rig.setFold(1);
+    const info = rig.update(dt, { groundAt, speed: V, maxSpeed: 14 });
+    t += dt;
+    return info;
+  }
+  for (let i = 0; i < WARM / DT; i++) step(DT);
+
+  let info;
+  for (let f = 0; f < FRAMES; f++) {
+    info = step(DT);
+    const p = dragon.position, h = yaw;
+    const nx = Math.sin(h), nz = Math.cos(h);
+    const side = new THREE.Vector3(nz, 0, -nx);
+    const mid = p.clone().addScaledVector(new THREE.Vector3(nx, 0, nz), 0.9);
+    if (VIEW === "front") cam.position.copy(mid).addScaledVector(new THREE.Vector3(nx, 0, nz), 7).setY(p.y + 1.1);
+    else if (VIEW === "top") cam.position.copy(mid).setY(p.y + 9).addScaledVector(side, 0.01);
+    else if (VIEW === "q") cam.position.copy(mid).addScaledVector(side, 5).addScaledVector(new THREE.Vector3(nx, 0, nz), 4).setY(p.y + 2);
+    else cam.position.copy(mid).addScaledVector(side, DIST).setY(p.y + 0.9);
+    cam.lookAt(mid.x, p.y + 0.6, mid.z);
+    sun.position.copy(cam.position).add(new THREE.Vector3(0, 6, 0));
+    sun.target.position.copy(mid);
+    renderer.render(scene, cam);
+    sg.drawImage(renderer.domElement, (f % COLS) * CW, Math.floor(f / COLS) * CH);
+    sg.fillStyle = "#000"; sg.font = "13px system-ui";
+    sg.fillText(`${(t).toFixed(2)}s  ph ${info?.phase?.toFixed(2)}`, (f % COLS) * CW + 6, Math.floor(f / COLS) * CH + 16);
+  }
+  const g = info?.gait;
+  document.getElementById("note").textContent =
+    `v ${V} m/s  walk ${g?.walk.toFixed(2)} trot ${g?.trot.toFixed(2)} gallop ${g?.gallop.toFixed(2)}`;
+  document.title = "ready";
+  window.__ready = true;
+});
+</script>
+</body>
+</html>

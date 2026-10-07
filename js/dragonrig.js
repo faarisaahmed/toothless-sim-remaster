@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { FOLD_POSE } from "./foldpose.js";
+import { createGait } from "./gait.js";
 
 // ---------------------------------------------------------------------------
 // Ground rig — folding, walking, breathing
@@ -177,7 +178,12 @@ export function bindDragon(root) {
 
   // Bind pose, captured once. Every pose below is rest + delta.
   const rest = new Map();
-  for (const [name, bone] of bones) rest.set(name, bone.rotation.clone());
+  const restQ = new Map();
+  for (const [name, bone] of bones) { rest.set(name, bone.rotation.clone()); restQ.set(name, bone.quaternion.clone()); }
+  // The real gait — planted feet, leg IK, gaits by speed (gait.js). Used
+  // whenever the caller can say where the ground is; the old sine-wave legs
+  // below stay for the poses that have no ground (the prologue's perches).
+  let gaitRig = null, gaitTried = false;
 
   const get = (n) => bones.get(n) || null;
 
@@ -360,6 +366,11 @@ export function bindDragon(root) {
 
     for (const { bone } of shoulders) add(bone, "x", jostle);
     for (const { bone } of upperArms) add(bone, "x", jostle * 0.5);
+
+    if (s.groundAt) {
+      if (!gaitTried) { gaitTried = true; gaitRig = createGait(root, bones, restQ); }
+      if (gaitRig) return gaitRig.update(dt, s);
+    }
 
     // --- Legs -------------------------------------------------------------
     // Diagonal pairs, half a cycle apart.

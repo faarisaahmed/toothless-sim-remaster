@@ -95,6 +95,45 @@ Each tree has three levels of detail by distance from the camera:
 Debug: `window.__na.world.flora.forest.showcase(x, z)` lines every variant up
 in a row.
 
+## On foot
+
+The walking is built from how big cats and other four-legged animals actually
+move (`js/gait.js`). Toothless was animated from a panther and a dog, and his
+hips are about a metre off the ground.
+
+**Gaits by speed.** Across four-legged animals, the gait changes at set values
+of the Froude number (v²/gh, with h the hip height). The walk gives way to the
+trot at about 0.5, and the trot to the gallop at about 2.5. For him that's a
+walk below about 2 m/s, a trot up to about 5 m/s, and a gallop beyond.
+- **Walk:** each side's hind foot then fore foot steps in turn, with three feet
+  on the ground most of the time, and the head nods.
+- **Trot:** diagonal pairs move together.
+- **Gallop:** a big cat's bounding gallop, with the spine coiling and
+  stretching through each stride.
+
+The movement key is a brisk trot at 4.2 m/s, and sprint is a gallop at
+14 m/s.
+
+**Planted feet.** A foot on the ground stays where it landed, and each leg is
+solved to it with two-bone IK (the hip-to-knee and knee-to-ankle segments are
+rotated so the foot lands exactly on its target). A foot in the air swings to
+where it will be needed next, so steps lengthen with speed and nothing slides.
+
+**Terrain.** Every foot lands on the ground beneath it.
+
+**Body.**
+- He bobs in time with his gait.
+- He leans into turns (lean = v·ω/g).
+- His head holds steady against the motion.
+- His tail swings to counterbalance.
+- When he stops, any foot left out of place takes a last step to settle.
+
+The prologue's walk uses the same system.
+
+`gaitcheck.html?v=4.2` is the test bench: the real rig on a grid, drawn as a
+side-on filmstrip at a fixed time step. Options include `&turn=`, `&slope=`,
+`&view=front|top|q`, and `v=0` to see him standing.
+
 ## Controls
 
 One key, one job. WASD and the arrow keys are the same two axes everywhere —
