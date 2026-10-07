@@ -3,7 +3,7 @@ import { prop } from "./props.js";
 import { mergeStatic, makeLightPool } from "./places.js";
 import { makeOrb } from "./placeholder.js";
 import { loadKit, createActor } from "./dragonkit.js";
-import { pitLayout, PADS } from "./terrain.js";
+import { pitLayout, PADS, pitPaths, pitPathAt, fertility, terrainSlope } from "./terrain.js";
 import { createHunters } from "./hunters.js";
 
 // ---------------------------------------------------------------------------
@@ -38,6 +38,32 @@ import { createHunters } from "./hunters.js";
 // ---------------------------------------------------------------------------
 
 const TAU = Math.PI * 2;
+
+/**
+ * How thick the wood is at a point, 0..1, for the hunters' sight lines: the
+ * same number the forest planted its trees by (terrain.js fertility, which
+ * includes the old gullies), turned into the share of spots that got a tree.
+ * Fertility is a few noise reads and a slope, so it is cached on an 8 m grid
+ * round the island and filled in as the sight lines ask for it.
+ */
+function makeCover(L, groundAt) {
+  const CELL = 8, HALF = 1150, N = Math.ceil(HALF * 2 / CELL);
+  const grid = new Float32Array(N * N).fill(-1);
+  const x0 = L.x - HALF, z0 = L.z - HALF;
+  return (x, z) => {
+    const i = Math.floor((x - x0) / CELL), j = Math.floor((z - z0) / CELL);
+    if (i < 0 || j < 0 || i >= N || j >= N) return 0;
+    const k = j * N + i;
+    let c = grid[k];
+    if (c < 0) {
+      const cx = x0 + (i + 0.5) * CELL, cz = z0 + (j + 0.5) * CELL;
+      const f = fertility(cx, cz, groundAt(cx, cz), terrainSlope(cx, cz));
+      // forest.js keeps a spot when its roll is under f * 1.15.
+      c = grid[k] = f < 0.16 ? 0 : Math.min(1, Math.max(0, (f * 1.15 - 0.1) / 0.9));
+    }
+    return c;
+  };
+}
 
 // ---------------------------------------------------------------------------
 // What is in the cages. A glowing orb until the stand-in models load (see
@@ -141,6 +167,10 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   };
   const roughness = (x, z, r = 3) =>
     Math.abs(groundAt(x + r, z) - groundAt(x - r, z)) + Math.abs(groundAt(x, z + r) - groundAt(x, z - r));
+  // The old gullies (terrain.js pitPaths) are nobody's: nothing is built in
+  // one or on its lip, and the yard fence is broken where each comes out.
+  const inGully = (x, z, pad = 8) => { const g = pitPathAt(x, z); return g.path >= 0 && g.d < g.depth * 0.6 + 17 + pad; };
+  const gullyEnds = pitPaths().map((p) => Math.atan2(p.z[p.z.length - 1] - cz, p.x[p.x.length - 1] - cx));
 
   // --- the channel: lowest bearing through the rim ----------------------------
   let gateA = 0, low = Infinity;
@@ -208,7 +238,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   for (let i = 0; i < 8; i++) {
     const a = gateA + 0.9 + i * 0.62;
     const p = L.roadAt(1, Math.atan2(Math.sin(a), Math.cos(a)));
-    if (roughness(p.x, p.z) > 2 || groundAt(p.x, p.z) < 8) continue;
+    if (roughness(p.x, p.z) > 2 || groundAt(p.x, p.z) < 8 || inGully(p.x, p.z)) continue;
     makeCage(p.x, p.z, -a, "rig_cage_small", 0x9fd8ff, terraceCages);
   }
   let hatchCage = null;
@@ -291,6 +321,9 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     return null;
   };
   take(cx, cz, 19);                                      // the smelter
+  for (const p of pitPaths()) {
+    for (let i = 0; i < p.x.length; i += 3) take(p.x[i], p.z[i], p.half + 6);
+  }
   for (const c of cages) take(c.pos.x, c.pos.z, 9);
   for (const c of terraceCages) take(c.pos.x, c.pos.z, 3.5);
   if (hatchCage) take(hatchCage.pos.x, hatchCage.pos.z, 3.5);
@@ -371,6 +404,8 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   const YARD_R = L.floorR - 13;
   const gateHalf = 0.075;
   for (let a = gateA + gateHalf + 0.03; a < gateA + TAU - gateHalf - 0.03; a += 6 / YARD_R) {
+    // Fallen in where a gully comes down to it: a gap a dragon can get through.
+    if (gullyEnds.some((e) => Math.abs(Math.atan2(Math.sin(a - e), Math.cos(a - e))) < 0.06)) continue;
     const [x, z] = polar(a, YARD_R);
     place(clone("dh_palisade"), x, z, -a, -0.2);
     take(x, z, 2);
@@ -630,7 +665,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     for (let da = -0.25; da <= 0.25; da += 0.05) {
       for (let r = L.topR + 25; r < L.rimR + 90; r += 10) {
         const [x, z] = polar(a0 + da, r);
-        const rough = roughness(x, z, 3);
+        const rough = roughness(x, z, 3) + (inGully(x, z, 14) ? 100 : 0);
         const h = groundAt(x, z);
         if (h < 60) continue;
         const score = rough * 4 - h * 0.02 + Math.abs(da) * 10;
@@ -647,7 +682,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   for (let i = 0; i < 3; i++) {
     const a = gateA + 0.6 + i * TAU / 3;
     const p = L.roadAt(Math.min(2, L.turns - 1), Math.atan2(Math.sin(a), Math.cos(a)));
-    if (roughness(p.x, p.z) > 2.5) continue;
+    if (roughness(p.x, p.z) > 2.5 || inGully(p.x, p.z)) continue;
     const b = clone("dh_ballista");
     // Facing out of the pit and up: they are there for anything coming over the rim.
     place(b, p.x, p.z, -a + Math.PI / 2, 0);
@@ -658,7 +693,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
       const a = t.a + side * 0.09;
       const r = Math.hypot(t.pos.x - cx, t.pos.z - cz);
       const [x, z] = polar(a, r);
-      if (groundAt(x, z) < 50) continue;
+      if (groundAt(x, z) < 50 || inGully(x, z, 2)) continue;
       place(clone("dh_palisade"), x, z, -a, -0.2);
     }
   }
@@ -737,6 +772,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   console.info(`hunterbase: ${homes.length} homes, ${leantos.length} lean-tos, ${fires.length} fires, ${tables.length} tables, ${works.length} work spots, ${torches.length} torches`);
   const hunters = await createHunters(scene, {
     getHeightAt: groundAt,
+    cover: makeCover(L, groundAt),
     getLights: lightList,
     onArrowHit: (a) => base.onArrowHit?.(a),
     camp,
