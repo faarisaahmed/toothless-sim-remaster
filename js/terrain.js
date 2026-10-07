@@ -834,6 +834,8 @@ export { padWeight };
 // metres of rough ground to add once the height is known). Module scope only
 // so the island loop can hand them to the end of the function.
 let PIT_TREAD = 0, PIT_RELIEF = 0;
+// The old ways into the pit (see pitPaths, below): null until they are built.
+let PATH_GRID = null;
 
 export function terrainHeight(x, z) {
   PIT_RELIEF = 0;
@@ -1168,6 +1170,8 @@ export function terrainHeight(x, z) {
   // placed on land can move.
   // The pit's rough ground (see the crater carving above).
   if (PIT_RELIEF !== 0) h += PIT_RELIEF;
+  // ...and the wooded gorges cut down through it at a walking grade.
+  if (PATH_GRID) h = carvePitPaths(x, z, h);
 
   // Levelled ground, last, so nothing above can put a stratum or a crag
   // through the middle of a village.
@@ -1189,6 +1193,202 @@ export function terrainHeight(x, z) {
 
 flattenIslands();
 buildGrid();
+
+// ---------------------------------------------------------------------------
+// The old ways into the pit.
+//
+// From the air the pit is a bowl of bare terraces with a tower on every
+// shoulder of the rim, and the only way in was over the top in full view.
+// These are the other ways: three gullies the quarrymen cut long ago to get
+// the spoil out, abandoned when the spiral road went in, and grown back over.
+// Each one starts on the outer flank, notches through the rim and winds down
+// across the terraces to the yard fence, sunk below the ground either side
+// the whole way and wooded floor to lip (fertility() reads pitWood), so a
+// dragon on foot can walk from the woods outside to the back of the camp
+// under cover. Seen from a tower they are dark green seams in the rock.
+//
+// Each is a centre line (control points in metres and radians about the pit,
+// smoothed) with a floor profile built once at load: the largest profile that
+// stays at least PATH_DEEP below the natural ground and never climbs or drops
+// faster than PATH_GRADE — so wherever the terraces fall faster than he can
+// walk, the gully cuts deeper instead of steeper. terrainHeight lerps toward
+// that floor across the path's width, with banks that widen as the cut
+// deepens, which is what makes a deep cut a gorge and a shallow one a ditch.
+// ---------------------------------------------------------------------------
+const PATH_DEFS = [
+  // South: off the plateau behind the southern rim, between two towers, and
+  // down round to the stores stacked against the yard fence.
+  { name: "the south gully", pts: [[610, 5.31], [530, 5.31], [450, 5.22], [380, 5.02], [305, 4.78], [230, 4.55], [165, 4.40], [113, 4.32]] },
+  // East: a gorge through the eastern ridge from the low ground outside it,
+  // down to the cranes and the back of the cage ring.
+  { name: "the east gully", pts: [[730, 0.70], [630, 0.72], [540, 0.70], [450, 0.58], [370, 0.40], [290, 0.20], [215, 0.04], [155, -0.04], [113, -0.08]] },
+  // North: from the headland across the channel, down behind the workshop.
+  { name: "the north gully", pts: [[610, 2.85], [530, 2.85], [450, 2.74], [375, 2.54], [300, 2.31], [225, 2.08], [160, 1.91], [113, 1.82]] },
+];
+const PATH_HALF = 11;      // m: the flat floor either side of the centre line
+const PATH_GRADE = 0.25;   // rise over run: 14 degrees, a steady walk
+const PATH_DEEP = 5;       // m: the least it lies below the ground either side
+const PATH_CELL = 24;      // m: lookup grid
+let PIT_PATHS = [];
+let PATH_BOX = null, PATH_GW = 0, PATH_GH = 0, PATH_REACH = 0;
+
+const bankOf = (depth) => 6 + depth * 0.6;
+
+function buildPitPaths() {
+  const L = pitLayout();
+  if (!L) return;
+  const cr = (a, b, c, d, t) => {
+    const t2 = t * t, t3 = t2 * t;
+    return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+  };
+  let maxDepth = 0;
+  for (const def of PATH_DEFS) {
+    const ctrl = def.pts.map(([r, a]) => [L.x + Math.cos(a) * r, L.z + Math.sin(a) * r]);
+    const raw = [];
+    for (let i = 0; i < ctrl.length - 1; i++) {
+      const p0 = ctrl[Math.max(0, i - 1)], p1 = ctrl[i], p2 = ctrl[i + 1], p3 = ctrl[Math.min(ctrl.length - 1, i + 2)];
+      const n = Math.max(2, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 4));
+      for (let k = 0; k < n; k++) {
+        const t = k / n;
+        raw.push([cr(p0[0], p1[0], p2[0], p3[0], t), cr(p0[1], p1[1], p2[1], p3[1], t)]);
+      }
+    }
+    raw.push(ctrl[ctrl.length - 1]);
+    // The floor: the highest profile under the natural ground (less the
+    // sink) that never runs steeper than the grade.
+    const prof = (pts) => {
+      const n = pts.length, S = [0], N = [], C = [], Y = [];
+      for (let i = 0; i < n; i++) {
+        if (i) S[i] = S[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+        N[i] = terrainHeight(pts[i][0], pts[i][1]);
+      }
+      const len = S[n - 1];
+      for (let i = 0; i < n; i++) {
+        const sink = PATH_DEEP * smoothstep(S[i], 0, 45) * smoothstep(len - S[i], 0, 30);
+        C[i] = Math.max(SEA_LEVEL + 6, N[i] - sink);
+      }
+      for (let i = 0; i < n; i++) {
+        let m = Infinity;
+        for (let j = 0; j < n; j++) m = Math.min(m, C[j] + PATH_GRADE * Math.abs(S[i] - S[j]));
+        Y[i] = m;
+      }
+      return { S, N, Y };
+    };
+    let pf = prof(raw);
+    // Where the outer end is still sunk in the hillside, carry it on outward,
+    // climbing at the grade, until it comes out on the surface — a gully
+    // has to start somewhere you can walk into it.
+    {
+      const [x0, z0] = raw[0], [x1, z1] = raw[1];
+      const l = Math.hypot(x0 - x1, z0 - z1) || 1;
+      const ux = (x0 - x1) / l, uz = (z0 - z1) / l;
+      let y = pf.Y[0], k = 0;
+      const lead = [];
+      while (k < 70) {
+        const nx = x0 + ux * 4 * (k + 1), nz = z0 + uz * 4 * (k + 1);
+        if (terrainHeight(nx, nz) - (y + PATH_GRADE * 4 * (k + 1)) < 1.5) break;
+        lead.unshift([nx, nz]);
+        k++;
+      }
+      if (lead.length) {
+        // Plus a few metres of run-out past where it surfaces.
+        for (let e = 1; e <= 4; e++) lead.unshift([x0 + ux * 4 * (k + e), z0 + uz * 4 * (k + e)]);
+        raw.unshift(...lead);
+        pf = prof(raw);
+      }
+    }
+    const n = raw.length;
+    const X = new Float32Array(n), Z = new Float32Array(n), S = new Float32Array(pf.S);
+    const Y = new Float32Array(pf.Y), D = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      X[i] = raw[i][0]; Z[i] = raw[i][1];
+      D[i] = Math.max(0, pf.N[i] - Y[i]);
+      maxDepth = Math.max(maxDepth, D[i]);
+    }
+    const len = S[n - 1];
+    PIT_PATHS.push({ name: def.name, x: X, z: Z, s: S, y: Y, depth: D, len, half: PATH_HALF });
+  }
+  PATH_REACH = PATH_HALF + bankOf(maxDepth) + 2;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of PIT_PATHS) for (let i = 0; i < p.x.length; i++) {
+    x0 = Math.min(x0, p.x[i]); x1 = Math.max(x1, p.x[i]); z0 = Math.min(z0, p.z[i]); z1 = Math.max(z1, p.z[i]);
+  }
+  PATH_BOX = [x0 - PATH_REACH, x1 + PATH_REACH, z0 - PATH_REACH, z1 + PATH_REACH];
+  PATH_GW = Math.ceil((PATH_BOX[1] - PATH_BOX[0]) / PATH_CELL);
+  PATH_GH = Math.ceil((PATH_BOX[3] - PATH_BOX[2]) / PATH_CELL);
+  const grid = Array.from({ length: PATH_GW * PATH_GH }, () => []);
+  PIT_PATHS.forEach((p, pi) => {
+    for (let i = 0; i < p.x.length - 1; i++) {
+      const r = PATH_HALF + bankOf(Math.max(p.depth[i], p.depth[i + 1])) + 2;
+      const gx0 = Math.floor((Math.min(p.x[i], p.x[i + 1]) - r - PATH_BOX[0]) / PATH_CELL);
+      const gx1 = Math.floor((Math.max(p.x[i], p.x[i + 1]) + r - PATH_BOX[0]) / PATH_CELL);
+      const gz0 = Math.floor((Math.min(p.z[i], p.z[i + 1]) - r - PATH_BOX[2]) / PATH_CELL);
+      const gz1 = Math.floor((Math.max(p.z[i], p.z[i + 1]) + r - PATH_BOX[2]) / PATH_CELL);
+      for (let gz = Math.max(0, gz0); gz <= Math.min(PATH_GH - 1, gz1); gz++)
+        for (let gx = Math.max(0, gx0); gx <= Math.min(PATH_GW - 1, gx1); gx++) grid[gz * PATH_GW + gx].push(pi, i);
+    }
+  });
+  PATH_GRID = grid.map((c) => Int32Array.from(c));
+}
+
+// Scratch result of the nearest-path query, reused.
+const _near = { d: Infinity, path: -1, i: 0, t: 0, y: 0, depth: 0, s: 0, len: 0 };
+function nearestPath(x, z) {
+  _near.d = Infinity; _near.path = -1;
+  if (!PATH_GRID || x < PATH_BOX[0] || x > PATH_BOX[1] || z < PATH_BOX[2] || z > PATH_BOX[3]) return _near;
+  const gx = Math.floor((x - PATH_BOX[0]) / PATH_CELL), gz = Math.floor((z - PATH_BOX[2]) / PATH_CELL);
+  const cell = PATH_GRID[gz * PATH_GW + gx];
+  for (let k = 0; k < cell.length; k += 2) {
+    const p = PIT_PATHS[cell[k]], i = cell[k + 1];
+    const ax = p.x[i], az = p.z[i], dx = p.x[i + 1] - ax, dz = p.z[i + 1] - az;
+    const l2 = dx * dx + dz * dz || 1;
+    const t = clamp(((x - ax) * dx + (z - az) * dz) / l2, 0, 1);
+    const ex = x - ax - dx * t, ez = z - az - dz * t;
+    const d = Math.sqrt(ex * ex + ez * ez);
+    if (d < _near.d) { _near.d = d; _near.path = cell[k]; _near.i = i; _near.t = t; }
+  }
+  if (_near.path >= 0) {
+    const p = PIT_PATHS[_near.path], i = _near.i, t = _near.t;
+    _near.y = lerp(p.y[i], p.y[i + 1], t);
+    _near.depth = lerp(p.depth[i], p.depth[i + 1], t);
+    _near.s = lerp(p.s[i], p.s[i + 1], t);
+    _near.len = p.len;
+  }
+  return _near;
+}
+
+function carvePitPaths(x, z, h) {
+  const n = nearestPath(x, z);
+  if (n.path < 0) return h;
+  const edge = PATH_HALF + bankOf(n.depth);
+  if (n.d >= edge) return h;
+  // A floor that has had water and leaf litter on it for a century: dished a
+  // little toward the middle and soft-lumpy, never a graded road.
+  const across = Math.min(1, n.d / PATH_HALF);
+  const floor = n.y - 0.7 * (1 - across * across)
+    + noise2(x * 0.06 + 2.3, z * 0.06 - 5.1) * 0.3 + noise2(x * 0.21 - 7.7, z * 0.21 + 1.9) * 0.06;
+  const w = 1 - smoothstep(n.d, PATH_HALF, edge);
+  return lerp(h, floor, w);
+}
+
+/** The old ways into the pit: [{name, x, z, s, y, depth, len, half}] — centre
+ *  lines (Float32Arrays, about 4 m apart), the floor height along each, and
+ *  how far it is sunk below the natural ground there. */
+export function pitPaths() { return PIT_PATHS; }
+
+/** The nearest pit path to (x, z): {d, path, s, len, y, depth} (path -1 if
+ *  none within reach). The object is reused — copy what you keep. */
+export function pitPathAt(x, z) { return nearestPath(x, z); }
+
+/** How wooded the pit paths make this spot, 0..1: full on the floor and the
+ *  banks, thinning out over the lip. Zero away from them. */
+export function pitWood(x, z) {
+  const n = nearestPath(x, z);
+  if (n.path < 0) return 0;
+  const edge = PATH_HALF + bankOf(n.depth);
+  return 1 - smoothstep(n.d, PATH_HALF + 2, edge + 16);
+}
+buildPitPaths();
 
 // ---------------------------------------------------------------------------
 // Helpers everything downstream shares, so the mesh colours, the trees, the
@@ -1346,6 +1546,9 @@ export function fertility(x, z, h, slope) {
   if (isl && isl.crater) {
     const dd = Math.hypot(x - isl.x, z - isl.z) / isl.r;
     f *= smoothstep(dd, isl.crater.inner + 0.03, isl.crater.inner + 0.13);
+    // ...except down the old gullies, which have grown back thick (pitWood).
+    const wood = pitWood(x, z);
+    if (wood > 0) f = Math.max(f, wood * 0.84);
   }
   // Cleared for the village: trodden ground, a little grass, no wood.
   f *= 1 - padWeight(x, z) * 0.85;

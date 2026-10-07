@@ -447,6 +447,83 @@ the compound's position is hardcoded: `main.js` sweeps the bowl at load, finds
 the flattest patch that will take the deck, and puts the fort and the story
 waypoint there together so the two can never drift apart.
 
+### Getting in unseen
+
+Flying in over the open pit gets him seen: every tower is watching that sky.
+The way in is on foot, down one of three old spoil gullies, now grown over.
+
+**The gullies** (`pitPaths` in `js/terrain.js`):
+- **South:** from the plateau behind the southern rim to the stores stacked
+  against the yard fence.
+- **East:** a gorge through the eastern ridge, down to the cranes and the back
+  of the cage ring.
+- **North:** from the headland across the channel, down behind the workshop.
+
+Each one starts in the woods outside the rim. Land there, then trot down about
+700 m to the yard fence. The fence is broken where each gully comes out.
+
+How they are built:
+- **Floor:** a smoothed centre line with a floor profile. It never runs steeper
+  than 14°, and it stays at least 5 m below the ground on either side. Where the
+  terraces fall faster than that, the cut goes deeper instead of steeper. The
+  banks widen as the cut deepens, so a shallow cut is a ditch and a deep one is a
+  gorge.
+- **Trees:** `fertility()` reads `pitWood`, so the forest plants the gullies
+  thick with its own species.
+- **Undergrowth:** `js/pitwood.js` adds ferns, tall grass, bushes, mossy fallen
+  trunks and sunbeams through the canopy. It leaves a trail open down the middle.
+  Plants are placed at load but only built into meshes when the camera comes
+  near.
+- **Ground:** `pitmat.js` turns the quarry rock to leaf litter and moss.
+- **Buildings:** nothing in `hunterbase.js` is built in a gully or on its lip.
+
+**The guards** (`js/hunters.js`):
+- **What they can see.** A guard sees about 50° either side of where he faces,
+  catches movement out to about 70°, and is blind behind. He seldom looks up.
+- **What blocks the view.** His line of sight is tested against the ground, the
+  buildings (a raycast against the same BVH meshes the feet use) and the wood.
+  Trunks and crowns thin the view the further it passes through them.
+- **What helps him.** Light helps, and so does size: a dragon flying with his
+  wings spread against the sky is seen from far off. Moving helps too. On foot,
+  standing still, he is hard to spot.
+- **Hearing.** A gallop is heard about 35 m away, and a trot about 7 m away.
+  Hard wingbeats are heard 120 m away.
+- **Suspicion builds over time.** What a guard sees fills a meter. It fills
+  quickly when the dragon is close and out in the open, and slowly when he is
+  far or half hidden. It drains when nothing is seen.
+
+What a guard does:
+1. **Suspicious.** He stops and turns toward what he noticed, and a "?" fills
+   over his head.
+2. **Investigates.** He walks to where it *was*, not to where the dragon is now.
+3. **Searches.** He looks around for a few seconds.
+4. **Gives up.** He goes back to work.
+5. **Alert.** If his meter fills while he can still see the dragon, the "?"
+   turns into "!". He shouts, everyone within 150 m comes to look, the archers
+   shoot, and the story's alarm goes up.
+
+Guards are dim on purpose:
+- They give up quickly.
+- They don't look up.
+- A plasma blast is a noise. Everyone within 110 m who isn't already alert
+  goes to look at the impact point, not at him. Use it to pull a guard off his
+  post.
+
+While he is on foot or aiming, faint fans on the ground show which way the
+nearby guards face. They are pale for calm, amber for suspicious and red for
+alert.
+
+Headless test runs, at day (09:00) and in mission one's dusk (20:40, overcast):
+- **On foot, all three gullies:** walked from outside the rim to the fence. No
+  guard's meter moved.
+- **Mission one, on foot:** "Get a look at the cages" completed without an
+  alarm.
+- **Into the open yard:** the first "?" came after about 6 s, and "!" after
+  about 9 s.
+- **Flying straight in:** seen after 9–10 s, before reaching the cages, and the
+  beat did not complete.
+- **A blast near a guard:** he walked from 32 m to 5 m of the impact point.
+
 ## Music
 
 An original score, written for this game: six tracks built on two themes, so

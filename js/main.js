@@ -45,6 +45,7 @@ import { createSurfaces } from "./surfaces.js";
 import { createGroundBody } from "./groundbody.js";
 import { createBaseDetail } from "./basedetail.js";
 import { createSpeedFx } from "./speedfx.js";
+import { createPitWood } from "./pitwood.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -518,6 +519,10 @@ const plasma = setupPlasma(scene, {
 // A near miss on a cage counts too: a blast landing in the cage ring during
 // the strike splashes off the bars, and the point of the beat is the bars.
 plasma.onImpact((at, hit) => {
+  // A blast is loud. Every hunter in earshot who has not already got him goes
+  // to look at where it went off — which is how a shot into the rocks pulls a
+  // guard off his post (hunters.js noise()).
+  if (rig?.hunters && !game.cine) rig.hunters.noise(at, 110);
   if (!storyCtx.cagesShootable || !hit?.ground) return;
   if ((rig?.cages ?? []).some((c) => c.pos.distanceTo(at) < 16)) storyCtx.cageHits++;
 });
@@ -1036,6 +1041,7 @@ const player = makePlayer(
     : createState());
 let rig = null, stack = null, camp = null;
 let baseDetail = null;
+let pitWood = null;          // the undergrowth and sunbeams down the old gullies
 let interactAt = null, interactLabel = "", interactRange = 0, interactTaken = false;
 let interactHold = 0;
 let holdR = false, holdSleep = false;
@@ -1369,7 +1375,8 @@ const HUNT_SEEN_MIN = 0.14;
 let huntStagger = 0;
 let alarmToasted = false;
 // What the hunters are looking at: him. Filled in each frame.
-const huntTarget = { pos: null, vel: new THREE.Vector3(), loud: false, hidden: false, speedT: 0 };
+const huntTarget = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), loud: false, hidden: false, speedT: 0,
+                     grounded: false, move: 0, noise: 0 };
 
 // "?" and "!" over the heads of the men who have noticed him — the stealth is
 // unplayable if you cannot see who is about to see you.
@@ -1382,7 +1389,10 @@ function updateHunterMarkers() {
   let n = 0;
   if (!game.cine) {
     for (const m of rig.hunters.men) {
-      if (m.ko > 0 || m.inside || m.awareness < 0.25 || !dragon) continue;
+      // A man who has only half-noticed something shows a faint "?" that
+      // fills toward "!" — the warning comes before the alarm, not with it.
+      if (m.ko > 0 || m.inside || !dragon) continue;
+      if (m.state === "calm" && m.awareness < 0.06) continue;
       if (m.pos.distanceTo(dragon.position) > 480) continue;
       _mk.copy(m.pos); _mk.y += 2.6;
       _mk.project(camera);
@@ -1391,7 +1401,9 @@ function updateHunterMarkers() {
       if (!el) { el = document.createElement("i"); markerLayer.appendChild(el); markerEls.push(el); }
       el.style.display = "";
       el.textContent = m.state === "alert" ? "!" : "?";
-      el.className = m.state === "alert" ? "alert" : "sus";
+      // Going to look, or poking about where it was: a "?" that pulses.
+      el.className = m.state === "alert" ? "alert"
+        : m.state === "investigate" || m.state === "search" ? "sus hunt" : "sus";
       // The ? fills as he gets closer to certain.
       el.style.setProperty("--a", Math.min(1, m.awareness).toFixed(2));
       el.style.transform = `translate(${(_mk.x * 0.5 + 0.5) * innerWidth}px,${(-_mk.y * 0.5 + 0.5) * innerHeight}px)`;
@@ -1713,11 +1725,16 @@ window.__na = {
   aim, health, world, surfaces,
   get groundBody() { return groundBody; },
   get baseDetail() { return baseDetail; },
+  get pitWood() { return pitWood; },
   land, takeOff, fireBlast,
   /** Debug: a bone on the *player's* rig. The wild flights are clones and share
    *  every bone name, so a scene-wide search finds the wrong dragon. */
   bone(n) { let f = null; dragon?.traverse((o) => { if (o.isBone && o.name === n) f = o; }); return f; },
   get walkSpeed() { return walkSpeed; },
+  /** Debug: the on-foot keys and heading, for scripted walks. */
+  walkKeys,
+  get walkYaw() { return walkYaw; },
+  set walkYaw(v) { walkYaw = v; },
   set walkGear(v) { walkGearDebug = v; },
   get settling() { return settling; },
   /** Debug: put him somewhere. The archipelago is big and the rig is far out. */
@@ -1816,6 +1833,10 @@ const placesBuilt = (async () => {
     // The terrain under it is not drawn (terrainmat.js uHole).
     world.groundTiles[0]?.material.userData.uniforms?.uHole.value.copy(baseDetail.hole);
     world.excludeFromReflection(baseDetail.root);
+    // The old gullies down into it: ferns, grass, bushes, fallen trunks, and
+    // sun through the canopy (pitwood.js; the trees are the forest's own).
+    pitWood = createPitWood(scene, { groundAt: baseDetail.groundAt, sky: world.sky });
+    world.excludeFromReflection(pitWood.root);
   }
   // NOT added to the reflection skip list, though they look like they should
   // be: both carry a pool of seven point lights, and hiding a light for the
@@ -1824,6 +1845,20 @@ const placesBuilt = (async () => {
   // ocean.js — it will now refuse them out loud if anyone tries again.
   // Arrows hurt, and say so.
   if (rig?.hunters) {
+    // Huts, halls, palisades and towers block a man's view as well as the
+    // rock does: the same BVH'd meshes his feet stand on, raycast.
+    const walls = [];
+    rig.group.traverse((o) => { if (o.isMesh && o.geometry?.boundsTree) walls.push(o); });
+    const ray = new THREE.Raycaster(), dir = new THREE.Vector3();
+    ray.firstHitOnly = true;
+    rig.hunters.setOccluder((from, to) => {
+      const d = dir.subVectors(to, from).length();
+      if (d > 260 || d < 4) return false;
+      ray.set(from, dir.divideScalar(d));
+      // Not his own tower's rail, and not the dragon's own perch.
+      ray.near = 1.4; ray.far = d - 3;
+      return ray.intersectObjects(walls, false).length > 0;
+    });
     rig.onArrowHit = () => {
       health.damage(7, "Arrow");
       pad.rumble.pulse(0.7, 0.6, 0.18);
@@ -2484,14 +2519,34 @@ function frame() {
   rig?.setNight?.(world.sky.state?.night ?? 0);
   if (rig?.hunters && dragon && controls) {
     const h = controls.getHeading(), sp = controls.getSpeed();
-    huntTarget.pos = dragon.position;
-    huntTarget.vel.set(Math.sin(h) * sp, controls.getVerticalSpeed(), Math.cos(h) * sp);
-    // Loud is wingbeats you can hear: a hard climb or a flat-out dive. A Night
-    // Fury cruising or gliding is close to silent, and that is half his point.
-    huntTarget.loud = controls.getClimb() > 0.3 || controls.getSpeedT() > 0.65;
+    // What they would be looking at: his body, not the point between his feet.
+    huntTarget.pos.copy(dragon.position);
+    if (grounded) {
+      huntTarget.pos.y += 1.1;
+      huntTarget.vel.copy(groundBody.velocity);
+      // On his feet he is a big cat: silent at a walk, padding at a trot, and
+      // a gallop is heard a stone's throw off (hunters.js, `noise`).
+      const gs = groundBody.speed;
+      huntTarget.move = Math.min(1, gs / 8);
+      huntTarget.noise = gs > 8 ? 34 : gs > 3 ? 7 : 0;
+      huntTarget.loud = false;
+    } else {
+      huntTarget.vel.set(Math.sin(h) * sp, controls.getVerticalSpeed(), Math.cos(h) * sp);
+      // Loud is wingbeats you can hear: a hard climb or a flat-out dive. A Night
+      // Fury cruising or gliding is close to silent, and that is half his point.
+      huntTarget.loud = controls.getClimb() > 0.3 || controls.getSpeedT() > 0.65;
+      huntTarget.move = 1;
+      huntTarget.noise = 0;
+    }
+    huntTarget.grounded = grounded;
     huntTarget.speedT = controls.getSpeedT();
     huntTarget.hidden = !!game.cine;
-    const spotted = rig.hunters.update(sdt, huntTarget, world.sky.state?.night ?? 0, world.sky.state?.hour ?? 12);
+    // Fog and rain shorten how far anyone can see.
+    const sky = world.sky.state;
+    const haze = world.sky.weather === "fog" ? 0.45
+      : THREE.MathUtils.clamp(1 - (sky?.over ?? 0) * 0.15 - (sky?.rain ?? 0) * 0.35, 0.5, 1);
+    rig.hunters.setConeFocus(dragon.position, (grounded || aim.active) && !game.cine, sdt);
+    const spotted = rig.hunters.update(sdt, huntTarget, sky?.night ?? 0, sky?.hour ?? 12, haze);
     if (spotted.length && !game.cine) {
       if (!alarmToasted) game.toast("Seen.", 1100);
       alarmToasted = true;
@@ -2502,6 +2557,7 @@ function frame() {
   }
   stack?.update(sdt, camera);
   baseDetail?.update(camera.position);
+  pitWood?.update(camera.position, sdt);
   updateHunters(sdt);
   // A cutscene takes the camera somewhere he cannot fly, so anything already
   // in the air would hang there in shot. Cut it, and cut the snare with it —
