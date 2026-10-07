@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wing Probe — Night Alone</title>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>body { margin: 0; background: #20242c; }</style>
+</head>
+<body>
+<!--
+  What each wing bone actually does, on the 152-bone rig.
+
+  One cell per (bone, axis, angle), applied to the LEFT wing only from the bind
+  pose, seen from the front (top half of the cell) and from above (bottom
+  half). Bone names do not say which axis bends a wing up, sweeps it, or folds
+  it, so this answers that by looking.
+
+    wingprobe.html?bones=Wing_ShoulderL,Wing_ForearmL&axes=x,y,z&angle=0.7
+-->
+<canvas id="strip"></canvas>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+const q = new URLSearchParams(location.search);
+const BONES = (q.get("bones") ?? "Wing_ClavicleL,Wing_ShoulderL,Wing_UpperArmL,Wing_ForearmL,Wing_Finger016L,Wing_Finger017L").split(",");
+const AXES = (q.get("axes") ?? "x,y,z").split(",");
+const ANGLE = +(q.get("angle") ?? 0.7);
+const CW = 320, CH = 360;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(CW, CH / 2);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa8b8c8);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 2.2));
+const cam = new THREE.OrthographicCamera(-6.5, 6.5, 3.6, -3.6, 0.1, 100);
+
+const strip = document.getElementById("strip");
+const cells = [{ bone: null, axis: "", angle: 0 }];
+for (const b of BONES) for (const a of AXES) cells.push({ bone: b, axis: a, angle: ANGLE });
+const COLS = Math.min(cells.length, 6);
+strip.width = CW * COLS; strip.height = CH * Math.ceil(cells.length / COLS);
+const g = strip.getContext("2d");
+
+new GLTFLoader().load("./assets/models/dragon_rigged_hd.glb", (gltf) => {
+  const d = gltf.scene;
+  d.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  scene.add(d);
+  const bones = new Map();
+  d.traverse((o) => { if (o.isBone) bones.set(o.name, o); });
+  const rest = new Map([...bones].map(([n, b]) => [n, b.quaternion.clone()]));
+  const AX = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+  cells.forEach((c, i) => {
+    for (const [n, b] of bones) b.quaternion.copy(rest.get(n));
+    if (c.bone && bones.get(c.bone)) bones.get(c.bone).quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(AX[c.axis], c.angle));
+    d.updateMatrixWorld(true);
+    const x0 = (i % COLS) * CW, y0 = Math.floor(i / COLS) * CH;
+    // Front: head at -z, so look from -z toward +z. The dragon's left is +x
+    // in model space, which is screen-right from the front... mark it.
+    cam.position.set(0, 1, -12); cam.up.set(0, 1, 0); cam.lookAt(0, 1, 0);
+    renderer.render(scene, cam);
+    g.drawImage(renderer.domElement, x0, y0);
+    cam.position.set(0, 12, -1); cam.up.set(0, 0, -1); cam.lookAt(0, 0, -1);
+    renderer.render(scene, cam);
+    g.drawImage(renderer.domElement, x0, y0 + CH / 2);
+    g.fillStyle = "#000"; g.font = "bold 14px system-ui";
+    g.fillText(c.bone ? `${c.bone} ${c.axis} ${c.angle > 0 ? "+" : ""}${c.angle}` : "bind", x0 + 6, y0 + 16);
+    g.strokeStyle = "#333"; g.strokeRect(x0, y0, CW, CH);
+  });
+  window.__ready = true;
+});
+</script>
+</body>
+</html>

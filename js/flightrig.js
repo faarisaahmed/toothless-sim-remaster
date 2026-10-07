@@ -34,7 +34,9 @@ const CAMBER_LAG  = 0.55;   // radians of phase the outer digits trail by
 const WASHOUT     = 0.22;   // extra curl toward the wingtip
 // The hand folds in on the upstroke, like a bat's: a wing dragged back up at
 // full span would undo the downstroke. Deepest when the stroke is biggest.
-const WRIST_FLEX  = 0.85;
+const WRIST_FLEX  = 0.5;
+const UPPER_FOLD  = 0.12;   // the arm wing draws back with it
+const DIGIT_FOLD  = 0.14;   // and the spars fold in behind
 const SWEEP_DIGIT = 0.34;   // digits rake back with speed
 
 // --- The hang -------------------------------------------------------------
@@ -241,69 +243,58 @@ export function setupFlightRig(root) {
     // and spills on the upstroke, and the outer spars answer late because there
     // is more wing between them and the shoulder — that lag is most of what
     // separates a wing from a pair of oars.
-    const load = Math.sin(phase);                 // +1 downstroke, -1 up
-    const camber = CAMBER * amp * (1 - sSpeed * 0.55);
-    const upstroke = Math.max(0, -load);
+    // The bend that travels down the wing (wings.js computes it): the elbow
+    // and the finger spars lag the shoulder, so the wing cracks down like a
+    // whip and peels back up, and on the way up it folds.
+    const outer = beat.outer || 0;      // hand wing's bend from the arm wing, rad, +up
+    const tipBend = beat.tip || 0;      // tip's bend from the hand, rad, +up
+    const fold = beat.fold || 0;        // 0..1, the upstroke fold
+    const cup = beat.cup || 0;          // 0..1, downstroke load
+    const working = (1 - sHang) * (1 - rollMag * 0.85);
+    const camber = CAMBER * (0.35 + 0.65 * cup) * (1 - sSpeed * 0.5);
 
     for (const s of SIDES) {
       const sign = s === "L" ? 1 : -1;
       // Which end of the roll this wing is on. +1 for the wing going DOWN
       // (the inside of the barrel), -1 for the one coming up and over.
       const rollSide = sRoll * sign;
-      // Hand folds in on the recovery, so he is not dragging a full wing back
-      // up — and in the hang it simply stays dropped. In a roll the inside
-      // hand folds hard: that asymmetry is the fold half of the roll moment.
+
+      // AXES, measured on this rig (wingprobe.html), so no guessing:
+      //   Wing_Forearm  x  bends the whole hand wing up (+), same sign both sides
+      //                 z  folds the hand back in the plane of the wing, L+ / R-
+      //   Wing_UpperArm z  sweeps the arm wing back, L+ / R-
+      //   Wing_Finger   z  bends a spar DOWN, L+ / R-   (camber, the whip)
+      //                 x  folds a spar back in plane, same sign both sides
       set(`Wing_Forearm${s}`, "z",
-        (WRIST_FLEX * upstroke * amp * (1 - sHang) + HANG_WRIST * sHang
-         // Both hands fold, hard, and then the inside one folds further. The
-         // symmetric part is the one that makes the roll possible; the
-         // asymmetric part is decoration on top of it.
-         + rollMag * ROLL_CLOSE
-         + Math.max(0, rollSide) * ROLL_TUCK) * sign);
+        (WRIST_FLEX * fold * working + HANG_WRIST * sHang
+         + rollMag * ROLL_CLOSE + Math.max(0, rollSide) * ROLL_TUCK) * sign);
+      add(`Wing_Forearm${s}`, "x", outer * working);
+      set(`Wing_UpperArm${s}`, "z", UPPER_FOLD * fold * working * sign);
 
       for (let d = 0; d < 6; d++) {
         const k = d / 5;                                   // 0 inner .. 1 tip
-        const lag = Math.sin(phase - CAMBER_LAG * k);
-        // Two curls, mixed by the hang. The beat's rides a sine — a wing still
-        // working. The hang's is static and much deeper toward the tip, which
-        // is what hooks the tips over instead of leaving them flat.
-        const beatCurl = (camber + WASHOUT * k) * lag;
-        const hangCurl = HANG_CAMBER + HANG_WASHOUT * k * k;
-        // The bow: static, not on the sine, and squared toward the tip so the
-        // bend is progressive rather than a uniform fold. The outer wing of a
-        // carve takes more of it than the inner, which is what makes a hard
-        // turn read as asymmetric rather than as a symmetric flap in a bank.
+        // Bend DOWN, positive. The tip's lag (negative of its upward bend),
+        // camber cupping the membrane under load, the held hang and roll
+        // curls, and the static bow of a loaded wing.
+        const whip = -tipBend * (0.25 + 0.75 * k) * working;
+        const beatCurl = (camber + WASHOUT * k * cup) * working;
+        const hangCurl = (HANG_CAMBER + HANG_WASHOUT * k * k) * sHang;
         const asym = 1 - LOAD_ASYM * sTurn * sign;
-        const bow = (LOAD_CAMBER + LOAD_TIP * k * k) * sLoad * asym;
-        // Suppressed by the hang, which is its own held shape and would
-        // otherwise be fighting this for the same bones.
-        // THE TWIST. Equal and opposite between the two wings, deepest at the
-        // tip where there is least holding the membrane out, and it is by far
-        // the biggest of the three roll terms — see the note at the top. The
-        // wing coming up curls under and bites; the one going down flattens
-        // out and spills. It ADDS to whatever the beat and the load are doing
-        // rather than replacing them, because he is still flying.
+        const bow = (LOAD_CAMBER + LOAD_TIP * k * k) * sLoad * asym * (1 - sHang);
         const twist = -rollSide * (ROLL_TWIST + ROLL_TIP * k * k);
-        // The symmetric curl: both wings draw their membrane in, more toward
-        // the tip. This is the shape that lets him turn at all — a stretched
-        // wing at three hundred knots does not roll, it resists.
         const close = rollMag * (ROLL_CURL + ROLL_CURL_TIP * k * k);
-        const curl = beatCurl * (1 - sHang) + hangCurl * sHang + bow * (1 - sHang)
-                   + twist + close;
-        // Rake: both wings back, and then the inside one further than the
-        // outside. Same split as the hand above — symmetric first, asymmetric
-        // as the trim on it.
+        const curl = whip + beatCurl + hangCurl + bow + twist + close;
+        // Fold back in plane: the hand drawn in on the upstroke, raked with
+        // speed, raked for the hang and the roll.
         const rollSweep = rollMag * ROLL_RAKE * (0.4 + k)
                         + Math.max(0, rollSide) * ROLL_TUCK * (0.4 + k)
                         - Math.max(0, -rollSide) * ROLL_REACH * k;
-        const sweep = SWEEP_DIGIT * sSpeed * k * (1 - sHang) + HANG_SWEEP * k * sHang
-                    + rollSweep;
+        const rake = SWEEP_DIGIT * sSpeed * k * (1 - sHang) + HANG_SWEEP * k * sHang
+                   + rollSweep + DIGIT_FOLD * fold * working * (0.3 + k);
         for (let g = 0; g < 3; g++) {
           const n = `Wing_Finger${String(d * 3 + g + 1).padStart(3, "0")}${s}`;
-          // Segment 1 rakes back with speed; all three share the camber, more
-          // of it toward the tip where the membrane is least supported.
-          set(n, "x", curl * (g === 0 ? 0.5 : g === 1 ? 0.32 : 0.18));
-          if (g === 0) add(n, "z", sweep * sign);
+          set(n, "z", curl * (g === 0 ? 0.45 : g === 1 ? 0.33 : 0.22) * sign);
+          if (g === 0) add(n, "x", rake);
         }
       }
     }

@@ -97,33 +97,37 @@ in a row.
 
 ## The wingbeat
 
-The wingbeat in `js/wings.js` is built from how large flyers beat, and from
-the films.
+The wingbeat is `js/wings.js` and `js/flightrig.js`.
 
-**How the stroke changes with flight:**
+**It is slow and heavy.** Wingbeat frequency falls with body size: for birds it
+scales roughly as mass to the power −0.27. A 10 kg condor flaps at about
+2.7 Hz, so an animal his size is under 1 Hz:
 
-| | Stroke, top to bottom | Beats per second |
-| --- | --- | --- |
-| Hovering | about 115° | about 2 |
-| Climbing | bigger still | faster |
-| Cruise | about 70° | about 1.4 |
-| Fast | shallow, then held | about 1.1 |
+| | Beats per second |
+| --- | --- |
+| Hovering | about 0.95 |
+| Climbing | about 1.2 |
+| Cruise | about 0.7 |
+| Fast | about 0.6 |
 
-**Shape of each beat:**
-- The downstroke is the quick power stroke.
-- On the upstroke the hand folds in, so the wing isn't dragged back up at full
-  span.
-- When slow, the stroke plane tilts: forward and down, then back and up, like a
-  hovering bird.
+**The wing bends; it doesn't swing.** The shoulder makes a modest stroke and
+the rest travels down the wing as a wave. This is how bat wings move (the wrist
+leads, the tip follows) and how the films animate a dragon's wing.
+- The hand wing lags the arm wing by about a tenth of a beat, and the tip lags
+  further.
+- So the wing cracks down like a whip, still finishing its downstroke at the
+  tip while the arm starts back up.
+- It arches on the recovery and peels up last.
+- The membrane cups under load on the downstroke.
+- The elbow and hand fold it in on the upstroke.
 
-**Flap and glide.** At steady cruise he flaps a few strokes, then glides on held
-wings, like a big bird.
+**Flap and glide.** At steady cruise he flaps a few strokes, then glides.
 
-**Body heave.** The body rises on each downstroke, so you can see the wings
-holding him up. The controller rumble lands on the downstroke too.
+**Body heave.** The body rises on each downstroke.
 
-`flightcheck.html?speed=0&climb=0&view=front|side|q` is the test bench: one
-full beat as a filmstrip, against a fixed horizon line.
+The wing joint axes were measured on the rig, not guessed. `wingprobe.html`
+shows what each bone and axis does. `flightcheck.html?speed=0&climb=0&view=front|side|q`
+is the test bench: one full beat as a filmstrip.
 
 ## On foot
 
