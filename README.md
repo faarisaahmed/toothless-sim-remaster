@@ -528,6 +528,20 @@ cannot move, the performance budgets above, and how to verify before handing
 back. [`DESIGN_NOTES.md`](DESIGN_NOTES.md) has the research behind the mission
 and cutscene design.
 
+## The archipelago
+
+Ten kilometres square, modelled on the Faroes, the Hebrides and western Norway:
+fewer, bigger islands than it started with, sized like somewhere a village or a
+wood could stand. Berk is the biggest, four kilometres of fjord country with a
+sound bitten into its west side and a sea loch into its east; Berserker, Outcast,
+Raven Point and Glacier Island are not far short of it, and the rest are one to
+two kilometres across. They lie in groups, close enough in places that the
+water between them is a strait, with open water kept south of Berk and down the
+middle. About 37% of the chart is land, and a handful of skerries stand off the
+coasts as bare rock. Big islands are built from several bodies run together
+(`parts`) and cut with drowned valleys (`fjords`), both in `js/terrain.js`;
+[`ARCHIPELAGO.md`](ARCHIPELAGO.md) has the detail.
+
 ## The chart
 
 `Tab`, or the touchpad on a DualSense, opens a hand-inked Norse sea chart of the

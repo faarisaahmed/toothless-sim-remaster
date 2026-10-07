@@ -38,9 +38,49 @@ toggles, `toggleTrees()` and `toggleSpray()`.
 
 ## 2. The archipelago itself
 
-85 islands, 33 of them named and labelled on the chart. Laid out to a geological
-story rather than scattered, because a scatter is the thing that reads as
-procedural from the air:
+33 named islands, labelled on the chart, plus the bodies that make up the big
+ones, six hand-placed sea stacks and a few skerries — 65 entries in `ISLANDS`
+in all. About 37% of the 10 km square is land (it was 24%, as 85 entries).
+
+**Sized like somewhere people live.** The first chart was thirty-odd islands a
+kilometre across in a field of fifty skerries, and most of what you flew over
+was a lump no village or wood could stand on. It is now fewer, bigger islands:
+Berk is four kilometres of fjord country; Berserker, Outcast, Raven Point and
+Glacier Island are not far short of it; most of the rest are one to two
+kilometres across, forested unless their character says otherwise (Dragon
+Peak, Glacier Island, Fireworm and Death Song stay bare, and Impossible Island
+and Odin's Respite stay small and sheer on purpose). They lie in groups, close
+enough in places that the water between them is a sound rather than a sea, with
+the open water kept where the flying is: south of Berk, and down the middle.
+
+Two tools in `terrain.js` make that possible without making the shape noisier:
+
+- **`parts`** — a big island is several massifs run together, so an entry can
+  carry extra bodies that inherit everything from it but their own centre, size
+  and bearing. They have no name (the chart labels the island once) and carry
+  `part: <name>`, so the chart draws summits on them rather than a sea-stack
+  spire and the readout says "Over Berk" across all of it.
+- **`fjords`** — `[bearing, width, bend, reach]` on an island entry cuts a
+  drowned valley from the open sea toward its centre: steep walls, a channel
+  floor thirty-odd metres down, a beach at the head. Authored relative to the
+  island rather than in world coordinates, because the domain warp moves a
+  coast a few hundred metres but keeps an island round its own centre.
+  `FJORDS` is exported for tools. None goes near Dragon Hunter Island.
+
+Skerries are fewer (one per 520 m of a parent's radius, not 420) and stand just
+off the coast (1.1–1.5 r, not out to 1.9 r). The sea stack Raven Point now
+covers was dropped and the one that came out awash was moved under Berk's west
+cape; Sigrún's at `(2200, 2000)` is unchanged.
+
+Cost: `terrainHeight` is ~1.4 µs a call against ~0.9 before, because more of
+the map is land (the land path is the expensive one), so the mesh build went
+from ~640 ms to ~800 ms. The tree scatter would have gone from 1.9 s to 3.3 s
+and 74k trees to 133k; `forest.js` now skips the normal for candidates that fail
+on flat ground, takes the normal by forward differences, and plants one tree per
+115 m² instead of 95 — 109k trees, 1.9 s.
+
+Laid out to a geological story rather than scattered, because a scatter is the
+thing that reads as procedural from the air:
 
 - a **young volcanic arc** running north-east through Dragon Peak, Fireworm and
   Dragon Hunter Island — high, bare, steep-sided, snow on the tallest;
@@ -59,7 +99,11 @@ is, how wide its drowned foot is, how readily it forms beaches, how bare it is.
 The table at the top of `terrain.js` documents every field.
 
 **Three sites cannot move.** Berk `(0, -1100)`, Hollow Stack `(1700, 2550)` and
-Dragon Hunter Island `(2900, 3800)`. Hollow Stack moved 50 m and 70 m so that
+Dragon Hunter Island `(2900, 3800)`. (Berk's table centre is now `(0, -1300)`,
+which keeps its bigger south cape half a kilometre off the spawn; `(0, -1100)`,
+which "leave Berk" measures from, is still high ground on it. Peaceable Country
+grew round its old centre, `(1250, 1500)`, which chapters.js's `WOOD` reads, and
+its clearing came out within 3 m of where it was.) Hollow Stack moved 50 m and 70 m so that
 its plateau covers `SITES.stack` at `(1650, 2600)`, which is where
 `buildHollowStack` takes its deck height from; the deck now comes out at 104 m
 against `STACK_Y = 102` in `chapters.js`. The Hollow Stack to Dragon Hunter

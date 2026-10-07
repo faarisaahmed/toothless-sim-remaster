@@ -179,36 +179,59 @@ const lerp = (a, b, t) => a + (b - a) * t;
 //   snow     metres to lower the snow line by. Glacier islands only.
 //   flat     plateau: kills the relief and the crags. Hollow Stack.
 //   crater   {inner, floor, gate, mouth} — see Dragon Hunter Island below.
+//   parts    extra bodies run into this one — see "Parts" below the table.
+//   fjords   drowned valleys cut into it — see "Fjords and sounds" below.
 //
 // Layout follows a geological story rather than a scatter, because a scatter is
 // exactly what reads as procedural from the air: a young volcanic arc running
 // NE through Dragon Peak, Fireworm and Dragon Hunter Island; older, deeply
 // eroded fjord islands west and north of Berk; and low sand and shingle banks
 // in the shallow south-east where the shelf never gets deep.
+//
+// And sized like somewhere people live. The first chart was thirty-odd islands
+// a kilometre across in a field of fifty skerries, and most of what you flew
+// over was a lump no village or wood could stand on. Now it is fewer, bigger
+// islands -- Berk four kilometres of fjord country, Berserker, Outcast, Raven
+// Point and Glacier not far short of it, the rest one to two kilometres --
+// grouped and lying close enough in places that the water between them is a
+// sound rather than a sea, with the open water kept where the flying is: south
+// of Berk, and down the middle. A handful of skerries stand off the coasts as
+// bare rock, which is what a skerry is. 37% of the chart is land, from 24.
 // ---------------------------------------------------------------------------
 
 const RAW_ISLANDS = [
   // --- Home waters -------------------------------------------------------
-  // Berk. Fixed: spawn is (0, 300, 900) and mission beat 1 is "leave Berk".
-  // Long north-south, deeply bitten into on the west by the sound the village
-  // stands on, forested to the tree line.
-  { name: "Berk", x: 0, z: -1100, r: 1150, h: 360, cliff: 0.26,
-    elong: 0.74, rot: 0.32, lobe: 0.30, lobeK: 0.85, dome: 0.42,
-    relief: 1.0, terrace: 0.35, shelfW: 0.42, beach: 0.55, bare: 0.15 },
+  // Berk. The home island, and now the biggest thing on the chart: four
+  // kilometres of forested fjord country running north-south, a north-east arm
+  // across the bay from it, and a western peninsula. The sound the village
+  // stands on bites in from the west (FJORDS below). Spawn is (0, 300, 900),
+  // and the centre sits 200 m north of the old (0, -1100) to keep the bigger
+  // south cape half a kilometre off it; mission beat 1, "leave Berk", is still
+  // measured 2.1 km from (0, -1100), which is high ground on it.
+  { name: "Berk", x: 0, z: -1300, r: 1600, h: 440, cliff: 0.2,
+    elong: 0.54, rot: 1.45, lobe: 0.26, lobeK: 0.9, dome: 0.42,
+    relief: 1.0, terrace: 0.35, shelfW: 0.28, beach: 0.55, bare: 0.12,
+    fjords: [[3.0, 220, 0.35, 0.3], [0.7, 170, -0.3, 0.45]],
+    parts: [
+      { x: 800, z: -2400, r: 850, h: 420, elong: 0.6, rot: 0.7 },    // the north-east arm
+      { x: -950, z: -550, r: 700, h: 400, elong: 0.58, rot: 2.5 },    // the west cape
+    ] },
 
-  { name: "Raven Point", x: 2700, z: 500, r: 860, h: 520, cliff: 0.18,
-    elong: 0.58, rot: -0.7, lobe: 0.26, lobeK: 1.1, dome: 0.5,
-    relief: 1.15, terrace: 0.5, shelfW: 0.3, beach: 0.2, bare: 0.35 },
+  { name: "Raven Point", x: 3350, z: -50, r: 1350, h: 520, cliff: 0.17,
+    elong: 0.5, rot: -0.75, lobe: 0.26, lobeK: 1.1, dome: 0.48,
+    relief: 1.15, terrace: 0.5, shelfW: 0.28, beach: 0.25, bare: 0.3,
+    fjords: [[-2.3, 210, 0.3, 0.15], [0.8, 180, 0, 0.3]],
+    parts: [{ x: 3000, z: 900, r: 650, h: 430, elong: 0.7, rot: 0.6 }] },
 
   // --- The volcanic arc, running NE ---------------------------------------
-  { name: "Dragon Peak", x: -2900, z: -2000, r: 780, h: 640, cliff: 0.16,
-    elong: 0.86, rot: 0.9, lobe: 0.2, lobeK: 1.0, dome: 0.68,
+  { name: "Dragon Peak", x: -2650, z: -1500, r: 950, h: 720, cliff: 0.16,
+    elong: 0.84, rot: 0.9, lobe: 0.2, lobeK: 1.0, dome: 0.7,
     relief: 1.3, terrace: 0.2, scree: 1.5, shelfW: 0.26, beach: 0.12,
-    bare: 0.7, snow: 120 },
+    bare: 0.62, snow: 120 },
 
-  { name: "Fireworm Island", x: 4300, z: 2700, r: 680, h: 420, cliff: 0.22,
-    elong: 0.8, rot: 0.4, lobe: 0.22, lobeK: 1.3, dome: 0.62,
-    relief: 1.1, terrace: 0.15, scree: 1.4, shelfW: 0.3, beach: 0.25, bare: 0.85 },
+  { name: "Fireworm Island", x: 4300, z: 2050, r: 800, h: 440, cliff: 0.22,
+    elong: 0.72, rot: 1.2, lobe: 0.24, lobeK: 1.3, dome: 0.6,
+    relief: 1.1, terrace: 0.15, scree: 1.4, shelfW: 0.28, beach: 0.25, bare: 0.8 },
 
   // Dragon Hunter Island. A drowned volcano: a high broken rim with a flat
   // floor inside it and one channel cut through to the sea, so the whole hunter
@@ -248,135 +271,159 @@ const RAW_ISLANDS = [
     elong: 0.9, rot: 1.2, lobe: 0.10, lobeK: 1.6, dome: 0,
     terrace: 0.75, shelfW: 0.5, beach: 0.15, bare: 0.6, flat: true },
 
-  // --- North --------------------------------------------------------------
-  { name: "Berserker Island", x: -4150, z: -3300, r: 940, h: 560, cliff: 0.15,
-    elong: 0.62, rot: -0.5, lobe: 0.34, lobeK: 0.8, dome: 0.5,
-    relief: 1.25, terrace: 0.6, shelfW: 0.28, beach: 0.18, bare: 0.4 },
+  // --- North: the fjord country -------------------------------------------
+  // The Faroes, more or less: long islands all lying the same way, north-west
+  // to south-east, with fjords cut down the grain and narrow sounds between
+  // them. Berserker Island is the big one in the corner.
+  { name: "Berserker Island", x: -3650, z: -3500, r: 1450, h: 560, cliff: 0.15,
+    elong: 0.56, rot: 0.8, lobe: 0.3, lobeK: 0.8, dome: 0.48,
+    relief: 1.2, terrace: 0.6, shelfW: 0.26, beach: 0.25, bare: 0.3,
+    fjords: [[-0.8, 210, 0, 0.15], [2.35, 190, 0.3, 0.25], [-2.35, 170, 0, 0.45]],
+    parts: [{ x: -4300, z: -2250, r: 650, h: 450, elong: 0.66, rot: 0.3 }] },
 
-  { name: "Wild Dragon Cliffs", x: -2450, z: -4250, r: 700, h: 540, cliff: 0.10,
-    elong: 0.5, rot: 0.15, lobe: 0.22, lobeK: 1.2, dome: 0.35,
-    relief: 1.0, terrace: 0.8, shelfW: 0.2, beach: 0.05, bare: 0.5 },
+  { name: "Wild Dragon Cliffs", x: -1500, z: -3950, r: 950, h: 560, cliff: 0.1,
+    elong: 0.46, rot: 0.55, lobe: 0.24, lobeK: 1.1, dome: 0.35,
+    relief: 1.05, terrace: 0.8, shelfW: 0.2, beach: 0.08, bare: 0.4,
+    fjords: [[2.1, 150, 0, 0.3]] },
 
-  { name: "Breakneck Bog", x: -1500, z: -3150, r: 720, h: 215, cliff: 0.44,
-    elong: 0.78, rot: 0.6, lobe: 0.33, lobeK: 1.5, dome: 0.12,
-    relief: 0.35, terrace: 0.05, shelfW: 0.62, beach: 0.85, bare: 0.1 },
+  { name: "Breakneck Bog", x: -1700, z: -2750, r: 820, h: 330, cliff: 0.32,
+    elong: 0.62, rot: 0.75, lobe: 0.32, lobeK: 1.4, dome: 0.12,
+    relief: 0.4, terrace: 0.05, shelfW: 0.45, beach: 0.85, bare: 0.12,
+    fjords: [[-0.8, 180, 0, 0.2]] },
 
-  { name: "Thor's Beach", x: 350, z: -4050, r: 560, h: 175, cliff: 0.5,
-    elong: 0.5, rot: -0.35, lobe: 0.36, lobeK: 1.7, dome: 0.1,
-    relief: 0.3, shelfW: 0.75, beach: 1.0, bare: 0.45 },
+  { name: "Thor's Beach", x: 750, z: -4150, r: 850, h: 320, cliff: 0.4,
+    elong: 0.5, rot: -0.2, lobe: 0.34, lobeK: 1.5, dome: 0.12,
+    relief: 0.35, shelfW: 0.55, beach: 1.0, bare: 0.35,
+    fjords: [[1.6, 170, 0, 0.3]] },
 
-  { name: "Hobblegrunt Island", x: 2250, z: -4100, r: 640, h: 330, cliff: 0.28,
-    elong: 0.7, rot: 0.8, lobe: 0.28, lobeK: 1.2, dome: 0.4,
-    relief: 0.9, terrace: 0.3, shelfW: 0.4, beach: 0.5, bare: 0.2 },
+  { name: "Hobblegrunt Island", x: 2650, z: -4050, r: 900, h: 380, cliff: 0.26,
+    elong: 0.6, rot: 0.6, lobe: 0.3, lobeK: 1.1, dome: 0.4,
+    relief: 0.95, terrace: 0.3, shelfW: 0.32, beach: 0.5, bare: 0.18,
+    fjords: [[1.7, 170, 0.2, 0.2]] },
 
-  { name: "Itchy Armpit", x: 3550, z: -2450, r: 640, h: 340, cliff: 0.32,
-    elong: 0.66, rot: -0.2, lobe: 0.3, lobeK: 1.3, dome: 0.35,
-    relief: 0.8, terrace: 0.25, shelfW: 0.46, beach: 0.6, bare: 0.3 },
+  { name: "Itchy Armpit", x: 4050, z: -2700, r: 950, h: 380, cliff: 0.3,
+    elong: 0.6, rot: -0.35, lobe: 0.3, lobeK: 1.2, dome: 0.38,
+    relief: 0.85, terrace: 0.25, shelfW: 0.34, beach: 0.6, bare: 0.25,
+    fjords: [[1.75, 220, 0, 0.1]] },
 
-  { name: "Auction Island", x: 4400, z: -1250, r: 520, h: 285, cliff: 0.3,
-    elong: 0.75, rot: 0.5, lobe: 0.24, lobeK: 1.5, dome: 0.4,
-    relief: 0.85, terrace: 0.3, shelfW: 0.42, beach: 0.45, bare: 0.35 },
+  { name: "Auction Island", x: 4100, z: -1150, r: 600, h: 330, cliff: 0.28,
+    elong: 0.72, rot: 0.5, lobe: 0.24, lobeK: 1.4, dome: 0.4,
+    relief: 0.85, terrace: 0.3, shelfW: 0.36, beach: 0.5, bare: 0.3,
+    fjords: [[2.6, 140, 0, 0.35]] },
 
   // --- West ---------------------------------------------------------------
-  { name: "Glacier Island", x: -4500, z: 250, r: 760, h: 720, cliff: 0.14,
-    elong: 0.8, rot: 0.25, lobe: 0.18, lobeK: 1.0, dome: 0.6,
-    relief: 1.1, terrace: 0.35, shelfW: 0.24, beach: 0.08, bare: 1.0, snow: 300 },
+  { name: "Glacier Island", x: -4000, z: 350, r: 1150, h: 780, cliff: 0.14,
+    elong: 0.62, rot: 1.35, lobe: 0.2, lobeK: 1.0, dome: 0.6,
+    relief: 1.1, terrace: 0.35, shelfW: 0.22, beach: 0.08, bare: 1.0,
+    fjords: [[0.1, 190, 0.2, 0.15], [3.2, 170, 0, 0.3]], snow: 300 },
 
-  { name: "Bog-Burglar Island", x: -3350, z: -1000, r: 620, h: 300, cliff: 0.3,
-    elong: 0.68, rot: 1.15, lobe: 0.3, lobeK: 1.4, dome: 0.35,
-    relief: 0.8, terrace: 0.25, shelfW: 0.48, beach: 0.7, bare: 0.15 },
+  { name: "Bog-Burglar Island", x: -4100, z: -1350, r: 750, h: 360, cliff: 0.28,
+    elong: 0.64, rot: 0.85, lobe: 0.3, lobeK: 1.3, dome: 0.35,
+    relief: 0.8, terrace: 0.25, shelfW: 0.36, beach: 0.7, bare: 0.12,
+    fjords: [[0.9, 170, 0, 0.25]] },
 
-  { name: "Outcast Island", x: -2500, z: 1500, r: 960, h: 320, cliff: 0.36,
-    elong: 0.64, rot: -0.55, lobe: 0.32, lobeK: 1.0, dome: 0.3,
-    relief: 0.75, terrace: 0.45, shelfW: 0.5, beach: 0.45, bare: 0.55 },
+  { name: "Outcast Island", x: -2200, z: 1700, r: 1350, h: 380, cliff: 0.3,
+    elong: 0.56, rot: -0.55, lobe: 0.3, lobeK: 0.9, dome: 0.32,
+    relief: 0.85, terrace: 0.45, shelfW: 0.32, beach: 0.45, bare: 0.45,
+    fjords: [[1.75, 200, 0.3, 0.15], [-1.6, 180, 0, 0.35], [3.4, 160, 0, 0.3]] },
 
-  { name: "Impossible Island", x: -4600, z: 2000, r: 430, h: 420, cliff: 0.10,
+  // A sheer-sided block of rock with a fort's worth of flat on top. Small on
+  // purpose: it is called Impossible because nobody can get up it.
+  { name: "Impossible Island", x: -4250, z: 2350, r: 480, h: 440, cliff: 0.10,
     elong: 0.85, rot: 0, lobe: 0.14, lobeK: 1.8, dome: 0.2,
     relief: 0.9, terrace: 0.9, shelfW: 0.22, beach: 0.05, bare: 0.7 },
 
-  // h was 250, peaking at +15 m. See the note on Peaceable Country.
-  { name: "Healer Island", x: -3650, z: 2900, r: 700, h: 375, cliff: 0.4,
-    elong: 0.7, rot: 0.35, lobe: 0.35, lobeK: 1.1, dome: 0.28,
-    relief: 0.5, terrace: 0.1, shelfW: 0.66, beach: 0.9, bare: 0.05 },
+  { name: "Sullen Sound", x: -3450, z: 1850, r: 620, h: 340, cliff: 0.26,
+    elong: 0.55, rot: 1.3, lobe: 0.32, lobeK: 1.4, dome: 0.3,
+    relief: 0.8, terrace: 0.3, shelfW: 0.3, beach: 0.5, bare: 0.22,
+    fjords: [[-1.2, 140, 0, 0.3]] },
+
+  { name: "Healer Island", x: -3500, z: 3250, r: 950, h: 420, cliff: 0.34,
+    elong: 0.66, rot: 0.35, lobe: 0.32, lobeK: 1.1, dome: 0.3,
+    relief: 0.6, terrace: 0.1, shelfW: 0.4, beach: 0.85, bare: 0.05,
+    fjords: [[0.3, 190, 0, 0.2]] },
 
   // --- South --------------------------------------------------------------
-  { name: "Scuttleclaw Island", x: -2600, z: 3950, r: 620, h: 350, cliff: 0.24,
-    elong: 0.72, rot: -0.8, lobe: 0.28, lobeK: 1.3, dome: 0.42,
-    relief: 0.95, terrace: 0.35, shelfW: 0.38, beach: 0.4, bare: 0.25 },
+  { name: "Scuttleclaw Island", x: -1950, z: 3850, r: 800, h: 380, cliff: 0.24,
+    elong: 0.64, rot: -0.7, lobe: 0.28, lobeK: 1.2, dome: 0.42,
+    relief: 0.95, terrace: 0.35, shelfW: 0.3, beach: 0.4, bare: 0.2,
+    fjords: [[-1.7, 160, 0, 0.25]] },
 
-  { name: "Gronckle Isle", x: -900, z: 3500, r: 560, h: 260, cliff: 0.42,
-    elong: 0.82, rot: 0.45, lobe: 0.26, lobeK: 1.5, dome: 0.3,
-    relief: 0.7, terrace: 0.4, scree: 1.6, shelfW: 0.5, beach: 0.55, bare: 0.6 },
+  { name: "Gronckle Isle", x: -500, z: 3100, r: 650, h: 330, cliff: 0.36,
+    elong: 0.78, rot: 0.45, lobe: 0.26, lobeK: 1.4, dome: 0.3,
+    relief: 0.7, terrace: 0.4, scree: 1.6, shelfW: 0.36, beach: 0.55, bare: 0.55,
+    fjords: [[2.5, 140, 0, 0.3]] },
 
-  { name: "Changewing Island", x: 600, z: 3400, r: 700, h: 430, cliff: 0.2,
-    elong: 0.6, rot: 1.0, lobe: 0.3, lobeK: 1.2, dome: 0.5,
-    relief: 1.05, terrace: 0.3, shelfW: 0.34, beach: 0.3, bare: 0.2 },
+  { name: "Changewing Island", x: 300, z: 3400, r: 760, h: 440, cliff: 0.2,
+    elong: 0.58, rot: 0.95, lobe: 0.3, lobeK: 1.2, dome: 0.5,
+    relief: 1.05, terrace: 0.3, shelfW: 0.3, beach: 0.3, bare: 0.18,
+    fjords: [[-2.4, 170, 0.25, 0.2], [0.0, 150, 0, 0.3]] },
 
-  { name: "Death Song Island", x: 1550, z: 4500, r: 420, h: 460, cliff: 0.12,
+  { name: "Death Song Island", x: 1450, z: 4500, r: 440, h: 470, cliff: 0.12,
     elong: 0.78, rot: -0.3, lobe: 0.2, lobeK: 1.7, dome: 0.55,
-    relief: 1.2, terrace: 0.5, scree: 1.3, shelfW: 0.26, beach: 0.1, bare: 0.65 },
+    relief: 1.2, terrace: 0.5, scree: 1.3, shelfW: 0.24, beach: 0.1, bare: 0.65 },
 
-  { name: "Melody Island", x: -1250, z: 4650, r: 380, h: 300, cliff: 0.2,
-    elong: 0.7, rot: 0.7, lobe: 0.28, lobeK: 1.9, dome: 0.4,
-    relief: 0.9, terrace: 0.45, shelfW: 0.4, beach: 0.35, bare: 0.4 },
+  { name: "Melody Island", x: -650, z: 4450, r: 600, h: 340, cliff: 0.2,
+    elong: 0.7, rot: 0.7, lobe: 0.28, lobeK: 1.6, dome: 0.4,
+    relief: 0.9, terrace: 0.45, shelfW: 0.3, beach: 0.35, bare: 0.3,
+    fjords: [[-0.6, 140, 0, 0.3]] },
 
-  { name: "Vanaheim", x: -4400, z: 4350, r: 820, h: 500, cliff: 0.13,
-    elong: 0.66, rot: 0.55, lobe: 0.3, lobeK: 0.9, dome: 0.45,
-    relief: 1.15, terrace: 0.65, shelfW: 0.26, beach: 0.15, bare: 0.3 },
+  { name: "Vanaheim", x: -3950, z: 4150, r: 850, h: 500, cliff: 0.13,
+    elong: 0.62, rot: 0.55, lobe: 0.3, lobeK: 0.9, dome: 0.45,
+    relief: 1.15, terrace: 0.65, shelfW: 0.24, beach: 0.15, bare: 0.25,
+    fjords: [[0.0, 180, 0, 0.2], [-1.9, 160, 0, 0.3]] },
 
-  { name: "Wingmaiden Island", x: 4500, z: 4300, r: 560, h: 360, cliff: 0.14,
+  { name: "Wingmaiden Island", x: 4450, z: 4350, r: 560, h: 380, cliff: 0.14,
     elong: 0.74, rot: -0.6, lobe: 0.24, lobeK: 1.4, dome: 0.5,
-    relief: 1.1, terrace: 0.55, shelfW: 0.3, beach: 0.2, bare: 0.35 },
+    relief: 1.1, terrace: 0.55, shelfW: 0.26, beach: 0.2, bare: 0.3 },
 
-  { name: "Sandbuster Island", x: 4350, z: 900, r: 600, h: 165, cliff: 0.55,
-    elong: 0.5, rot: 0.9, lobe: 0.4, lobeK: 1.6, dome: 0.08,
-    relief: 0.25, shelfW: 0.9, beach: 1.0, bare: 0.55 },
+  { name: "Sandbuster Island", x: 4300, z: 800, r: 700, h: 340, cliff: 0.5,
+    elong: 0.5, rot: 1.2, lobe: 0.36, lobeK: 1.5, dome: 0.1,
+    relief: 0.3, shelfW: 0.6, beach: 1.0, bare: 0.5 },
 
   // Peaceable Country. The deep wood, and the one island mission 1 goes INTO
   // rather than over: the hunters worked here before they moved out to the
   // caldera, and what they left in the clearing is the first sign of them.
   //
   // It used to be r 470, h 235 and it peaked at FOUR METRES -- 1% of it above
-  // water. So did the chart's other two thickest woods, Sheep Island (-9 m,
-  // no land at all) and Healer Island (+15 m). `h` is measured off the sea
-  // floor at -190, and on an island this small the coastal cliff band and the
-  // interior falloff eat most of what is left, so the three entries in the
-  // table with `bare: 0.05` -- the three that were meant to be forest -- were
-  // the three that did not exist. That is the real reason there was no forest
-  // anywhere in the game.
+  // water. `h` is measured off the sea floor at -190, and on an island this
+  // small the coastal cliff band and the interior falloff eat most of what is
+  // left, so the islands in the table that were meant to be forest were the
+  // ones that did not exist.
   //
-  // Nudged 300 m north-west as well, which puts it within 280 m of the line
-  // from Berk to Dragon Hunter Island and leaves 1.1 km of clear water
-  // between its shore and Hollow Stack's.
-  { name: "Peaceable Country", x: 1250, z: 1500, r: 620, h: 410, cliff: 0.34,
-    elong: 0.72, rot: -0.25, lobe: 0.34, lobeK: 1.5, dome: 0.34,
-    relief: 0.72, terrace: 0.2, shelfW: 0.5, beach: 0.7, bare: 0.05 },
+  // Its centre is fixed: chapters.js's WOOD is (1250, 1500), and the
+  // "which side of the wood" hint is measured from it. Grown into a proper
+  // wooded island in the archipelago rework, but kept clear of the shoal and
+  // of Sigrún's stack to the south-east, and 600 m of water short of Hollow
+  // Stack.
+  { name: "Peaceable Country", x: 1250, z: 1500, r: 800, h: 430, cliff: 0.3,
+    elong: 0.66, rot: -0.35, lobe: 0.32, lobeK: 1.3, dome: 0.34,
+    relief: 0.72, terrace: 0.2, shelfW: 0.4, beach: 0.7, bare: 0.05,
+    fjords: [[-1.9, 140, 0, 0.5]] },
 
-  { name: "Dark Deep", x: -1700, z: 300, r: 500, h: 400, cliff: 0.11,
-    elong: 0.55, rot: 1.35, lobe: 0.2, lobeK: 1.6, dome: 0.3,
-    relief: 1.0, terrace: 0.75, shelfW: 0.2, beach: 0.05, bare: 0.6 },
+  { name: "Dark Deep", x: -2350, z: 150, r: 600, h: 430, cliff: 0.11,
+    elong: 0.55, rot: 1.35, lobe: 0.2, lobeK: 1.5, dome: 0.3,
+    relief: 1.0, terrace: 0.75, shelfW: 0.2, beach: 0.05, bare: 0.55 },
 
-  { name: "Villainy Island", x: 3350, z: -600, r: 480, h: 355, cliff: 0.2,
-    elong: 0.68, rot: 0.25, lobe: 0.26, lobeK: 1.6, dome: 0.45,
-    relief: 1.0, terrace: 0.4, shelfW: 0.34, beach: 0.3, bare: 0.4 },
+  { name: "Villainy Island", x: 2350, z: -1900, r: 620, h: 380, cliff: 0.2,
+    elong: 0.66, rot: 0.25, lobe: 0.26, lobeK: 1.5, dome: 0.45,
+    relief: 1.0, terrace: 0.4, shelfW: 0.28, beach: 0.3, bare: 0.3,
+    fjords: [[2.8, 140, 0, 0.35]] },
 
-  // h was 215, which on a 330 m island came out at -9 m: it had no land on it
-  // at all. See the note on Peaceable Country.
-  { name: "Sheep Island", x: -1150, z: 2350, r: 360, h: 330, cliff: 0.38,
-    elong: 0.76, rot: 0.15, lobe: 0.3, lobeK: 2.0, dome: 0.28,
-    relief: 0.5, terrace: 0.2, shelfW: 0.6, beach: 0.85, bare: 0.05 },
+  { name: "Sheep Island", x: -450, z: 2200, r: 520, h: 360, cliff: 0.34,
+    elong: 0.72, rot: 0.15, lobe: 0.3, lobeK: 1.6, dome: 0.28,
+    relief: 0.5, terrace: 0.2, shelfW: 0.4, beach: 0.85, bare: 0.05,
+    fjords: [[1.2, 120, 0, 0.4]] },
 
+  // A bare rock off the shoal. Left small: it is the one between Sigrún's
+  // stack and the hunters, and the story wants that water open.
   { name: "Odin's Respite", x: 2650, z: 2300, r: 300, h: 330, cliff: 0.14,
     elong: 0.62, rot: -1.0, lobe: 0.22, lobeK: 2.1, dome: 0.4,
     relief: 1.0, terrace: 0.6, shelfW: 0.3, beach: 0.15, bare: 0.5 },
 
-  { name: "Eel Isle", x: 1000, z: -2900, r: 360, h: 280, cliff: 0.24,
-    elong: 0.58, rot: 0.95, lobe: 0.28, lobeK: 1.9, dome: 0.35,
-    relief: 0.85, terrace: 0.35, shelfW: 0.42, beach: 0.4, bare: 0.3 },
-
-  { name: "Sullen Sound", x: -3900, z: 1150, r: 400, h: 290, cliff: 0.26,
-    elong: 0.5, rot: 0.05, lobe: 0.34, lobeK: 1.5, dome: 0.3,
-    relief: 0.8, terrace: 0.3, shelfW: 0.44, beach: 0.5, bare: 0.25 },
+  { name: "Eel Isle", x: 2350, z: -3150, r: 520, h: 330, cliff: 0.24,
+    elong: 0.58, rot: 0.95, lobe: 0.28, lobeK: 1.6, dome: 0.35,
+    relief: 0.85, terrace: 0.35, shelfW: 0.3, beach: 0.4, bare: 0.25 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -408,13 +455,17 @@ function makeSkerries(parents) {
 
   for (const p of parents) {
     if (!p.name || p.r < 380) continue;
-    const count = Math.round(1 + p.r / 420);
+    // Fewer than there were, and closer in. There used to be one per 420 m of
+    // radius scattered out to nearly twice it, which on a chart of small
+    // islands was most of the land on it: a sea of lumps no one could live on.
+    // A skerry is a rock off a coast, so they now stand just off one.
+    const count = Math.round(p.r / 520);
     for (let i = 0; i < count; i++) {
       // Hug the parent's major axis, so a skerry field reads as the same ridge
       // carrying on underwater rather than as confetti.
       const along = (rnd() * 2 - 1);
       const a = (p.rot ?? 0) + along * 0.85 + (rnd() < 0.5 ? 0 : Math.PI);
-      const dist = p.r * (1.15 + rnd() * 0.75);
+      const dist = p.r * (1.08 + rnd() * 0.4);
       const x = Math.round(p.x + Math.cos(a) * dist);
       const z = Math.round(p.z + Math.sin(a) * dist);
       if (Math.abs(x) > 4900 || Math.abs(z) > 4900) continue;
@@ -458,20 +509,135 @@ function makeSkerries(parents) {
 }
 
 // Sea stacks that were hand-placed to be threaded between, and are kept because
-// the flight model was tuned against them.
+// the flight model was tuned against them. The archipelago rework moved one in
+// off open water to sit under Berk's west cape, where a stack would be, and
+// dropped the one Raven Point now stands on. (2200, 2000) is Sigrún's stack
+// and does not move: main.js finds her perch on its top.
 const STACKS = [
   { x: 1000, z: 400, r: 150, h: 320, cliff: 0.12 },
   { x: -750, z: 950, r: 120, h: 285, cliff: 0.10 },
   { x: 1900, z: -1600, r: 170, h: 440, cliff: 0.14 },
-  { x: -1600, z: -400, r: 110, h: 265, cliff: 0.10 },
+  { x: -1450, z: -150, r: 110, h: 265, cliff: 0.10 },
   { x: 2200, z: 2000, r: 140, h: 300, cliff: 0.12 },
   { x: -300, z: 1800, r: 130, h: 278, cliff: 0.11 },
-  { x: 3100, z: -600, r: 160, h: 330, cliff: 0.13 },
 ].map((s) => ({ ...s, elong: 0.62, rot: s.x * 0.001, lobe: 0.16, lobeK: 2.6,
                 dome: 0.15, relief: 0.9, terrace: 0.65, scree: 1.4,
                 shelfW: 0.8, beach: 0.05, bare: 1 }));
 
-export const ISLANDS = [...RAW_ISLANDS, ...STACKS, ...makeSkerries(RAW_ISLANDS)];
+// ---------------------------------------------------------------------------
+// Parts
+//
+// One ellipse with a lobed edge makes a believable island up to about a
+// kilometre across and a potato beyond that. Real big islands are several
+// massifs run together, with saddles and bays between them, so a big island
+// carries `parts`: extra bodies that inherit everything from their parent
+// (bare, snow, beach, strata) but their own centre, size and bearing. They have
+// no name, so the chart labels the island once; `part` says whose they are, so
+// the chart does not mistake them for sea stacks. Tallest wins in the height
+// loop, so they merge into the parent without a seam.
+// ---------------------------------------------------------------------------
+function expandParts(list) {
+  const out = [];
+  for (const isl of list) {
+    out.push(isl);
+    if (!isl.parts) continue;
+    // eslint-disable-next-line no-unused-vars
+    const { name, parts, crater, arms, fjords, ...base } = isl;
+    for (const p of parts) out.push({ ...base, ...p, part: name });
+  }
+  return out;
+}
+
+const LAND = expandParts(RAW_ISLANDS);
+export const ISLANDS = [...LAND, ...STACKS, ...makeSkerries(LAND)];
+
+// ---------------------------------------------------------------------------
+// Fjords and sounds
+//
+// The lobe noise moves a coastline in and out by a few hundred metres, which
+// makes headlands and shallow bays and nothing deeper. What makes the North
+// Atlantic islands read as what they are is the drowned valley: a channel a
+// few hundred metres wide running kilometres into the land, steep-walled, with
+// a beach at its head. Noise does not make those, glaciers did, so they are
+// drawn: a polyline from the open sea inward, in WORLD coordinates (they are
+// placed by looking at the chart), whose half-width tapers from `w[0]` at the
+// mouth to `w[1]` at the head.
+//
+// Applied as a multiplier on the island body inside terrainHeight, so the
+// walls are the island's own rock falling away and the drowned foot under the
+// channel is thinned too: a fjord is darker water than the coast outside it,
+// as it should be. None of them goes near Dragon Hunter Island; the pit, the
+// pads and the hunters are shaped in that island's own terms.
+//
+// Authored on the island, as `fjords: [[bearing, width, bend, reach]]`, rather
+// than as world polylines: the domain warp moves a coast a few hundred metres
+// from where the table says it is, but it keeps the island round its own
+// centre, so "a sea loch from the south-west reaching two thirds of the way
+// in" lands in the island wherever the island is.
+//
+//   bearing  radians, world: 0 east, PI/2 south (z grows south), -PI/2 north
+//   width    half-width at the mouth, metres; the head is a third of it
+//   bend     radians the valley swings through between mouth and head
+//   reach    how far in the head stops, as a fraction of the radius that way
+//            (0 = the island's centre)
+// ---------------------------------------------------------------------------
+function fjordsOf(isl) {
+  if (!isl.fjords) return [];
+  const rot = isl.rot ?? 0, e = isl.elong ?? 1;
+  return isl.fjords.map(([a, w, bend = 0, reach = 0.2]) => {
+    const pts = [];
+    for (const t of [1.55, 1.0, 0.7, 0.45, reach]) {
+      // Radius of the ellipse along this bearing, so "1.0" is the coast.
+      const b = a + bend * (1 - Math.min(1, t));
+      const c = Math.cos(b - rot), s = Math.sin(b - rot);
+      const R = isl.r / Math.sqrt(c * c + (s * s) / (e * e));
+      pts.push([isl.x + Math.cos(b) * R * t, isl.z + Math.sin(b) * R * t]);
+    }
+    return { w: [w, w / 3], pts };
+  });
+}
+
+export const FJORDS = [
+  ...LAND.flatMap(fjordsOf),
+].map((f, n) => {
+  const segs = [];
+  let total = 0;
+  for (let k = 1; k < f.pts.length; k++) {
+    const [ax, az] = f.pts[k - 1], [bx, bz] = f.pts[k];
+    const len = Math.hypot(bx - ax, bz - az);
+    segs.push({ ax, az, dx: bx - ax, dz: bz - az, len, from: total });
+    total += len;
+  }
+  const pad = Math.max(f.w[0], f.w[1]) * 1.6 + 70;   // +70 for the meander
+  const xs = f.pts.map((p) => p[0]), zs = f.pts.map((p) => p[1]);
+  return { segs, total, w0: f.w[0], w1: f.w[1], seed: n * 17.3 + 5.1,
+           x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad,
+           z0: Math.min(...zs) - pad, z1: Math.max(...zs) + pad };
+});
+
+/** 0 on open land, 1 down the middle of a fjord. Pure, cheap off the boxes. */
+function fjordAt(x, z) {
+  let best = 0;
+  for (let n = 0; n < FJORDS.length; n++) {
+    const f = FJORDS[n];
+    if (x < f.x0 || x > f.x1 || z < f.z0 || z > f.z1) continue;
+    // A valley a glacier cut is not a ruled line: it meanders, slowly.
+    const mx = x + noise2(x * 0.0032 + f.seed, z * 0.0032) * 60;
+    const mz = z + noise2(x * 0.0032, z * 0.0032 - f.seed) * 60;
+    let dBest = 1e9, tBest = 0;
+    for (const s of f.segs) {
+      let u = ((mx - s.ax) * s.dx + (mz - s.az) * s.dz) / (s.len * s.len);
+      u = u < 0 ? 0 : u > 1 ? 1 : u;
+      const ex = mx - (s.ax + s.dx * u), ez = mz - (s.az + s.dz * u);
+      const d = ex * ex + ez * ez;
+      if (d < dBest) { dBest = d; tBest = (s.from + u * s.len) / f.total; }
+    }
+    const w = lerp(f.w0, f.w1, tBest) * (1 + noise2(x * 0.0061 - f.seed, z * 0.0061) * 0.22);
+    const v = 1 - smoothstep(Math.sqrt(dBest), w * 0.4, w * 1.5);
+    if (v > best) best = v;
+  }
+  return best;
+}
 
 // Fill in the defaults, then flatten every field the height loop touches into
 // typed arrays.
@@ -844,6 +1010,14 @@ export function terrainHeight(x, z) {
       winner = i;
       flatness = flat;
     }
+  }
+
+  // The drowned valleys (FJORDS above): the land falls away into them and the
+  // shelf under them is thinned, so the channel floor lies thirty-odd metres
+  // down instead of on the coastal bench.
+  if (shelf > 0) {
+    const fj = fjordAt(x, z);
+    if (fj > 0) { land *= 1 - fj; shelf *= 1 - 0.45 * fj; }
   }
 
   // --- Sea floor --------------------------------------------------------

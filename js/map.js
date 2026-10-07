@@ -344,8 +344,13 @@ export function setupMap(getPlayer) {
 
   function paintIslandGlyphs(c2d) {
     for (const isl of ISLANDS) {
-      if (!isl.name) {
-        // Sea stack — one narrow spire, sat right on it.
+      // A part of a bigger island (terrain.js `parts`) gets summits like
+      // any island, not the spire of a rock of its own.
+      if (!isl.name && !isl.part) {
+        // Sea stack — one narrow spire, sat right on it. A drowned reef is
+        // not a stack, and drawing one in open water put a mountain where
+        // the dragon finds only sea.
+        if (terrainHeight(isl.x, isl.z) <= SEA_LEVEL) continue;
         const [cx, cy] = worldToChart(isl.x, isl.z);
         paintPeak(c2d, cx, cy + 3, 5, 9);
         continue;
@@ -749,13 +754,15 @@ export function setupMap(getPlayer) {
     let best = null;
     let bestD = Infinity;
     for (const isl of ISLANDS) {
-      if (!isl.name) continue;
+      // Parts of a big island answer to its name.
+      if (!isl.name && !isl.part) continue;
       const d = Math.hypot(x - isl.x, z - isl.z) / isl.r;
       if (d < bestD) { bestD = d; best = isl; }
     }
     if (!best) return "Open sea";
-    if (bestD < 1) return `Over ${best.name}`;
-    if (bestD < 2.2) return `Off ${best.name}`;
+    const name = best.name ?? best.part;
+    if (bestD < 1) return `Over ${name}`;
+    if (bestD < 2.2) return `Off ${name}`;
     return "Open sea";
   }
 
