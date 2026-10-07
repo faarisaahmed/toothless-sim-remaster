@@ -19,23 +19,39 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 // The camp tells this file where things are (`camp`: fires and their seats,
 // tables, work spots, crate piles, homes, and how to walk between them).
 //
-// SEEING. A man can see the dragon if nothing is in the way (the line is
-// sampled against the height field — the pit walls and the rim hide a lot),
-// if he is facing that way, and if there is light to see by. By day there
-// always is. By night it is the torches and fires near the dragon, the torch
-// in a patrolman's hand, and the moon, which is very little: in the dark a man
-// sees a dragon at a few dozen metres if he is looking straight at it, and a
-// man sitting by a fire is blind past its light. What he is DOING matters as
-// much — a man asleep sees nothing, one eating or hammering is barely looking,
-// a sentry is. Noise is heard rather than seen: no facing needed, but it
-// carries only so far. What he gets fills an awareness meter:
+// SEEING. A man sees roughly where he is facing: clearly for about fifty
+// degrees either side, the corner of his eye out to seventy, nothing behind
+// him, and he scans the ground rather than the sky. The sight line is walked
+// against the height field (the pit walls and the rim hide a lot), the
+// buildings (main.js hands in a raycast) and the wood: every few metres it
+// spends among trunks or crowns lets less of the dragon through, so a dragon
+// on the floor of a wooded gully is all but invisible from the rim while one
+// over the treetops is not hidden at all. Light matters as before — by night
+// it is the fires and torches near him and very little moon — and so does
+// what there is to see: wings out against the sky he is big and carries a
+// long way; on his feet he is a big cat, and a still one is a rock until it
+// moves. What a man is DOING matters as much — asleep he sees nothing, eating
+// or hammering he is barely looking, a sentry is. Noise is heard rather than
+// seen: wingbeats, a gallop, a plasma blast going off.
 //
-//      0 .. 0.5   nothing
-//      0.5 .. 1   "?" over his head; he stops what he is doing to look
-//      1+         "!" — he has him; he shouts, archers draw, and the island
-//                 goes to ALARM for a while: every man awake is looking, the
-//                 sleepers tumble out of their doors, and the ones who could
-//                 not see him before now know roughly where.
+// What he gets fills a meter, and the meter drives a small, dim mind:
+//
+//      calm         about his day
+//      suspicious   "?" filling; he stops and turns toward what he saw or
+//                   heard (NOTICE)
+//      investigate  he walks to where it WAS — the last place he saw
+//                   something, or where the bang came from — not where the
+//                   dragon is now
+//      search       he pokes about there for a few seconds, then gives up
+//                   and goes back to what he was doing
+//      alert        "!" — the meter filled while he could see him; he shouts,
+//                   the men within earshot come to look, archers draw, and
+//                   the island is on ALARM until nobody has seen him for a
+//                   while
+//
+// They are meant to be beatable: they give up quickly, a blast in the rocks
+// pulls them off their posts, they do not look up much, and they cannot see
+// through a wood.
 //
 // DRAWING. Dozens of men at five parts each would be hundreds of meshes and,
 // at eight materials a part, a couple of thousand draw calls. Instead every
@@ -59,7 +75,8 @@ const SLOT_COLOUR = {
   skin: 0xb98a6e, leather: 0x3a2a1e,
 };
 
-const SIGHT = 340;           // m — nobody notices him past this, in full daylight
+const SIGHT = 340;           // m — nobody notices him on the ground past this, in full daylight
+const SIGHT_AIR = 420;       // m — ...or in the air, wings out against the sky
 const ARCHER_RANGE = 380;    // m — and nobody shoots past this
 const ARROW_SPEED = 95;      // m/s
 const ARROW_DAMAGE = 7;
@@ -232,18 +249,25 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
   // sight does.
   const CONES = 24, CONE_LEN = 30;
   const coneGeo = (() => {
-    const P = [0, 0, 0], F = [0.85], I = [];
-    const N = 24;
-    for (const rr of [0.45, 1]) {
+    // Soft all round: brightest just in front of his feet, fading out with
+    // distance and toward the corners of his eye, no hard edge anywhere.
+    const P = [0, 0, 0], F = [0.6], I = [];
+    const N = 28, RINGS = [0.2, 0.45, 0.72, 1];
+    const sm = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    for (const rr of RINGS) {
       for (let i = 0; i <= N; i++) {
         const a = -FOV_EDGE + (i / N) * FOV_EDGE * 2;
         P.push(Math.sin(a) * rr, 0, Math.cos(a) * rr);
-        F.push((Math.abs(a) < FOV_CLEAR ? 1 : 0.35) * (rr < 1 ? 0.5 : 0));
+        const side = 1 - sm(Math.abs(a), FOV_CLEAR * 0.55, FOV_EDGE);
+        F.push(side * Math.pow(1 - rr, 1.3) * 0.9 + side * 0.05 * (rr < 1 ? 1 : 0));
       }
     }
-    for (let i = 0; i < N; i++) {
-      const a = 1 + i, b = 2 + i, c = 1 + (N + 1) + i, d = 2 + (N + 1) + i;
-      I.push(0, b, a, a, b, d, a, d, c);
+    for (let i = 0; i < N; i++) I.push(0, 2 + i, 1 + i);
+    for (let r = 0; r < RINGS.length - 1; r++) {
+      for (let i = 0; i < N; i++) {
+        const a = 1 + r * (N + 1) + i, b = a + 1, c = a + (N + 1), d = c + 1;
+        I.push(a, b, d, a, d, c);
+      }
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
@@ -265,8 +289,10 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
       }`,
     fragmentShader: `uniform float uOpacity; varying float vFade; varying vec3 vCol;
       void main() { gl_FragColor = vec4( vCol, vFade * uOpacity ); }`,
-    transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+    // Drawn over the ground rather than into it: a flat fan laid on rough
+    // rock is cut to ribbons by every lump it passes through. It reads as a
+    // HUD hint, like the marks over their heads.
+    transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
   });
   const cones = new THREE.InstancedMesh(coneGeo, coneMat, CONES);
   cones.count = 0;
@@ -275,7 +301,7 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
   cones.setColorAt(0, new THREE.Color(1, 1, 1));
   group.add(cones);
   let coneFocus = null, coneShow = 0;
-  const CONE_COLOUR = { calm: new THREE.Color(0.75, 0.82, 0.95), alert: new THREE.Color(1, 0.28, 0.18) };
+  const CONE_COLOUR = { calm: new THREE.Color(0.62, 0.7, 0.85), alert: new THREE.Color(1, 0.28, 0.18) };
   const CONE_SUS = new THREE.Color(1, 0.72, 0.28);
 
   let alarm = 0;
@@ -611,9 +637,7 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
 
   /** Can he leave where he stands? A man on a tower deck or a roof stays put. */
   function mobileNow(man) {
-    return man.role !== "watch" || man.post !== "tower"
-      ? Math.abs(getHeightAt(man.pos.x, man.pos.z) - man.pos.y) < 2.2
-      : false;
+    return man.label !== "tower" && Math.abs(getHeightAt(man.pos.x, man.pos.z) - man.pos.y) < 2.2;
   }
 
   /** Something caught his attention at `at`: stop and look that way. */
@@ -663,7 +687,9 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
     // How much of him there is to see. Flying, wings out, he is fourteen
     // metres of black against the sky; on his feet he is a big cat, and a
     // still one is a rock until it moves.
-    const size = t?.grounded ? 0.55 : 1;
+    const air = !t?.grounded;
+    const size = air ? 1.3 : 0.55;
+    const reach = air ? SIGHT_AIR : SIGHT;
     const motion = t?.grounded ? 0.45 + 0.55 * Math.min(1, t.move ?? 0) : 0.85 + 0.15 * (t?.speedT ?? 0);
 
     for (const man of men) {
@@ -687,12 +713,12 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
         // Half asleep over his supper, or watching for it. Once something is
         // up he is looking properly.
         const attention = Math.max(ATTN[man.act] ?? 0.6, keen ? 1 : 0);
-        if (d < SIGHT && attention > 0) {
+        if (d < reach && attention > 0) {
           const light = tLight;
           // How far he can see depends on how lit the dragon is: a few dozen
           // metres in the dark, the whole pit by day or over a fire — and the
           // weather takes its share.
-          const range = SIGHT * (0.12 + 0.88 * light) * haze;
+          const range = reach * (0.12 + 0.88 * light) * haze;
           const toX = t.pos.x - eye.x, toZ = t.pos.z - eye.z;
           const flat = Math.hypot(toX, toZ);
           const bearing = Math.atan2(toX, toZ);
@@ -703,7 +729,8 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
           let fov = off < clear ? 1 : off < edge ? 0.35 * (1 - (off - clear) / (edge - clear)) : 0;
           // ...and he scans the ground, not the sky.
           const elev = Math.atan2(t.pos.y - eye.y, flat);
-          if (!keen && elev > LOOK_UP) fov *= 1 - 0.7 * THREE.MathUtils.smoothstep(elev, LOOK_UP, 1.2);
+          // (A dragon overhead is big and moving, so it still catches the eye.)
+          if (!keen && elev > LOOK_UP) fov *= 1 - (air ? 0.5 : 0.7) * THREE.MathUtils.smoothstep(elev, LOOK_UP, 1.2);
           // Right behind him, he hears it breathe.
           if (d < 5) fov = Math.max(fov, 0.5);
           // A man standing in firelight is blind to the dark beyond it.
@@ -729,7 +756,9 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
             }
             man.los = man.trans > 0;
             if (man.los && d < range) {
-              const near = d < 10 ? 1 : Math.pow(Math.max(0, 1 - (d - 10) / (range - 10)), 1.4);
+              // A shape against the sky fades out with distance more slowly
+              // than one against rock and scrub.
+              const near = d < 10 ? 1 : Math.pow(Math.max(0, 1 - (d - 10) / (range - 10)), air ? 1 : 1.4);
               seen = light * fov * near * size * motion * man.trans * dazzle;
             }
           }
@@ -1003,7 +1032,7 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
       }
     }
     cones.count = nc;
-    coneMat.uniforms.uOpacity.value = 0.2 * coneShow;
+    coneMat.uniforms.uOpacity.value = 0.3 * coneShow;
     if (nc) { cones.instanceMatrix.needsUpdate = true; cones.instanceColor.needsUpdate = true; }
     trailGeo.setDrawRange(0, n * 2);
     trailGeo.attributes.position.needsUpdate = true;
