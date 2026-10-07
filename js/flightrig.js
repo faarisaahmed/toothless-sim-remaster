@@ -32,7 +32,9 @@ const LEG_LOOSE  =  0.30;   // how much of the tuck is given back at low speed
 const CAMBER      = 0.30;   // curl into the digits, deepest at slow speed
 const CAMBER_LAG  = 0.55;   // radians of phase the outer digits trail by
 const WASHOUT     = 0.22;   // extra curl toward the wingtip
-const WRIST_FLEX  = 0.45;   // hand folds in on the upstroke, like a bat's
+// The hand folds in on the upstroke, like a bat's: a wing dragged back up at
+// full span would undo the downstroke. Deepest when the stroke is biggest.
+const WRIST_FLEX  = 0.85;
 const SWEEP_DIGIT = 0.34;   // digits rake back with speed
 
 // --- The hang -------------------------------------------------------------

@@ -1037,7 +1037,8 @@ let groundRig = null;          // bindDragon, built on first landing
 // which is what makes the wings sweep open instead of appearing open.
 let openingWings = false;
 let walkYaw = 0, walkSpeed = 0, landHold = 0;
-let walkGearDebug = 1;         // debug: scales the ground speeds (window.__na.walkGear)
+let walkGearDebug = 1;
+let wingHeave = 0;             // the beat's body heave currently applied, metres         // debug: scales the ground speeds (window.__na.walkGear)
 const walkKeys = { w: false, a: false, s: false, d: false, run: false };
 const LAND_AGL = 22;           // how low he has to be before landing is offered
 // ...and how slow. speedT is a fraction of his 750 mph top speed, so this is
@@ -1192,6 +1193,8 @@ function land() {
   // freezes — which is why he used to land on tucked ankles with his wings
   // still half open and walk around like that.
   updateWings?.release?.();
+  if (dragon) dragon.position.y -= wingHeave;   // take the beat's heave back out
+  wingHeave = 0;
   flightRig?.release?.();
   // Ease, from wherever the beat left the wings — not a snap. This is the whole
   // landing animation: he drops, settles onto the slope, and the wings gather in
@@ -2272,13 +2275,20 @@ function frame() {
   // wobble, and scaled by amplitude — a hard climb pounds, a glide is silent.
   if (updateWings) {
     const beat = updateWings.getBeat();
-    const stroke = Math.max(0, -Math.sin(beat.phase)) ** 3;
+    // sin(phase) is +1 on the downstroke: the thump is the power stroke.
+    const stroke = Math.max(0, Math.sin(beat.phase)) ** 3;
     pad.rumble.sustain(0.05 * beat.amp * stroke, 0.30 * beat.amp * stroke);
   }
 
   if (updateWings && controls && !grounded) {
     const st = controls.getFlightState();
     updateWings(sdt, st);
+    // The body heaves with the beat: up on each downstroke, down on the
+    // recovery. Applied as a change from last frame's offset, so it rides on
+    // whatever the flight model did with his height and never accumulates.
+    const hv = updateWings.getHeave?.() ?? 0;
+    dragon.position.y += hv - wingHeave;
+    wingHeave = hv;
     // After the beat, never before: this reads the beat phase and must not be
     // overwritten by it.
     if (flightRig) flightRig(sdt, st, updateWings.getBeat());
