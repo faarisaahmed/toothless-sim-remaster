@@ -56,9 +56,16 @@ const CHAR       = lin(0x2b2620);
 // The hunters' pit: packed road and the cut rock between its terraces.
 const PIT_ROAD   = lin(0x6a5c4a);
 const PIT_ROCK   = lin(0x2e2b28);
+// The pit's ground up close: wet, churned mud where water and feet collect,
+// grey gravel where it has been spread or washed clean, and the turf and moss
+// that come back wherever nobody walks.
+const PIT_MUD    = lin(0x2f271f);
+const PIT_GRAVEL = lin(0x8a8478);
+const PIT_MOSS   = lin(0x4b5a33);
 const TRODDEN    = lin(0x5d4f3c);
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
 function smoothstep(x, a, b) {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
@@ -165,7 +172,26 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
         const tread = 1 - smoothstep(slope, 0.25, 0.55);
         mix(PIT_ROCK, inPit * (1 - tread));
         mix(PIT_ROAD, inPit * tread * (0.8 + 0.2 * patch));
-        veg *= 1 - inPit;
+        // Patchwork, at three scales so no two square metres match.
+        const n1 = fbm(x * 0.031 + 7.1, z * 0.031 - 2.9, 2);
+        const n2 = noise2(x * 0.11 - 3.3, z * 0.11 + 5.5);
+        const n3 = noise2(x * 0.37 + 1.9, z * 0.37 - 8.2);
+        // Mud collects in the hollows and where the noise says it is wet.
+        const hollow = clamp(-curv / (CURV_SPAN * 0.6), 0, 1);
+        const wet = smoothstep(n1 + hollow * 0.8 + n3 * 0.15, 0.2, 0.75);
+        mix(PIT_MUD, inPit * tread * wet);
+        // Gravel in drifts and along the edges of the treads.
+        const grav = smoothstep(n2 + n3 * 0.3 - wet * 0.6, 0.25, 0.7);
+        mix(PIT_GRAVEL, inPit * tread * grav * 0.8);
+        // Moss and turf where traffic does not reach: against the risers, on
+        // the rubble, at the edge of the floor.
+        const quiet = smoothstep(slope, 0.12, 0.3) * tread + smoothstep(n1 - n2 * 0.5, 0.35, 0.8) * 0.6;
+        const moss = clamp(quiet * (1 - wet) * (0.5 + 0.5 * n3), 0, 1);
+        mix(PIT_MOSS, inPit * moss * 0.75);
+        veg = lerp(veg * (1 - inPit), moss * 0.55, inPit);
+        // The trodden earth reads best through the fine-grained sand layer:
+        // the scree photograph is a field of fist-sized stones.
+        sand = Math.max(sand, inPit * tread * (1 - moss) * 0.7);
       }
     }
 

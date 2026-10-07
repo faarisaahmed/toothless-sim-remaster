@@ -129,7 +129,32 @@ The wing joint axes were measured on the rig, not guessed. `wingprobe.html`
 shows what each bone and axis does. `flightcheck.html?speed=0&climb=0&view=front|side|q`
 is the test bench: one full beat as a filmstrip.
 
-## Landing and standing
+## The hunters' pit, up close
+
+The pit is shaped in `js/terrain.js`.
+- The terraces are no longer perfect rings. They wander, bulge and slump.
+- Each riser is cut differently: some sheer, some broken back into spoil.
+- Talus is banked at the foot of every riser, and the treads are lumpy.
+- The floor rolls gently, with spoil heaps.
+
+The ground paint in `js/groundpaint.js` turns the floor into a patchwork:
+churned mud in the hollows, drifts of gravel, and moss and turf wherever no one
+walks.
+
+Up close, `js/basedetail.js` adds a metre-spaced ground mesh over the floor and
+the first terrace. It carries the small relief the terrain is too coarse for:
+cart tracks with ruts, churned edges, potholes and lumps. Like the terrain it's
+painted with `paintGround`, and his feet stand on it.
+
+On top of that, scattered by what the ground is like there:
+- Tens of thousands of pebbles, thickest along the track edges.
+- Rock aprons and fallen boulders at the foot of the risers.
+- Heather, gorse and wiry grass where no one treads.
+- Planks and logs near the buildings.
+- Puddles in the low spots.
+
+Clutter is chunked and drawn by distance.
+
 
 On the ground he's a physical body (`js/groundbody.js`): mass carried on four
 spring-damped legs.

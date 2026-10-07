@@ -43,6 +43,7 @@ import * as keymap from "./keymap.js";
 import { createAim } from "./aim.js";
 import { createSurfaces } from "./surfaces.js";
 import { createGroundBody } from "./groundbody.js";
+import { createBaseDetail } from "./basedetail.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -1029,6 +1030,7 @@ const player = makePlayer(
     ? JSON.parse(JSON.stringify(handoff.save.run))
     : createState());
 let rig = null, stack = null, camp = null;
+let baseDetail = null;
 let interactAt = null, interactLabel = "", interactRange = 0, interactTaken = false;
 let interactHold = 0;
 let holdR = false, holdSleep = false;
@@ -1705,6 +1707,7 @@ window.__na = {
   getControls: () => controls,
   aim, health, world, surfaces,
   get groundBody() { return groundBody; },
+  get baseDetail() { return baseDetail; },
   land, takeOff, fireBlast,
   /** Debug: a bone on the *player's* rig. The wild flights are clones and share
    *  every bone name, so a scene-wide search finds the wrong dragon. */
@@ -1800,6 +1803,13 @@ const placesBuilt = (async () => {
   const solid = surfaces.register(rig?.group) + surfaces.register(stack?.group)
               + surfaces.register(camp?.group, { friction: 0.85 });
   console.info(`surfaces: ${solid} solid meshes`);
+  // The pit up close: rough ground, stones, scrub, wood and standing water
+  // (basedetail.js). After the buildings are solid, so nothing lands in them.
+  if (pit) {
+    baseDetail = createBaseDetail(scene, { layout: pit, surfaces, groundTex: world.ready });
+    surfaces.register(baseDetail.ground, { friction: 0.8 });
+    world.excludeFromReflection(baseDetail.root);
+  }
   // NOT added to the reflection skip list, though they look like they should
   // be: both carry a pool of seven point lights, and hiding a light for the
   // mirror pass changes the scene's light count twice a frame, which makes
@@ -2484,6 +2494,7 @@ function frame() {
     updateHunterMarkers();
   }
   stack?.update(sdt, camera);
+  baseDetail?.update(camera.position);
   updateHunters(sdt);
   // A cutscene takes the camera somewhere he cannot fly, so anything already
   // in the air would hang there in shot. Cut it, and cut the snare with it —
