@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flight Check — Night Alone</title>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  body { margin: 0; background: #20242c; color: #ddd; font: 13px system-ui, sans-serif; }
+  #note { position: fixed; top: 6px; left: 8px; }
+</style>
+</head>
+<body>
+<!--
+  The wingbeat, on its own, where it can be judged.
+
+  The real wing rig (js/wings.js) and the real flight rig (js/flightrig.js),
+  held in the air against a plain sky, filmed through a beat from the front and
+  the side. The flight state is set from the query string, and the body heave
+  the beat produces is applied to the model, against a fixed horizon line.
+
+    flightcheck.html?speed=0      0 = hover .. 1 = flat out
+                    &climb=0      -1 dive .. +1 climb
+                    &frames=8&cols=4&view=front|side|q&warm=3
+-->
+<div id="note"></div>
+<canvas id="strip"></canvas>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { setupWings } from "./js/wings.js";
+import { setupFlightRig } from "./js/flightrig.js";
+import { wingRoots } from "./js/dragonrig.js";
+
+const q = new URLSearchParams(location.search);
+const SPEED = +(q.get("speed") ?? 0), CLIMB = +(q.get("climb") ?? 0);
+const FRAMES = +(q.get("frames") ?? 8), COLS = +(q.get("cols") ?? 4);
+const VIEW = q.get("view") ?? "front", WARM = +(q.get("warm") ?? 3);
+const CW = +(q.get("cw") ?? 480), CH = +(q.get("ch") ?? 320);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(CW, CH);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9fb4c8);
+const cam = new THREE.PerspectiveCamera(40, CW / CH, 0.1, 200);
+scene.add(new THREE.HemisphereLight(0xeef4ff, 0x6b6050, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(4, 10, 6);
+scene.add(sun);
+// A horizon bar at his rest height, so the heave reads against something fixed.
+const bar = new THREE.Mesh(new THREE.BoxGeometry(40, 0.02, 0.02), new THREE.MeshBasicMaterial({ color: 0x334455 }));
+scene.add(bar);
+
+const strip = document.getElementById("strip");
+strip.width = CW * COLS; strip.height = CH * Math.ceil(FRAMES / COLS);
+const sg = strip.getContext("2d");
+
+new GLTFLoader().load("./assets/models/dragon_rigged_hd.glb", (gltf) => {
+  const dragon = gltf.scene;
+  dragon.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  scene.add(dragon);
+  let skel = null;
+  dragon.traverse((o) => { if (o.isSkinnedMesh) skel = o.skeleton; });
+  const [wl, wr] = wingRoots(skel);
+  const tuning = { flapAmplitude: 1, flapSpeed: 1, sweepAmount: 1, tuckSign: 1 };
+  const wings = setupWings(wl, wr, tuning);
+  const rig = setupFlightRig(dragon);
+  dragon.rotation.y = Math.PI;      // nose toward +z, at the camera in "front"
+  const state = { climb: CLIMB, speedT: SPEED, knife: 0, turn: 0, load: 0, hang: 0, roll: 0 };
+  const dt = 1 / 60;
+  let t = 0;
+  const step = () => {
+    wings(dt, state);
+    rig?.(dt, state, wings.getBeat());
+    dragon.position.y = 1 + wings.getHeave();
+    t += dt;
+  };
+  for (let i = 0; i < WARM / dt; i++) step();
+  // One full beat, sampled evenly: run to the top of a stroke, then count the
+  // frames to the next top.
+  const top = () => { let last = wings.getBeat().phase; for (let i = 0; i < 400; i++) { step(); const ph = wings.getBeat().phase; if (ph < last - 1) return i; last = ph; } return 400; };
+  top();
+  const perBeat = Math.max(4, top());
+  const every = Math.max(1, Math.floor(perBeat / FRAMES));
+  bar.position.set(0, 1 + 0.53, 0);
+  for (let f = 0; f < FRAMES; f++) {
+    for (let k = 0; k < every; k++) step();
+    const c = new THREE.Vector3(0, 1.4, -0.6);
+    if (VIEW === "side") cam.position.set(11, 1.6, -0.6);
+    else if (VIEW === "q") cam.position.set(7, 4.5, 7);
+    else cam.position.set(0, 1.9, 11);
+    cam.lookAt(c);
+    renderer.render(scene, cam);
+    sg.drawImage(renderer.domElement, (f % COLS) * CW, Math.floor(f / COLS) * CH);
+    const b = wings.getBeat();
+    sg.fillStyle = "#000"; sg.font = "13px system-ui";
+    sg.fillText(`t ${t.toFixed(2)}  sin ${Math.sin(b.phase).toFixed(2)}  heave ${wings.getHeave().toFixed(2)}`,
+      (f % COLS) * CW + 6, Math.floor(f / COLS) * CH + 16);
+  }
+  document.getElementById("note").textContent = `speed ${SPEED} climb ${CLIMB} — ${perBeat} frames/beat (${(60 / perBeat).toFixed(2)} Hz)`;
+  window.__ready = true;
+});
+</script>
+</body>
+</html>

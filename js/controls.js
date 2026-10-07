@@ -433,7 +433,10 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   const PITCH_MAX     = 0.72;                 // visual nose attitude
   const PITCH_LAMBDA  = 6.0;                  // quick enough that a sharp rise shows in his body
   const AOA_SLOW      = 0.22;                 // nose held high when he's slow
-  const BOB_SPEED     = 0.9;                  // m/s of idle bob
+  // The idle bob used to be its own 1.1 Hz sine, out of step with the wings.
+  // The body now heaves with the actual wingbeat (wings.js getHeave), so this
+  // is off.
+  const BOB_SPEED     = 0;                    // m/s of idle bob
   const BOB_FREQ      = 1.1;                  // Hz
 
   // Retrimmable by the debug console; W alone accelerates toward this.

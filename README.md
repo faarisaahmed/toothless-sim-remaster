@@ -95,6 +95,36 @@ Each tree has three levels of detail by distance from the camera:
 Debug: `window.__na.world.flora.forest.showcase(x, z)` lines every variant up
 in a row.
 
+## The wingbeat
+
+The wingbeat in `js/wings.js` is built from how large flyers beat, and from
+the films.
+
+**How the stroke changes with flight:**
+
+| | Stroke, top to bottom | Beats per second |
+| --- | --- | --- |
+| Hovering | about 115° | about 2 |
+| Climbing | bigger still | faster |
+| Cruise | about 70° | about 1.4 |
+| Fast | shallow, then held | about 1.1 |
+
+**Shape of each beat:**
+- The downstroke is the quick power stroke.
+- On the upstroke the hand folds in, so the wing isn't dragged back up at full
+  span.
+- When slow, the stroke plane tilts: forward and down, then back and up, like a
+  hovering bird.
+
+**Flap and glide.** At steady cruise he flaps a few strokes, then glides on held
+wings, like a big bird.
+
+**Body heave.** The body rises on each downstroke, so you can see the wings
+holding him up. The controller rumble lands on the downstroke too.
+
+`flightcheck.html?speed=0&climb=0&view=front|side|q` is the test bench: one
+full beat as a filmstrip, against a fixed horizon line.
+
 ## On foot
 
 The walking is built from how big cats and other four-legged animals actually
