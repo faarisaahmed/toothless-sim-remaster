@@ -44,6 +44,7 @@ import { createAim } from "./aim.js";
 import { createSurfaces } from "./surfaces.js";
 import { createGroundBody } from "./groundbody.js";
 import { createBaseDetail } from "./basedetail.js";
+import { createPitWood } from "./pitwood.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -1035,6 +1036,7 @@ const player = makePlayer(
     : createState());
 let rig = null, stack = null, camp = null;
 let baseDetail = null;
+let pitWood = null;          // the undergrowth and sunbeams down the old gullies
 let interactAt = null, interactLabel = "", interactRange = 0, interactTaken = false;
 let interactHold = 0;
 let holdR = false, holdSleep = false;
@@ -1718,6 +1720,7 @@ window.__na = {
   aim, health, world, surfaces,
   get groundBody() { return groundBody; },
   get baseDetail() { return baseDetail; },
+  get pitWood() { return pitWood; },
   land, takeOff, fireBlast,
   /** Debug: a bone on the *player's* rig. The wild flights are clones and share
    *  every bone name, so a scene-wide search finds the wrong dragon. */
@@ -1825,6 +1828,10 @@ const placesBuilt = (async () => {
     // The terrain under it is not drawn (terrainmat.js uHole).
     world.groundTiles[0]?.material.userData.uniforms?.uHole.value.copy(baseDetail.hole);
     world.excludeFromReflection(baseDetail.root);
+    // The old gullies down into it: ferns, grass, bushes, fallen trunks, and
+    // sun through the canopy (pitwood.js; the trees are the forest's own).
+    pitWood = createPitWood(scene, { groundAt: baseDetail.groundAt, sky: world.sky });
+    world.excludeFromReflection(pitWood.root);
   }
   // NOT added to the reflection skip list, though they look like they should
   // be: both carry a pool of seven point lights, and hiding a light for the
@@ -2533,6 +2540,7 @@ function frame() {
     const sky = world.sky.state;
     const haze = world.sky.weather === "fog" ? 0.45
       : THREE.MathUtils.clamp(1 - (sky?.over ?? 0) * 0.15 - (sky?.rain ?? 0) * 0.35, 0.5, 1);
+    rig.hunters.setConeFocus(dragon.position, (grounded || aim.active) && !game.cine, sdt);
     const spotted = rig.hunters.update(sdt, huntTarget, sky?.night ?? 0, sky?.hour ?? 12, haze);
     if (spotted.length && !game.cine) {
       if (!alarmToasted) game.toast("Seen.", 1100);
@@ -2544,6 +2552,7 @@ function frame() {
   }
   stack?.update(sdt, camera);
   baseDetail?.update(camera.position);
+  pitWood?.update(camera.position, sdt);
   updateHunters(sdt);
   // A cutscene takes the camera somewhere he cannot fly, so anything already
   // in the air would hang there in shot. Cut it, and cut the snare with it —

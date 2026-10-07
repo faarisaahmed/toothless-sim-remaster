@@ -224,6 +224,60 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
   /** Lights carried by men, for the base's light pool and for seeing by. */
   const carried = [];
 
+  // --- where they are looking ---------------------------------------------------
+  // A faint fan on the ground in front of the men near him while he is on foot
+  // or aiming: pale while they are about their business, amber when something
+  // has caught their eye, red when they have him. It is a hint of which way a
+  // man faces, not a map of what he can see — it fades out long before his
+  // sight does.
+  const CONES = 24, CONE_LEN = 30;
+  const coneGeo = (() => {
+    const P = [0, 0, 0], F = [0.85], I = [];
+    const N = 24;
+    for (const rr of [0.45, 1]) {
+      for (let i = 0; i <= N; i++) {
+        const a = -FOV_EDGE + (i / N) * FOV_EDGE * 2;
+        P.push(Math.sin(a) * rr, 0, Math.cos(a) * rr);
+        F.push((Math.abs(a) < FOV_CLEAR ? 1 : 0.35) * (rr < 1 ? 0.5 : 0));
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      const a = 1 + i, b = 2 + i, c = 1 + (N + 1) + i, d = 2 + (N + 1) + i;
+      I.push(0, b, a, a, b, d, a, d, c);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
+    g.setAttribute("aFade", new THREE.Float32BufferAttribute(F, 1));
+    g.setIndex(I);
+    return g;
+  })();
+  const coneMat = new THREE.ShaderMaterial({
+    uniforms: { uOpacity: { value: 0.2 } },
+    vertexShader: `attribute float aFade; varying float vFade; varying vec3 vCol;
+      void main() {
+        vFade = aFade;
+        #ifdef USE_INSTANCING_COLOR
+          vCol = instanceColor;
+        #else
+          vCol = vec3( 1.0 );
+        #endif
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
+      }`,
+    fragmentShader: `uniform float uOpacity; varying float vFade; varying vec3 vCol;
+      void main() { gl_FragColor = vec4( vCol, vFade * uOpacity ); }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+  });
+  const cones = new THREE.InstancedMesh(coneGeo, coneMat, CONES);
+  cones.count = 0;
+  cones.frustumCulled = false;
+  cones.renderOrder = 3;
+  cones.setColorAt(0, new THREE.Color(1, 1, 1));
+  group.add(cones);
+  let coneFocus = null, coneShow = 0;
+  const CONE_COLOUR = { calm: new THREE.Color(0.75, 0.82, 0.95), alert: new THREE.Color(1, 0.28, 0.18) };
+  const CONE_SUS = new THREE.Color(1, 0.72, 0.28);
+
   let alarm = 0;
   let lastSeenAt = new THREE.Vector3();
   let time = 0;
@@ -927,6 +981,30 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
     }
     arrowMesh.count = n;
     arrowMesh.instanceMatrix.needsUpdate = true;
+
+    // The vision fans, nearest men first.
+    let nc = 0;
+    if (coneFocus && coneShow > 0.01) {
+      const near = [];
+      for (const man of men) {
+        if (man.ko > 0 || man.inside) continue;
+        const d = man.pos.distanceTo(coneFocus);
+        if (d < 90) near.push([d, man]);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+      for (const [, man] of near) {
+        if (nc >= CONES) break;
+        _q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, man.yaw);
+        _pos.copy(man.pos); _pos.y += 0.3;
+        _m.compose(_pos, _q, _v.set(CONE_LEN, 1, CONE_LEN));
+        cones.setMatrixAt(nc, _m);
+        cones.setColorAt(nc, man.state === "alert" ? CONE_COLOUR.alert : man.state === "calm" ? CONE_COLOUR.calm : CONE_SUS);
+        nc++;
+      }
+    }
+    cones.count = nc;
+    coneMat.uniforms.uOpacity.value = 0.2 * coneShow;
+    if (nc) { cones.instanceMatrix.needsUpdate = true; cones.instanceColor.needsUpdate = true; }
     trailGeo.setDrawRange(0, n * 2);
     trailGeo.attributes.position.needsUpdate = true;
   }
@@ -977,6 +1055,12 @@ export async function createHunters(scene, { getHeightAt, getLights = () => [], 
         n++;
       }
       return n;
+    },
+    /** The vision fans: round `pos`, faded in while `show` (he is on foot, or
+     *  aiming), out otherwise. */
+    setConeFocus(pos, show, dt = 0.016) {
+      coneFocus = pos;
+      coneShow += ((show ? 1 : 0) - coneShow) * Math.min(1, dt * 3);
     },
     /** What blocks a sight line besides the ground: (from, to) => bool. */
     setOccluder(fn) { occluder = fn; },

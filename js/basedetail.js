@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { terrainHeight, noise2, fbm } from "./terrain.js";
+import { terrainHeight, noise2, fbm, pitWood } from "./terrain.js";
 import { makePitMaterial } from "./pitmat.js";
 import { addPhotoreal } from "./photoreal.js";
 
@@ -327,7 +327,9 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
       pos.push(x, h, z);
       const c = ao * tone * (1 - wet * 0.35);
       col.push(c, c * 0.99, c * 0.97);
-      msk.push(talus, wet, 0);
+      // z: the old gullies' woodland floor (terrain.js pitWood) — leaf
+      // litter and moss over the stone, in pitmat.js.
+      msk.push(talus, wet, pitWood(x, z));
     }
   }
 
@@ -514,7 +516,7 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
     const edge = td > 1.2 && td < 3.5 ? 1 : 0;
     const sl = slopeAt(x, z);
     const patchy = fbm(x * 0.08, z * 0.08, 2) * 0.5 + 0.5;
-    const dens = 0.03 + edge * 0.28 + smoothstep(sl, 0.08, 0.35) * 0.45 * patchy;
+    const dens = (0.03 + edge * 0.28 + smoothstep(sl, 0.08, 0.35) * 0.45 * patchy) * (1 - pitWood(x, z) * 0.9);
     if (r() > dens) return;
     const n = 1 + Math.floor(r() * 2);
     for (let i = 0; i < n; i++) {
@@ -534,7 +536,7 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
     const ahead = groundAt(x + ux * 4, z + uz * 4) - h;
     const foot = smoothstep(ahead, 1.5, 6) * (1 - smoothstep(sl, 0.4, 0.8));
     const stray = 0.012 * (0.5 + (fbm(x * 0.03 + 1, z * 0.03 - 2, 2) * 0.5 + 0.5));
-    if (r() > foot * 0.55 + stray) return;
+    if (r() > (foot * 0.55 + stray) * (1 - pitWood(x, z) * 0.7)) return;
     if (trackDist(x, z) < 2.2) return;
     const big = r() < 0.07 + foot * 0.06;
     if (big) put(`boulder${Math.floor(r() * 3)}`, x, z, 0.6 + Math.pow(r(), 1.5) * 1.0, { sink: 0.35, color: stoneColour(r() < 0.4 ? 1 : 0), stretch: 0.85 + r() * 0.35 });
@@ -546,6 +548,7 @@ export function createBaseDetail(scene, { layout: L, surfaces, groundTex }) {
   area((x, z, d) => {
     const td = trackDist(x, z);
     if (td < 2.6) return;
+    if (pitWood(x, z) > 0.3) return;               // the gullies grow their own (pitwood.js)
     const sl = slopeAt(x, z);
     const yard = 1 - smoothstep(d, 30, 75);        // the busy middle
     const wild = smoothstep(d, RFLOOR - 40, RFLOOR) + smoothstep(sl, 0.06, 0.3) * 0.8
