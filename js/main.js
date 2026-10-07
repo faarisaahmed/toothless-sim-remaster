@@ -452,6 +452,21 @@ const clock = new THREE.Clock();
 const focus = new THREE.Vector3();
 const desiredCamPos = new THREE.Vector3();
 let rigReady = false;
+// The chase camera is smoothed RELATIVE to him, never in world space. Easing
+// an absolute position toward a moving target leaves it trailing by about
+// v·dt/2 of whatever the last frame's length was, so when Chrome falls behind
+// and frames come 16, 33, 16, 50 ms apart, that trail changes every frame and
+// he shakes on screen — half a metre at cruise, metres flat out. Here the lag
+// is a smooth function of his (smoothed) velocity, and the camera keeps its
+// place relative to the focus between frames, so how long a frame took changes
+// nothing about where he sits in the picture.
+const camTarget = new THREE.Vector3();      // where the focus would be with no lag
+const focusLag = new THREE.Vector3();       // focus minus camTarget
+const camVel = new THREE.Vector3();         // his smoothed velocity, m/s
+const camPrevDragon = new THREE.Vector3();
+const lastFocus = new THREE.Vector3();
+const camRel = new THREE.Vector3();         // camera minus focus
+const _lagV = new THREE.Vector3();
 let lastLookAt = 0;   // when the player last moved the look stick or mouse
 
 const world = setupWorld(scene, renderer, QUALITY);
@@ -2597,6 +2612,8 @@ function frame() {
     // opened on a second of the camera chasing him in from nowhere.
     if (!rigReady) {
       focus.copy(dragon.position).y += LOOK_HEIGHT;
+      lastFocus.copy(focus);
+      camPrevDragon.copy(dragon.position);
       camera.position.set(
         focus.x + Math.cos(camPitch) * Math.sin(camYaw) * tuning.distBase,
         focus.y + Math.sin(camPitch) * tuning.distBase + 2,
@@ -2654,10 +2671,35 @@ function frame() {
     camLead.y += (Math.sin(path) * lead - camLead.y) * damp(3, dt);
     const leadX = camLead.x, leadZ = camLead.z, leadY = camLead.y;
 
-    const kXZ = damp(trackXZ, dt);
-    focus.x += (dragon.position.x + leadX - focus.x) * kXZ;
-    focus.z += (dragon.position.z + leadZ - focus.z) * kXZ;
-    focus.y += (dragon.position.y + leadY + LOOK_HEIGHT - focus.y) * damp(trackY, dt);
+    // Where the camera works from this frame: him, led along his path. The
+    // wingbeat heave is taken back out, so the beat moves him in the picture
+    // rather than moving the whole world.
+    camTarget.set(dragon.position.x + leadX,
+                  dragon.position.y - wingHeave + leadY + LOOK_HEIGHT,
+                  dragon.position.z + leadZ);
+    // The camera's place relative to the focus, carried over from last frame
+    // (including anything a cutscene, the scope or a pin did to it).
+    camRel.copy(camera.position).sub(lastFocus);
+    // His velocity, from how far he actually moved. The flight model moves
+    // him by speed·dt, so this is exact however uneven the frames are; it is
+    // only smoothed against hitches and teleports.
+    const jump = dragon.position.distanceTo(camPrevDragon);
+    if (jump > Math.max(60, speed * 0.6 + 20)) {
+      // A teleport, a respawn, a chapter jump: no velocity, no lag.
+      camVel.set(0, 0, 0);
+      focusLag.set(0, 0, 0);
+    } else if (dt > 1e-4) {
+      _lagV.copy(dragon.position).sub(camPrevDragon).divideScalar(dt);
+      camVel.lerp(_lagV, damp(8, dt));
+    }
+    camPrevDragon.copy(dragon.position);
+    // The lag: the same trail the old world-space smoothing settled to at a
+    // steady speed (v / lambda, capped at FOCUS_MAX_LAG), but computed from
+    // velocity and eased, so it only changes when he speeds up or turns.
+    focusLag.x += (-camVel.x / trackXZ - focusLag.x) * damp(10, dt);
+    focusLag.z += (-camVel.z / trackXZ - focusLag.z) * damp(10, dt);
+    focusLag.y += (-camVel.y / trackY - focusLag.y) * damp(6, dt);
+    focus.copy(camTarget).add(focusLag);
 
     // 2. Speed drives boom length and FOV — a function of throttle only, so it
     //    never depends on which way he's pointing.
@@ -2715,8 +2757,15 @@ function frame() {
     //    from the camera before it catches up — bounded the same way the focus
     //    is, so "pulls away" stays a moment rather than becoming the resting
     //    state at speed.
+    // Spring the camera toward its place behind him, in his frame: the
+    // orbit and boom changes ease, and a hard acceleration still lets him pull
+    // away, by a velocity lag rather than by the arm failing to keep up.
     const boomLam = Math.max(BOOM_LAMBDA, speed / BOOM_MAX_LAG);
-    camera.position.lerp(desiredCamPos, damp(boomLam, sdt));
+    _lagV.copy(camVel).multiplyScalar(-1 / boomLam);
+    if (_lagV.length() > BOOM_MAX_LAG) _lagV.setLength(BOOM_MAX_LAG);
+    desiredCamPos.sub(focus).add(_lagV);           // now relative to the focus
+    camRel.lerp(desiredCamPos, damp(BOOM_LAMBDA, sdt));
+    camera.position.copy(focus).add(camRel);
 
     // A cutscene takes the camera outright — the one thing it is allowed to do.
     //
@@ -2782,6 +2831,7 @@ function frame() {
       camLean += (wantLean - camLean) * damp(3.4, dt);
       if (Math.abs(camLean) > 1e-4) camera.rotateZ(camLean);
     }
+    lastFocus.copy(focus);
   }
 
   // Last thing in the frame: every contributor has had its say, so mix them all
