@@ -103,6 +103,13 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   const SPEED_CRUISE  = 55;                   // 123 mph — W held
   const PEDAL_MAX     = 180;                  // 403 mph — W and Shift held
   const BURST_SPEED   = CANON_TOP_SPEED;      // 750 mph — the canon top speed
+  // TURBO. Flat out is the canon 750 mph, just under the speed of sound, and
+  // it is honest: the HUD reads what he covers. Turbo is past it — through the
+  // sound barrier, with the vapour cone and the crack, to 1,600 mph. Double-tap
+  // and hold the flat-out key (or hold sprint with it). It takes a few seconds
+  // to wind up, because breaking Mach 1 should be something you feel arrive.
+  const TURBO_SPEED   = 1600 * MPH;             // 715 m/s
+  const TURBO_GAIN    = 0.75;
   const REVERSE_SPEED = 9;                    //  20 mph — S held, backing off
 
   // How quickly he answers. These are exponential rates in s^-1: at GAIN 1.5 he
@@ -515,6 +522,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // the wingtip keys for the barrel roll. See makeTapGate().
   const vertGate = makeTapGate(TAP_MAX, DOUBLE_GAP);
   const rollGate = makeTapGate(ROLL_TAP_MAX, ROLL_GAP);
+  const turboGate = makeTapGate(0.3, 0.35);
+  let turbo = false;
   let snared      = 0;         // s left with his wings bound — see SNARE_TIME
   let snareDir    = 0;         // which way he last rolled, for the shake
 
@@ -721,6 +730,10 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // key and that key is a throttle position rather than a trigger.
     const wasBursting = bursting;
     bursting = heldIn(keys, "burst") || (padOn && pad.held(BTN.CROSS));
+    turboGate.update(dt, bursting ? 1 : 0);
+    const wasTurbo = turbo;
+    turbo = bursting && (turboGate.armed || sprinting);
+    if (turbo && !wasTurbo) pad?.rumble.pulse(0.9, 1, 0.8);
 
     // The kick is on the EDGE, not on the hold — it is the shove of getting
     // there, and sustaining it for as long as the player holds the key would
@@ -733,8 +746,8 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     // One airspeed, chasing one target. Top gear simply outranks the pedal
     // while it is held, and comes off it fast enough that the drop back to
     // 400-odd is its own event.
-    const speedTarget = bursting ? Math.max(BURST_SPEED, pedalTarget) : pedalTarget;
-    const rate = bursting
+    const speedTarget = turbo ? TURBO_SPEED : bursting ? Math.max(BURST_SPEED, pedalTarget) : pedalTarget;
+    const rate = turbo ? TURBO_GAIN : bursting
       ? BURST_GAIN
       : (speedTarget > airspeed ? PEDAL_GAIN : (airspeed > PEDAL_MAX ? BURST_BLEED : PEDAL_BLEED));
     // Not while a manoeuvre owns him, and not for the moment after one. A zoom
@@ -1429,6 +1442,10 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
     getRoll:     () => currentRoll,
     isTurning:   () => Math.abs(yawRate) > YAW_DEADZONE * 4,
     isBursting:  () => bursting,
+    /** Turbo held (past flat out, through the sound barrier). */
+    isTurbo:     () => turbo,
+    /** 0 at flat out .. 1 at full turbo speed. */
+    getTurboT:   () => THREE.MathUtils.clamp((activeSpeed - BURST_SPEED) / (TURBO_SPEED - BURST_SPEED), 0, 1),
 
     // Drives the wing rig.
     getFlightState: () => ({
