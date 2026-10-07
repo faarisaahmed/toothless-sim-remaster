@@ -664,7 +664,13 @@ function padWeight(x, z) {
 }
 export { padWeight };
 
+// Set by the hunters' pit carving inside terrainHeight (tread position, and the
+// metres of rough ground to add once the height is known). Module scope only
+// so the island loop can hand them to the end of the function.
+let PIT_TREAD = 0, PIT_RELIEF = 0;
+
 export function terrainHeight(x, z) {
+  PIT_RELIEF = 0;
   const w = warp(x, z);
   const px = w.x, pz = w.z;
 
@@ -761,7 +767,13 @@ export function terrainHeight(x, z) {
         // A little waviness in the radius, slow around the bearing, so it is
         // a pit someone dug into a mountain and not a target on a map.
         const wob = dl > 1 ? noise2(wx / dl * 1.3 + ISX[i], wz / dl * 1.3 + ISZ[i]) * 0.035 : 0;
-        const dp = dl / IR[i] * (1 + wob);
+        // ...and a ragged edge on top of it. Rock does not break along a
+        // compass curve: the faces of a worked pit bulge where a seam was hard
+        // and bite back where it slumped, every few tens of metres, and a ring
+        // that is perfectly round to the metre reads as a model.
+        const rag = noise2(x * 0.021 + 3.1, z * 0.021 - 7.4) * 0.006
+                  + noise2(x * 0.067 - 9.2, z * 0.067 + 4.4) * 0.0022;
+        const dp = dl / IR[i] * (1 + wob) + rag;
         const sR = (dp - pf) / (top - pf);
         let g;
         if (sR <= 0) g = 0;
@@ -770,12 +782,40 @@ export function terrainHeight(x, z) {
           const th = Math.atan2(wz, wx) / (Math.PI * 2) + 0.5;
           const u = sR * T - th;
           const kk = Math.floor(u), pp = u - kk;
-          g = clamp((kk + th + smoothstep(pp, 0.8, 0.97)) / T, 0, 1);
+          // Risers that are not all the same cut: some sheer, some broken back
+          // into a slope of their own spoil.
+          const r0 = 0.8 + noise2(x * 0.013 + 1.7, z * 0.013 - 6.1) * 0.07;
+          const r1 = Math.min(0.995, r0 + 0.17 + noise2(x * 0.031 - 2.2, z * 0.031 + 8.8) * 0.05);
+          g = clamp((kk + th + smoothstep(pp, r0, r1)) / T, 0, 1);
+          PIT_TREAD = pp;
         }
         bowl = smoothstep(dp, top, inner + 0.08);
         // Terraces from the floor to about seven-eighths of the rim, then the
         // inside face of the rim itself, sheer.
         f *= lerp(lerp(ICR_FL[i], 0.86, g), 1, bowl);
+        // Nothing dug by hand is level. In metres, added after the island's
+        // shape is scaled (PIT_RELIEF, applied once the height is known):
+        // the floor rolls gently, long-trodden ground hollowed where the
+        // traffic runs and heaped where spoil was dumped; the treads tip
+        // outward and lumpy; and at the foot of every riser lies the rubble
+        // that has come off it.
+        {
+          const floorK = 1 - smoothstep(sR, -0.05, 0.02);
+          const roll = (noise2(x * 0.017 + 5.5, z * 0.017 - 1.3) * 0.42
+                     + noise2(x * 0.043 - 2.8, z * 0.043 + 9.1) * 0.22);
+          const heap = Math.max(0, noise2(x * 0.026 + 13.3, z * 0.026 + 2.6) - 0.55) * 2.0;
+          let rel = floorK * (roll + heap);
+          if (sR > 0 && sR < 1) {
+            const pp = PIT_TREAD;
+            const lump = noise2(x * 0.05 + 4.1, z * 0.05 - 3.3) * 0.55
+                       + noise2(x * 0.13 - 8.8, z * 0.13 + 1.1) * 0.2;
+            // Talus: highest right under the next riser, tailing off across the tread.
+            const talus = smoothstep(pp, 0.45, 0.78) * (1 - smoothstep(pp, 0.8, 0.86))
+                        * (1.6 + noise2(x * 0.04 - 6.6, z * 0.04 + 7.7) * 1.2);
+            rel += (lump + talus) * (1 - bowl);
+          }
+          PIT_RELIEF = rel;
+        }
       } else {
         bowl = smoothstep(d, inner - 0.2, inner + 0.06);
         f *= lerp(ICR_FL[i], 1, bowl);
@@ -952,6 +992,9 @@ export function terrainHeight(x, z) {
   // lift every beach, dock, boat and building that places.js has already stood
   // on the ground — this touches water and nothing else, so nothing that was
   // placed on land can move.
+  // The pit's rough ground (see the crater carving above).
+  if (PIT_RELIEF !== 0) h += PIT_RELIEF;
+
   // Levelled ground, last, so nothing above can put a stratum or a crag
   // through the middle of a village.
   for (const p of PADS) {
