@@ -47,26 +47,45 @@ const FLAP_AXIS  = new THREE.Vector3(1, 0, 0);
 const SWEEP_AXIS = new THREE.Vector3(0, 0, 1);
 const MAX_SWEEP = 0.55;  // radians at a full tuck
 
-// Half-stroke amplitudes, radians (so 1.0 is a 115-degree stroke).
-const A_HOVER  = 1.0;
-const A_CRUISE = 0.62;
-const A_FAST   = 0.32;
-const A_CLIMB  = 0.32;    // added at full climb
-const A_MAX    = 1.2;
-// Beats per second.
-const F_HOVER  = 2.0;
-const F_CRUISE = 1.35;
-const F_FAST   = 1.1;
-const F_CLIMB  = 0.45;    // added at full climb
-// Mean elevation the stroke is centred on: higher when slow, so the wings
-// clap up high over the back and drive down from there.
-const BIAS_HOVER = 0.16, BIAS_CRUISE = 0.08;
+// --- How fast ----------------------------------------------------------------
+// Wingbeat frequency falls with size: across birds it goes as about mass^-0.27,
+// and bats beat slower still for their mass. A California condor, ten kilos,
+// flaps at about 2.7 Hz; scaled to an animal of Toothless's bulk that is under
+// one beat a second. The second version of this beat at 2 Hz, and a big
+// animal beating that fast reads as frantic "arm circles", not as power.
+const F_HOVER  = 0.95;
+const F_CRUISE = 0.72;
+const F_FAST   = 0.6;
+const F_CLIMB  = 0.22;    // added at full climb
+
+// --- How far ------------------------------------------------------------------
+// The SHOULDER's share of the stroke, half-angles in radians. It is deliberately
+// modest: the size of a real wingbeat is made down the wing, by the elbow and the
+// fingers lagging the shoulder and then catching up (see the wave below), not by
+// swinging a rigid arm through a huge arc from the root.
+const A_HOVER  = 0.6;
+const A_CRUISE = 0.4;
+const A_FAST   = 0.22;
+const A_CLIMB  = 0.14;
+const A_MAX    = 0.72;
+const BIAS_HOVER = 0.14, BIAS_CRUISE = 0.06;
+
+// The wave. The hand wing follows the arm wing a beat behind, and the tip
+// follows the hand — bats lead the downstroke at the wrist and the tip follows
+// about a tenth of a beat later, and the hand wing is still finishing its
+// downstroke while the arm wing has started back up. In the films this is the
+// whole look: the wing cracks down like a whip and peels back up. Amplitudes
+// are the outer segments' own half-strokes, lags in cycles.
+const HAND_AMP = 1.25, HAND_LAG = 0.1;     // relative to the shoulder's
+const TIP_AMP  = 1.5,  TIP_LAG  = 0.19;
+// The upstroke fold: elbow and wrist flex, so the wing comes up half folded
+// instead of being dragged up at full span. It starts just before the bottom of
+// the stroke and the wing is open again just before the top.
+const FOLD_LEAD = 0.07, FOLD_OPEN = 0.07;
 // How much of the cycle the downstroke takes.
-const DOWN_SLOW = 0.42, DOWN_CRUISE = 0.5;
-// Stroke plane: fore/aft swing on the beat, radians, at a hover.
-const PLANE_SWING = 0.34;
+const DOWN_SLOW = 0.5, DOWN_CRUISE = 0.5;
 // Body heave, metres, at a full hover stroke.
-const HEAVE_HOVER = 0.22, HEAVE_CRUISE = 0.06;
+const HEAVE_HOVER = 0.24, HEAVE_CRUISE = 0.07;
 
 const damp = (lambda, dt) => 1 - Math.exp(-lambda * dt);
 const smooth = THREE.MathUtils.smoothstep;
@@ -155,9 +174,11 @@ export function setupWings(boneLeft, boneRight, tuning) {
     // --- Pose -----------------------------------------------------------------
     const e = wave(p, down);
     const elev = (bias + e * amp) * tuning.flapAmplitude;
-    // Stroke plane: back at the top, forward at the bottom, when slow.
-    const swing = e * PLANE_SWING * slowK * Math.min(1, amp / A_HOVER);
-    const sweepAmount = (sweep * tuning.sweepAmount * MAX_SWEEP + swing) * tuning.tuckSign;
+    // No fore/aft swing at the shoulder: a root that circles is what made the
+    // last version look like arm circles. The fore/aft of a real stroke comes
+    // from the fold — the hand drawn back on the way up and thrown forward
+    // as it opens — which flightrig.js does.
+    const sweepAmount = sweep * tuning.sweepAmount * MAX_SWEEP * tuning.tuckSign;
 
     // A few hundredths of a cycle between the wings: perfectly mirrored beats
     // look mechanical.
@@ -178,7 +199,24 @@ export function setupWings(boneLeft, boneRight, tuning) {
   // The rumble and flightrig.js read the beat off here: sin(phase) is +1 on
   // the downstroke, -1 on the upstroke, and amp is the stroke relative to a
   // cruise beat.
-  update.getBeat = () => ({ phase: phaseRad(p, down), amp: amp / A_CRUISE * 0.6, glide: glideK });
+  update.getBeat = () => {
+    const k = amp / A_HOVER;                       // stroke size, 1 = a full hover
+    const e0 = wave(p, down);
+    const e1 = wave(((p - HAND_LAG) % 1 + 1) % 1, down);
+    const e2 = wave(((p - TIP_LAG) % 1 + 1) % 1, down);
+    // Absolute elevations of the three segments, then each as a bend from
+    // the one inside it — which is what the elbow and the finger joints get.
+    const a0 = e0 * amp, a1 = e1 * amp * HAND_AMP, a2 = e2 * amp * TIP_AMP;
+    // Fold: up from just before the bottom of the stroke to just before the top.
+    const u = (p - (down - FOLD_LEAD) + 1) % 1 / (1 - down + FOLD_LEAD - FOLD_OPEN);
+    const fold = u >= 0 && u <= 1 ? Math.pow(Math.sin(Math.PI * u), 1.1) : 0;
+    // Load: the membrane cups on the downstroke, deepest in the middle of it.
+    const cup = p < down ? Math.sin(Math.PI * p / down) : 0;
+    return {
+      phase: phaseRad(p, down), amp: amp / A_CRUISE * 0.6, glide: glideK,
+      outer: (a1 - a0), tip: (a2 - a1), fold: fold * Math.min(1.2, k * 1.1), cup: cup * k, size: k,
+    };
+  };
   /** Metres to raise the model this frame. Visual only. */
   update.getHeave = () => heave;
 
