@@ -1,4 +1,4 @@
-import { terrainHeight, fertility, woodland, noise2,
+import { terrainHeight, fertility, woodland, noise2, berkAmount,
          SEA_LEVEL, TERRAIN_SIZE, WIND_BEARING } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ export function scatterTile(tx, tz) {
       const cx = x0 + bx + BLOCK / 2, cz = z0 + bz + BLOCK / 2;
       let wooded = woodland(cx, cz, 0) >= 0.02;
       const hc = terrainHeight(cx, cz);
-      if (hc < -45 || hc > 430) continue;
+      if (hc < -45 || (hc > 430 && !(hc < 560 && berkAmount(cx, cz) > 0))) continue;
       if (wooded && woodland(cx, cz, hc - 70) < 0.02) wooded = false;
 
       const gz0 = Math.ceil(bz / spacing) * spacing, gx0 = Math.ceil(bx / spacing) * spacing;

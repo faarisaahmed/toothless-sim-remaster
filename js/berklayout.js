@@ -112,8 +112,11 @@ export const INTERIOR = {
   // Rivers: polylines along the valley floor down to the sea (last point in
   // the water). Waterfalls: off a mesa edge at `top`, into a pool at `pool`.
   rivers: [
-    [{ x: 200, z: -6000 }, { x: 300, z: -5000 }, { x: -200, z: -3900 }, { x: 250, z: -2600 }, { x: 650, z: -1700 }, { x: 1300, z: -1400 }, { x: 1900, z: -900 }],
-    [{ x: -1200, z: -6000 }, { x: -1000, z: -4700 }, { x: -1600, z: -3100 }, { x: -2200, z: -2600 }],
+    // Routed round the mesas, not through them (the first draft ran both
+    // rivers straight across the middle of a mesa); the first passes the pool
+    // under the big mesa's waterfall, the second the pool under the west one.
+    [{ x: 200, z: -6000 }, { x: 700, z: -5150 }, { x: 620, z: -4300 }, { x: 250, z: -3950 }, { x: 300, z: -3300 }, { x: 250, z: -2600 }, { x: 650, z: -1700 }, { x: 1300, z: -1400 }, { x: 1900, z: -900 }],
+    [{ x: -1200, z: -6000 }, { x: -650, z: -5500 }, { x: -700, z: -4750 }, { x: -1150, z: -4550 }, { x: -1000, z: -3800 }, { x: -1300, z: -3350 }, { x: -1600, z: -3100 }, { x: -2200, z: -2600 }],
   ],
   waterfalls: [
     { x: 200, z: -4170, top: 460, pool: { x: 220, z: -4040, r: 70 }, w: 30 },
