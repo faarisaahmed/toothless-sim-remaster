@@ -1827,6 +1827,8 @@ const placesBuilt = (async () => {
         }),
     buildHollowStack(scene, SITES.stack, {
       ground: Math.max(world.getHeightAt(SITES.stack.x, SITES.stack.z), world.seaLevel + 4),
+      groundAt: (x, z) => world.getHeightAt(x, z),
+      seaLevel: world.seaLevel,
     }),
     CLEARING
       ? buildSnareCamp(scene, SITES.camp, {
