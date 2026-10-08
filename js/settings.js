@@ -46,6 +46,8 @@ const DEFAULTS = {
   timeOfDay: "cycle",
   dayLength: 24,        // real minutes for a full day and night
   weather: "changing",
+  damage: true,         // he can be hurt, and killed
+  hud: true,            // the instruments, compass, minimap and health
 };
 
 let state = { ...DEFAULTS };
@@ -77,6 +79,8 @@ export const settings = {
   timeOfDay: () => state.timeOfDay,
   dayLength: () => state.dayLength,
   weather: () => state.weather,
+  damage: () => state.damage !== false,
+  hud: () => state.hud !== false,
   get raw() { return { ...state }; },
   set(key, value) { state[key] = value; save(); },
 };
@@ -223,6 +227,25 @@ const BASE_OPTIONS = [
     choices: () => [{ v: false, label: "Play" }, { v: true, label: "Skip" }],
     current: () => !!state.skipPrologue,
     pick: (v) => settings.set("skipPrologue", v),
+  },
+  {
+    id: "damage", section: "Game", glyph: "&#9829;", label: "Damage",
+    hint: () => (state.damage !== false
+      ? "Arrows, bolas and crashes hurt him. Lose all his health and he goes down, then wakes on the nearest island"
+      : "Nothing can hurt him. Fly into anything"),
+    ...onOff("damage"),
+    toggle: () => state.damage !== false,
+    value: () => (state.damage !== false ? "On" : "Off"),
+    cycle: () => settings.set("damage", state.damage === false),
+  },
+  {
+    id: "hud", section: "Game", glyph: "&#9638;", label: "HUD",
+    hint: () => (state.hud !== false
+      ? "Instruments, compass, minimap and health on screen. Prompts and objectives stay"
+      : "A clean screen: no instruments, compass, minimap or health bar"),
+    toggle: () => state.hud !== false,
+    value: () => (state.hud !== false ? "On" : "Off"),
+    cycle: () => settings.set("hud", state.hud === false),
   },
   {
     id: "music", section: "Audio", glyph: "&#9834;", label: "Music",

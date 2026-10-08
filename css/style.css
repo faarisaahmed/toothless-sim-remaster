@@ -365,52 +365,63 @@ canvas { display: block; }
    it is a countdown to being allowed back rather than a bar that is just off. */
 #aim-bar.locked i { background: #d97a63; box-shadow: 0 0 8px rgba(217, 122, 99, 0.7); }
 
-/* --- Health ----------------------------------------------------------------
-   Bottom centre, above where the aim bar sits, and invisible while he is
-   whole. A meter parked at 100% for an entire session is a meter you stop
-   seeing, so this one only exists when it has something to say. */
+/* --- Health (js/health.js) ---------------------------------------------------
+   Top left, in the HUD's own dark glass. A shield-scale emblem, the bar with a
+   pale "ghost" behind it that drains a moment after each hit so you can see
+   what you just lost, tick marks every tenth, and a line for what hit you. */
 #hp {
-  position: fixed;
-  left: 50%;
-  bottom: 8.5vh;
-  transform: translateX(-50%);
-  z-index: 55;
-  opacity: 0;
-  transition: opacity 0.35s ease;
-  pointer-events: none;
-  text-align: center;
+  position: fixed; z-index: 30; pointer-events: none; user-select: none;
+  left: max(22px, env(safe-area-inset-left)); top: max(16px, env(safe-area-inset-top));
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px 10px 12px; border-radius: 14px;
+  background: linear-gradient(165deg, rgba(20, 16, 14, .86), rgba(8, 9, 13, .78));
+  border: 1px solid rgba(236, 200, 160, .16);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 220, 180, .06);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  font-family: var(--ui, Rajdhani, system-ui, sans-serif); color: #ece6d8;
+  transition: transform .2s ease;
 }
-#hp-bar {
-  width: 190px;
-  height: 5px;
-  background: rgba(232, 226, 212, 0.16);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
-}
-#hp-bar i {
-  display: block;
-  height: 100%;
-  width: 100%;
-  transform-origin: left center;
-  /* Warm rather than red at full: red from the start reads as "in danger"
-     when he has only lost a scrape. The low and flash states below are what
-     turn it into an alarm. */
-  background: #e8b98a;
-  box-shadow: 0 0 8px rgba(232, 185, 138, 0.7);
-  transition: transform 0.25s ease, background 0.2s ease;
-}
-#hp-low i { background: #d9603f; box-shadow: 0 0 10px rgba(217, 96, 63, 0.85); }
-/* The frame something lands. Snaps on and eases off, so a hit registers as an
-   event rather than as the bar quietly being shorter than it was. */
-#hp-flash i { background: #fff3e6; box-shadow: 0 0 16px rgba(255, 243, 230, 0.95); }
-#hp-note {
-  margin-top: 5px;
-  font: 600 11px/1.2 "Rajdhani", system-ui, sans-serif;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: rgba(232, 226, 212, 0.72);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
-}
-#hp-downed #hp-note { color: #f0c9a0; }
+#hp .hp-emblem { width: 34px; height: 34px; color: #ff9a4a; filter: drop-shadow(0 0 6px rgba(255, 138, 61, .55)); flex: none; }
+#hp .hp-emblem svg { width: 100%; height: 100%; display: block; }
+#hp .hp-body { width: 220px; }
+#hp .hp-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+#hp .hp-label { font-size: .64rem; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: rgba(236, 230, 216, .62); }
+#hp .hp-num { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+#hp .hp-track { position: relative; height: 9px; border-radius: 6px; overflow: hidden;
+  background: rgba(236, 230, 216, .09); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .7); }
+#hp .hp-track i { position: absolute; inset: 0; transform-origin: 0 50%; border-radius: 6px; }
+#hp .hp-ghost { background: rgba(255, 236, 214, .55); }
+#hp .hp-fill { background: linear-gradient(90deg, #b8321e, #e2632a 45%, #ffae5a);
+  box-shadow: 0 0 12px rgba(255, 138, 61, .55); transition: transform .18s ease-out; }
+#hp .hp-ticks { position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(8, 8, 12, .55) calc(10% - 1px) 10%); }
+#hp .hp-note { height: 0; overflow: hidden; margin-top: 0; font-size: .7rem; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: #ffb48a; opacity: 0; transition: opacity .3s ease, height .3s ease, margin .3s ease; }
+#hp.note-on .hp-note { height: 1.1em; margin-top: 6px; opacity: 1; }
+#hp.flash { transform: translateX(3px); }
+#hp.flash .hp-fill { background: #fff3e6; box-shadow: 0 0 18px rgba(255, 243, 230, .95); }
+#hp.flash .hp-emblem { color: #fff; }
+#hp.low .hp-fill { background: linear-gradient(90deg, #8a1a12, #d33a22); animation: hp-pulse 1s ease-in-out infinite; }
+#hp.low .hp-emblem { color: #ff5a3a; animation: hp-pulse 1s ease-in-out infinite; }
+#hp.mending .hp-fill { box-shadow: 0 0 16px rgba(255, 190, 120, .8); }
+@keyframes hp-pulse { 50% { opacity: .55; } }
+@media (max-width: 600px) { #hp .hp-body { width: 150px; } }
+
+/* --- Going down ------------------------------------------------------------ */
+#na-down { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: radial-gradient(ellipse at 50% 45%, rgba(40, 8, 4, .72), rgba(4, 4, 8, .94) 70%);
+  opacity: 0; pointer-events: none; transition: opacity .9s ease; font-family: var(--ui, Rajdhani, sans-serif); color: #ece6d8; }
+#na-down.on { opacity: 1; pointer-events: auto; }
+#na-down .eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .44em; text-transform: uppercase; color: #ff9a6a; }
+#na-down h2 { margin: 0; font: 600 clamp(2.2rem, 6vw, 4rem)/1.05 var(--display, Cinzel, serif); letter-spacing: .1em; }
+#na-down .why { font-size: .95rem; color: rgba(236, 230, 216, .7); letter-spacing: .06em; }
+#na-down .keep { font-size: .82rem; color: rgba(236, 230, 216, .5); letter-spacing: .05em; }
+#na-down button.go { margin-top: 14px; padding: 12px 34px; border-radius: 999px; cursor: pointer;
+  font: 700 .85rem var(--ui, Rajdhani, sans-serif); letter-spacing: .3em; text-transform: uppercase; color: #1a0e08;
+  background: linear-gradient(#ffc27a, #ff8a3d); border: none; box-shadow: 0 0 24px rgba(255, 138, 61, .45); }
+#na-down button.go:hover { filter: brightness(1.08); }
+#na-down .tipbox { position: absolute; bottom: 9vh; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: min(620px, 84vw); }
+
 /* The stall. Deliberately the loudest thing on the HUD: it is the only state
    the player did not choose, and it lasts about a second. */
 #hud-burst.stall { color: var(--bad, #ff7a4d); animation: stall-pulse 0.32s steps(2, end) infinite; }
@@ -683,3 +694,12 @@ body.touch-on #hud-pad-tag { display: none; }
 #fps-meter[data-band="good"] { color: #b9e4a8; }
 #fps-meter[data-band="ok"] { color: #f2d48a; }
 #fps-meter[data-band="bad"] { color: #ff8a6a; }
+#na-down { background: radial-gradient(ellipse at 50% 45%, rgba(46, 10, 6, .86), rgba(4, 4, 8, .97) 70%); }
+#na-down .tip-head { font-size: .62rem; font-weight: 700; letter-spacing: .4em; text-transform: uppercase; color: #ffb47a; opacity: .7; }
+#na-down .tip { font-size: .92rem; line-height: 1.5; text-align: center; color: rgba(236, 230, 216, .78); min-height: 3em; }
+#na-down .tip kbd { font: 600 .78rem var(--ui, Rajdhani, sans-serif); padding: 1px 6px; border-radius: 4px;
+  border: 1px solid rgba(236, 230, 216, .3); background: rgba(236, 230, 216, .08); color: #ece6d8; }
+#na-down .tip-nav { display: flex; gap: 12px; }
+#na-down .tip-nav button { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 1.1rem; line-height: 1;
+  color: #ece6d8; background: rgba(236, 230, 216, .06); border: 1px solid rgba(236, 230, 216, .22); }
+#na-down .tip-nav button:hover { background: rgba(255, 138, 61, .2); border-color: rgba(255, 138, 61, .6); }
