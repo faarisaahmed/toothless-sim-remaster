@@ -250,6 +250,22 @@ What it shows:
 
 The full chart is still on Tab.
 
+## Save files
+
+There are four journeys, each its own plain-text file in the browser's local
+storage: `user1.dat` to `user4.dat`. Each holds the save as indented JSON.
+
+- **Edit by hand:** open DevTools, go to Application, then Local Storage, edit
+  the file, and reload.
+- **Copy one off the machine:** the journey's menu has Export (downloads
+  `userN.dat`) and Import (loads a `.dat` file into that slot).
+- **Delete:** every saved journey has a Delete button in the Story list, or
+  press Delete on it. It asks before deleting.
+- **Unreadable file:** a slot whose file can't be read shows as damaged instead
+  of being overwritten.
+- **Old saves:** saves from the old single-entry store move into the files
+  automatically.
+
 ## Controls
 
 One key, one job. WASD and the arrow keys are the same two axes everywhere —

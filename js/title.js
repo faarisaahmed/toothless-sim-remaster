@@ -119,12 +119,12 @@ export function runTitle(pad = null) {
       </div>
       <div class="title-confirm" id="title-confirm" hidden>
         <div class="confirm-card ui-panel">
-          <div class="ui-eyebrow">Erase</div>
-          <div class="confirm-head">Erase this journey?</div>
+          <div class="ui-eyebrow">Delete</div>
+          <div class="confirm-head">Delete this journey?</div>
           <div class="confirm-body" id="confirm-body"></div>
           <div class="confirm-actions">
             <button type="button" class="ui-btn ghost" data-c="no">Keep it</button>
-            <button type="button" class="ui-btn danger" data-c="yes">Erase</button>
+            <button type="button" class="ui-btn danger" data-c="yes">Delete</button>
           </div>
         </div>
       </div>
@@ -351,7 +351,7 @@ export function runTitle(pad = null) {
       if (screen === "main") {
         const out = [];
         const last = saves.latest();
-        if (last >= 0) {
+        if (last >= 0 && slots[last] && !slots[last].damaged) {
           const sv = slots[last];
           out.push({
             label: "Continue",
@@ -370,12 +370,12 @@ export function runTitle(pad = null) {
         return [
           ...slots.map((sv, i) => sv ? {
             slot: i, sv,
-            label: `Journey ${i + 1}`,
-            sub: `${esc(saves.sceneTitle(sv))} &nbsp;·&nbsp; Day ${sv.day} &nbsp;·&nbsp; ${saves.playtime(sv)} &nbsp;·&nbsp; ${saves.lastPlayed(sv)}`,
+            label: `Journey ${i + 1} <span class="slot-file">${saves.fileName(i)}</span>`,
+            sub: sv.damaged ? "This file could not be read — fix it in Local Storage, or delete it." : `${esc(saves.sceneTitle(sv))} &nbsp;·&nbsp; Day ${sv.day} &nbsp;·&nbsp; ${saves.playtime(sv)} &nbsp;·&nbsp; ${saves.lastPlayed(sv)}`,
             pct: Math.round(saves.progress(sv) * 100),
             act: () => { slotSel = i; go("slot"); },
           } : {
-            slot: i, label: `Journey ${i + 1}`, sub: "Empty &mdash; begin a new story here", empty: true,
+            slot: i, label: `Journey ${i + 1} <span class="slot-file">${saves.fileName(i)}</span>`, sub: "Empty &mdash; begin a new story here", empty: true,
             act: () => begin({ mode: "story", slot: i, save: saves.create(i), isNew: true }),
           }),
           { label: "Back", back: true, act: () => go("main") },
@@ -388,7 +388,11 @@ export function runTitle(pad = null) {
             sub: sv?.finished ? "The story is done. Pick up where it ended." : `From ${esc(saves.sceneTitle(sv))}`,
             act: () => begin({ mode: "story", slot: slotSel, save: sv, isNew: false }) },
           { label: "Chapters", sub: "Replay any chapter this journey has reached.", act: () => go("chapters") },
-          { label: "Erase", sub: "Start this slot over. Cannot be undone.", danger: true, act: () => askErase() },
+          { label: "Export save", sub: `Download ${saves.fileName(slotSel)} — plain text you can edit.`, act: () => saves.exportSlot(slotSel) },
+          { label: "Import save", sub: `Replace this journey with a .dat file.`, act: async () => {
+              if (await saves.importSlot(slotSel)) { slots = saves.list(); render(); }
+            } },
+          { label: "Delete", sub: "Remove this journey. Asks first.", danger: true, act: () => askErase() },
           { label: "Back", back: true, act: () => go("story") },
         ];
       }
@@ -442,8 +446,14 @@ export function runTitle(pad = null) {
               ${it.sub ? `<small>${it.sub}</small>` : ""}
               ${it.pct !== undefined ? `<div class="ui-bar it-bar"><i style="width:${it.pct}%"></i></div>` : ""}
             </div>
+            ${it.sv && screen === "story" ? `<button type="button" class="slot-del" data-del="${it.slot}" title="Delete ${saves.fileName(it.slot)}">Delete</button>` : ""}
             <span class="go">${it.tag ?? (it.back ? "" : it.empty ? "Begin" : "&rsaquo;")}</span>
           </li>`).join("")}</ul>`;
+        bodyEl.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          slotSel = +b.dataset.del;
+          askErase();
+        }));
         bodyEl.querySelectorAll("[data-i]").forEach((li) => {
           const i = +li.dataset.i;
           li.addEventListener("click", () => { cursor = i; activate(); });
@@ -470,6 +480,8 @@ export function runTitle(pad = null) {
 
     function go(next) {
       screen = next;
+      // Re-read the files: they may have been edited, imported or deleted.
+      if (next === "story" || next === "slot") slots = saves.list();
       cursor = 0;
       if (next === "settings") settingsPanel.reset();
       panel.classList.remove("swap");
@@ -522,7 +534,7 @@ export function runTitle(pad = null) {
       confirming = true;
       confirmSel = 0;
       confirmBody.textContent =
-        `Journey ${slotSel + 1} — ${saves.sceneTitle(slots[slotSel])}, day ${slots[slotSel].day}. This cannot be undone.`;
+        `Journey ${slotSel + 1} (${saves.fileName(slotSel)}) — ${saves.sceneTitle(slots[slotSel])}, day ${slots[slotSel].day}. This cannot be undone.`;
       confirmEl.hidden = false;
       drawConfirm();
       pad?.rumble.pulse(0.4, 0.3, 0.16);
@@ -536,7 +548,7 @@ export function runTitle(pad = null) {
         saves.erase(slotSel);
         slots = saves.list();
         pad?.rumble.pulse(0.7, 0.2, 0.3);
-        go("story");
+        if (screen !== "story") go("story");
         cursor = slotSel;
         render();
       }
@@ -577,6 +589,10 @@ export function runTitle(pad = null) {
         if (input.pressed("confirm")) activate();
         if (input.pressed("back") || (screen !== "settings" && input.tapped("left"))) back();
         if (input.pressed("del") && screen === "slot") askErase();
+        if (input.pressed("del") && screen === "story") {
+          const it = items()[cursor];
+          if (it?.sv) { slotSel = it.slot; askErase(); }
+        }
       }
 
       // Sea, sky and clouds
