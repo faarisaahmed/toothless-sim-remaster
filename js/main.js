@@ -46,6 +46,7 @@ import { createSurfaces } from "./surfaces.js";
 import { createGroundBody } from "./groundbody.js";
 import { createBaseDetail } from "./basedetail.js";
 import { createSpeedFx } from "./speedfx.js";
+import { createSplashes } from "./splash.js";
 import { createPitWood } from "./pitwood.js";
 
 // Live-tunable knobs, mutated by the debug console.
@@ -494,6 +495,10 @@ const world = setupWorld(scene, renderer, QUALITY);
 const surfaces = createSurfaces((x, z) => world.getHeightAt(x, z), world.seaLevel);
 // Streaks in the air and the vapour cone: speed you can see (speedfx.js).
 const speedFx = createSpeedFx(scene);
+const splashes = createSplashes(scene);
+// A scripted dive into the sea (fishDive below): while set, it owns his
+// position and attitude, and the cutscene camera watches.
+let dive = null;
 let shake = 0;
 // Trees pick their level of detail round the camera, not the dragon.
 world.flora.setViewer?.(camera);
@@ -1523,6 +1528,37 @@ function takeOff() {
 
 const storyCtx = {
   scene, camera, world, player,
+  /**
+   * Fishing, as a cutscene: he comes down over the water, folds and plunges
+   * in, and bursts back out climbing with fish. Splashes going in and coming
+   * out. Resolves when he is flying again.
+   */
+  async fishDive(at) {
+    if (!dragon || !controls || dive) return;
+    const h = controls.getHeading();
+    const nx = Math.sin(h), nz = Math.cos(h);
+    const water = new THREE.Vector3(at.x, world.seaLevel, at.z);
+    dive = {
+      t: 0, T: 4.2, h, nx, nz, water,
+      from: dragon.position.clone(), splashed: 0,
+    };
+    const side = new THREE.Vector3(nz, 0, -nx);
+    await game.playCutscene({
+      from: water.clone().addScaledVector(side, 30).add(new THREE.Vector3(-nx * 14, 7, -nz * 14)),
+      to:   water.clone().addScaledVector(side, 24).add(new THREE.Vector3(nx * 4, 4, nz * 4)),
+      look: water.clone().add(new THREE.Vector3(nx * 4, 3, nz * 4)),
+      seconds: 4.2,
+      line: "",
+      skippable: true,
+    });
+    if (dive) {
+      // Skipped or finished: put him where the dive ends, flying on.
+      const end = water.clone().add(new THREE.Vector3(nx * 70, 34, nz * 70));
+      dragon.position.copy(end);
+      dive = null;
+    }
+    controls.setHeading(h);
+  },
   getPosition: () => (dragon ? dragon.position : new THREE.Vector3()),
   getHeading: () => controls?.getHeading() ?? 0,
   getClimb: () => controls?.getFlightState().climb ?? 0,
@@ -1940,9 +1976,13 @@ async function setupStoryDragons() {
   sigrun.setVisible(false); eyvi.setVisible(false);
   const perchAt = (x, z, lift = 0.4) => new THREE.Vector3(x, world.getHeightAt(x, z) + lift, z);
   let placed = false;
+  let wearyNow = 1;            // starving until he feeds them
   storyCtx.npc = {
     sigrun, eyvi,
+    /** 1 starving and spent .. 0 fed and well. */
+    weary(v) { wearyNow = v; sigrun.setWeary?.(v); eyvi.setWeary?.(v); },
     atStack() {
+      sigrun.setWeary?.(wearyNow); eyvi.setWeary?.(wearyNow);
       placed = true;
       const s = SITES.sigrun;
       sigrun.perch(perchAt(s.x, s.z, 0.6), 0.6);
@@ -2268,6 +2308,37 @@ function frame() {
   const sdt = dt * aim.timeScale();
 
   if (controls && !grounded && !game.cine && !caged) controls.update(sdt);
+  if (dive && dragon) {
+    // In over a long shallow arc from wherever he was, down to the water,
+    // under for a moment, then out and up the far side.
+    dive.t += dt;
+    const k = Math.min(1, dive.t / dive.T);
+    const W = dive.water, n = new THREE.Vector3(dive.nx, 0, dive.nz);
+    const P0 = new THREE.Vector3(W.x - dive.nx * 90, Math.max(30, dive.from.y), W.z - dive.nz * 90);
+    const P3 = W.clone().addScaledVector(n, 70).setY(34);
+    let p, pitch;
+    if (k < 0.45) {
+      const u = k / 0.45, e = u * u;
+      p = P0.clone().lerp(W.clone().setY(-2.5), e);
+      p.y = THREE.MathUtils.lerp(P0.y, -2.5, Math.pow(u, 1.6));
+      pitch = -0.25 - 0.75 * u;                  // nose going down into it
+    } else if (k < 0.58) {
+      const u = (k - 0.45) / 0.13;
+      p = W.clone().addScaledVector(n, u * 8).setY(-2.5 - Math.sin(u * Math.PI) * 1.5);
+      pitch = -1.0 + 1.6 * u;
+    } else {
+      const u = (k - 0.58) / 0.42;
+      p = W.clone().addScaledVector(n, 8).lerp(P3, u);
+      p.y = THREE.MathUtils.lerp(-2.5, P3.y, Math.sqrt(u));
+      pitch = 0.6 * (1 - u);                     // climbing out, levelling off
+    }
+    dragon.position.copy(p);
+    dragon.rotation.set(-pitch, dive.h + Math.PI, 0, "YXZ");
+    if (dive.splashed === 0 && k >= 0.43) { splashes.splash(W, 2.6); dive.splashed = 1; pad.rumble.pulse(0.8, 0.8, 0.35); }
+    if (dive.splashed === 1 && k >= 0.58) { splashes.splash(W.clone().addScaledVector(n, 8), 2.0); dive.splashed = 2; }
+    if (k >= 1) dive = null;
+  }
+  splashes.update(dt);
   // Caught: held in the cage by the floor of the pit, whatever the keys say.
   if (caged && dragon && rig?.prisonAt) {
     dragon.position.set(rig.prisonAt.x, rig.prisonAt.y + 3.2, rig.prisonAt.z);

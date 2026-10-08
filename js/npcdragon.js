@@ -192,6 +192,7 @@ function actorDragon(scene, actor, name) {
     },
     setVisible(v) { state.hidden = !v; body.visible = v; },
     setDroop(v) { state.droop = v; actor.setDroop(v); },
+    setWeary(v) { actor?.setWeary?.(v); },
     update(dt) {
       t += dt;
       if (state.mode === "perched") {

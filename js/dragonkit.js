@@ -322,6 +322,8 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     playClip(n) { play([n]); },
     /** The broken wing: 0 healed .. 1 hanging. */
     setDroop(v) { state.droop = v; },
+    /** 0 well .. 1 starving/hurt: head low, jaw shut, eyes heavy. */
+    setWeary(v) { storm?.setWeary(v); },
     update(dt) {
       state.t += dt;
       state.beat += dt * state.flapRate * Math.PI * 2 * (state.mode === "fly" ? 1 : 0);
@@ -387,6 +389,9 @@ const BROKEN = { sweep: 0.6, lift: -0.42, twist: -0.3, elbow: 0.55, wrist: 0.45,
 const WING_KEYS = Object.keys(FOLD_UPPER);
 /** The pose tables, for tuning from a test page (stormcheck.html). */
 export const STORM_POSES = { FOLD_UPPER, FOLD_LOWER, BROKEN };
+// Jaw rotation that closes her mouth (radians about the jaw's x).
+let JAW_SHUT = -0.45;
+export function _setJawShut(v) { JAW_SHUT = v; }
 
 function stormRig({ body, root, inner, rest, turn, state, length }) {
   const B = (k) => findBone(body, new RegExp(`^Bone_${k}_\\d`));
@@ -437,7 +442,7 @@ function stormRig({ body, root, inner, rest, turn, state, length }) {
   const body0 = body.position.clone();
 
   // Blends, eased so a change of mode is a movement, not a cut.
-  const m = { t: 0, fly: 0, sleep: 0, droop: 0, curl: 0.3, look: { yaw: 0, pitch: 0 }, want: { yaw: 0, pitch: 0 }, nextLook: 0, blink: 3 };
+  const m = { t: 0, fly: 0, sleep: 0, droop: 0, weary: 0, wearyWant: 0, curl: 0.3, look: { yaw: 0, pitch: 0 }, want: { yaw: 0, pitch: 0 }, nextLook: 0, blink: 3 };
 
   /** turn(), about the PARENT's joint rather than the bone's own: the
    *  fingers and membrane flaps sit off the hand, and fan round the wrist. */
@@ -559,17 +564,23 @@ function stormRig({ body, root, inner, rest, turn, state, length }) {
       m.want.yaw = (Math.random() * 2 - 1) * 0.7;
       m.want.pitch = -0.12 + Math.random() * 0.32;
     }
-    m.look.yaw = ease(m.look.yaw, m.want.yaw, 1.4, dt);
+    // Weary (starving, hurt): it eases in, and it shows in every part of her
+    // face — head carried low, jaw shut, eyes half-lidded, glances small.
+    m.weary = ease(m.weary, m.wearyWant, 0.8, dt);
+    const wy = m.weary;
+    if (wy > 0.01) { m.want.yaw *= 1 - 0.6 * wy; m.want.pitch = lerp(m.want.pitch, 0.06, wy); }
+    m.look.yaw = ease(m.look.yaw, m.want.yaw, 1.4 * (1 - 0.5 * wy), dt);
     m.look.pitch = ease(m.look.pitch, m.want.pitch, 1.4, dt);
     const lyaw = lerp(m.look.yaw * idle, -curlSide * 0.9, sl);
     const lpitch = lerp(m.look.pitch * idle + breath * 0.01, 0.42, sl) - f * (Math.sin(ph) * 0.07 + 0.05);
-    if (neck) turn(neck, Q3(Qy(lyaw * 0.45), Qx(lpitch * 0.5 + sl * 0.12), ID.clone()));
-    if (head) turn(head, Q3(Qy(lyaw * 0.55), Qx(lpitch * 0.5), Qz(curlSide * 0.25 * sl)));
-    if (jaw) turn(jaw, Qx(-0.04 * Math.max(0, breath) * idle));
+    if (neck) turn(neck, Q3(Qy(lyaw * 0.45), Qx(lpitch * 0.5 + sl * 0.12 + wy * 0.16 * idle), ID.clone()));
+    if (head) turn(head, Q3(Qy(lyaw * 0.55), Qx(lpitch * 0.5 + wy * 0.08 * idle), Qz(curlSide * 0.25 * sl)));
+    // The model's rest pose is a wide open grin; weary, the jaw closes.
+    if (jaw) turn(jaw, Qx(-0.04 * Math.max(0, breath) * idle * (1 - wy) + JAW_SHUT * wy));
     // Blinks; asleep, the eyes shut.
     m.blink -= dt;
     if (m.blink < -0.15) m.blink = 2 + Math.random() * 5;
-    const shut = Math.max(sl, m.blink < 0 ? 1 : 0);
+    const shut = Math.max(sl, m.blink < 0 ? 1 : 0, 0.55 * wy);
     for (const lid of lids) turn(lid, Qx(shut * 0.9));
 
     // --- the body: on its feet at rest, heaving with the beat in the air.
@@ -580,5 +591,5 @@ function stormRig({ body, root, inner, rest, turn, state, length }) {
     }
     body.position.y += f * -Math.sin(ph - 0.4) * 0.012 * length / inner.scale.y;
   }
-  return { pose };
+  return { pose, setWeary(v) { m.wearyWant = v; } };
 }
