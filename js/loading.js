@@ -70,6 +70,8 @@ export function showLoading({ title = "Night Alone", sub = "", tip = "" } = {}) 
   const what = el.querySelector(".what");
 
   return {
+    /** Change the line above the title (main.js knows the chapter; boot does not). */
+    setSub(t) { const e = el.querySelector(".eyebrow"); if (e) e.innerHTML = t; },
     /** @param {number} t 0..1 @param {string} label what is happening */
     step(t, label) {
       bar.style.width = `${Math.round(Math.max(0, Math.min(1, t)) * 100)}%`;

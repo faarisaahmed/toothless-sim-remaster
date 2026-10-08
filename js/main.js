@@ -67,7 +67,10 @@ const SPAWN = new THREE.Vector3(0, 300, 900);
 
 // Up before anything heavy, so the black frame the user stares at is at least
 // a black frame that says what it is doing.
-const loading = showLoading({
+// The loading screen boot.js put up before this module arrived, if there is
+// one; otherwise our own.
+const loading = (() => {
+  const opts = {
   title: "Night Alone",
   // What is about to start, read straight off the handoff — this runs before
   // the session (or anything else) exists.
@@ -79,7 +82,11 @@ const loading = showLoading({
     return c ? `Chapter ${c.n} · ${c.title}` : "";
   })(),
   tip: keymap.tipLine(),
-});
+};
+  const pre = window.__naLoading;
+  if (pre) { pre.setSub(opts.sub); window.__naLoading = null; return pre; }
+  return showLoading(opts);
+})();
 
 const scene = new THREE.Scene();
 

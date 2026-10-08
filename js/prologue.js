@@ -423,6 +423,32 @@ export function runPrologue(pad = null, save = null) {
     let ending = false;
     let elapsed = 0;
 
+    // --- His body, for collision ----------------------------------------
+    // Circles down his spine, nose to tail: 3.4 m of dragon, not a point.
+    // The tail tip is thin and allowed to brush past things.
+    const SPINE = [[1.5, 0.42], [0.85, 0.55], [0.15, 0.58], [-0.6, 0.5], [-1.3, 0.3]];
+    const WALL_IN = 0.32;        // the stone plinth stands proud of the boards
+    // Furniture he cannot walk through: [x, z, halfX, halfZ] boxes (room frame).
+    const SOLID = [
+      [-3.6, -5.4, 1.3, 0.8],     // Hiccup's bed
+      [4.6, -2.2, 0.75, 0.45],    // the saddle on its horse
+      [ROOM.w / 2 - 0.55, 4.4, 0.45, 1.05],    // work table
+      [ROOM.w / 2 - 0.85, ROOM.d / 2 - 1.2, 0.85, 1.2],   // barrels and crates
+    ];
+    function fits(x, z, y) {
+      const sx = Math.sin(y), sz = Math.cos(y);
+      for (const [d, r] of SPINE) {
+        const px = x + sx * d, pz = z + sz * d;
+        if (Math.abs(px) > ROOM.w / 2 - WALL_IN - r || Math.abs(pz) > ROOM.d / 2 - WALL_IN - r) return false;
+        if (Math.hypot(px - hearth.position.x, pz - hearth.position.z) < 1.3 + r) return false;
+        for (const [bx, bz, hx, hz] of SOLID) {
+          const dx = Math.max(Math.abs(px - bx) - hx, 0), dz = Math.max(Math.abs(pz - bz) - hz, 0);
+          if (dx * dx + dz * dz < r * r) return false;
+        }
+      }
+      return true;
+    }
+
     const clock = new THREE.Clock();
     let raf = 0;
 
@@ -546,7 +572,10 @@ export function runPrologue(pad = null, save = null) {
         const turn = input.axis("turnL", "turnR", "lx");
         const walk = input.axis("back", "forward", "ly");
 
-        yaw -= turn * 2.2 * dt;
+        // Turning swings his head and hindquarters: refuse a turn that would
+        // put either through a wall or the furniture.
+        const wantYaw = yaw - turn * 2.2 * dt;
+        if (fits(body.position.x, body.position.z, wantYaw)) yaw = wantYaw;
 
         if (Math.abs(walk) > 0.01) {
           // A walk, not a trot: it is one room, lit by one fire.
@@ -554,14 +583,11 @@ export function runPrologue(pad = null, save = null) {
           const step = walk * speed * dt;
           const nx = body.position.x + Math.sin(yaw) * step;
           const nz = body.position.z + Math.cos(yaw) * step;
-          // Keep him off the walls and out of the fire.
-          const margin = 1.0;
-          const inRoom = Math.abs(nx) < ROOM.w / 2 - margin && Math.abs(nz) < ROOM.d / 2 - margin;
-          const clearFire = Math.hypot(nx - hearth.position.x, nz - hearth.position.z) > 1.8;
-          if (inRoom && clearFire) {
-            body.position.x = nx;
-            body.position.z = nz;
-          }
+          // His whole body has to fit, not his middle: try the move, and if it
+          // is blocked, slide along whatever is in the way.
+          if (fits(nx, nz, yaw)) { body.position.x = nx; body.position.z = nz; }
+          else if (fits(nx, body.position.z, yaw)) body.position.x = nx;
+          else if (fits(body.position.x, nz, yaw)) body.position.z = nz;
           // Footfalls: a low thump on a slow cadence, scaled by how fast he's
           // actually moving. Same idea as the wingbeat rumble in flight.
           const cadence = Math.sin(elapsed * 6.5 * Math.abs(walk));
@@ -570,6 +596,7 @@ export function runPrologue(pad = null, save = null) {
         }
       }
       body.rotation.y = yaw;
+      window.__proDbg = { x: body.position.x, z: body.position.z, yaw };
 
       // Ground speed from actual displacement rather than from input, so the
       // gait stays in step when he's blocked by a wall or the hearth.
@@ -588,7 +615,11 @@ export function runPrologue(pad = null, save = null) {
       near = null;
       let bestD = Infinity;
       for (const o of OBJECTS) {
-        const d = Math.hypot(body.position.x - o.pos[0], body.position.z - o.pos[2]);
+        // From his head: he looks at things with it, and his body now keeps
+        // his middle a body-length away from anything against a wall.
+        const hx = body.position.x + Math.sin(yaw) * 1.4, hz = body.position.z + Math.cos(yaw) * 1.4;
+        const d = Math.min(Math.hypot(hx - o.pos[0], hz - o.pos[2]),
+                           Math.hypot(body.position.x - o.pos[0], body.position.z - o.pos[2]));
         if (d < o.radius && d < bestD) { bestD = d; near = o; }
       }
       nearSlab = Math.hypot(body.position.x - SLAB.pos[0], body.position.z - SLAB.pos[2]) < SLAB.radius;
