@@ -1360,6 +1360,13 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
      * that ends in a cliff face should not carry on being a dive, and `recover`
      * would otherwise protect the speed the crash was supposed to take.
      */
+    /** Lose a fraction of airspeed and nothing else — a scrape, not a crash. */
+    scrapeSpeed(fraction) {
+      airspeed *= Math.max(0, 1 - fraction);
+      climbVel *= Math.max(0, 1 - fraction);
+      // A real knock staggers him: the throttle does not bite again at once.
+      if (fraction > 0.2) recoverHold = Math.max(recoverHold, Math.min(1.2, fraction * 1.6));
+    },
     bleedSpeed(fraction) {
       airspeed *= Math.max(0, 1 - fraction);
       climbVel *= 0.2;

@@ -2337,6 +2337,18 @@ function frame() {
             // he bounces off a cliff still doing 700 mph, which reads as the
             // collision not having happened.
             controls.bleedSpeed?.(0.45);
+          } else {
+            // No damage still costs speed. Whatever part of his motion went
+            // INTO the ground is gone — the ground took it — and dragging along
+            // it is friction. The pilot aid above lifts him up a wall before he
+            // can be hurt by it, and without this the wall cost him nothing at
+            // all: he slid up a cliff at 700 mph and carried on.
+            const v = Math.hypot(sp, vy) || 1;
+            const into = Math.max(0, -((ax * sp) * (-gx * inv) + vy * inv + (az * sp) * (-gz * inv)) / v);
+            const lose = !wasGrounded
+              ? Math.min(0.85, into * 1.2)
+              : 1 - Math.exp(-dt * (0.9 + 4 * into));
+            controls.scrapeSpeed?.(lose);
           }
         }
 
