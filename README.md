@@ -362,7 +362,7 @@ covers, measured at 335 m/s flat out and about 710 m/s in turbo.
 any speed looks slow. `js/speedfx.js` adds:
 - Streaks of air fixed in the world around the camera. They pass at his true
   speed, from about 200 mph up.
-- A vapour cone past Mach 1.
+
 - A shock ring, a thump and a camera shake at the moment he crosses it.
 - An FOV punch in turbo.
 

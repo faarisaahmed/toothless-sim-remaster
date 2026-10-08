@@ -135,7 +135,7 @@ export function createSpeedFx(scene) {
     const sup = THREE.MathUtils.smoothstep(speed, MACH - 10, MACH + 120);
     coneMat.uniforms.uK.value = sup;
     coneMat.uniforms.uTime.value = time;
-    cone.visible = sup > 0.01;
+    cone.visible = false;   // the vapour cone read as a goofy dome; off
     if (cone.visible) {
       dir.copy(vel).normalize();
       q.setFromUnitVectors(Y, dir);
