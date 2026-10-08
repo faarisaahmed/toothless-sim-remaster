@@ -109,6 +109,8 @@ let SITES = [];
  * the game would like you to go.
  */
 export function setMapSites(list) { SITES = list || []; }
+/** The sites the chart shows, for the minimap. */
+export function getMapSites() { return SITES; }
 
 let OBJECTIVE = () => null;
 /**
