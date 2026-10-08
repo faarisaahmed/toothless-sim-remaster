@@ -16,6 +16,7 @@ import { makePlayer, createState } from "./player.js";
 import { SITES, RIG } from "./chapters.js";
 import { createSession } from "./session.js";
 import { buildHunterBase } from "./hunterbase.js";
+import { buildBerk } from "./berk.js";
 import { pitLayout, chart, craterR } from "./terrain.js";
 import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
 import { chapterOfBeat, chapterById } from "./storyline.js";
@@ -1118,6 +1119,8 @@ const player = makePlayer(
     ? JSON.parse(JSON.stringify(handoff.save.run))
     : createState());
 let rig = null, stack = null, camp = null;
+// Berk itself: the statues, the Great Hall, the village (berk.js).
+let berk = null;
 let baseDetail = null;
 let pitWood = null;          // the undergrowth and sunbeams down the old gullies
 let interactAt = null, interactLabel = "", interactRange = 0, interactTaken = false;
@@ -1828,6 +1831,7 @@ window.__na = {
   bolas, horizon,
   get rig() { return rig; },
   get stack() { return stack; },
+  get berk() { return berk; },
   get grounded() { return grounded; },
   get speedT() { return controls?.getSpeedT() ?? -1; },
   getControls: () => controls,
@@ -1862,6 +1866,16 @@ window.__na = {
 // enough to stand a 116 m deck on, and put the compound and the story waypoint
 // there together, so they can never drift apart.
 // ---------------------------------------------------------------------------
+/**
+ * The top of whatever is solid at (x, z) for the flight floor: the rock, or a
+ * Berk roof, statue or hall standing on it. Only the height field until Berk
+ * is built.
+ */
+function solidAt(x, z) {
+  const h = world.getHeightAt(x, z);
+  return berk ? Math.max(h, berk.topAt(x, z)) : h;
+}
+
 function findCraterFloor() {
   const isle = ISLANDS.find((i) => i.name === "Dragon Hunter Island");
   if (!isle) return null;
@@ -1932,9 +1946,16 @@ const placesBuilt = (async () => {
         })
       : null,
   ]);
+  // Berk: built on the heights berklayout.js promises terrain.js levels to.
+  try {
+    berk = buildBerk(scene, { quality: TIER, excludeFromReflection: (...o) => world.excludeFromReflection(...o) });
+  } catch (e) {
+    console.error("berk: could not build", e);
+  }
   // Roofs, decks, crates, cages, the top of the stack: solid to his feet.
   const solid = surfaces.register(rig?.group) + surfaces.register(stack?.group)
-              + surfaces.register(camp?.group, { friction: 0.85 });
+              + surfaces.register(camp?.group, { friction: 0.85 })
+              + surfaces.register(berk?.colliders, { friction: 0.8 });
   console.info(`surfaces: ${solid} solid meshes`);
   // The pit up close: rough ground, stones, scrub, wood and standing water
   // (basedetail.js). After the buildings are solid, so nothing lands in them.
@@ -2423,13 +2444,13 @@ function frame() {
     // which is 14 m at cruise and 84 m flat out, and take the highest rock in
     // it. The effect is that the ground lifts him over a ridge the way air
     // does, and he only ever hits the hard clamp if he flies at a cliff face.
-    let rock = world.getHeightAt(dragon.position.x, dragon.position.z);
+    let rock = solidAt(dragon.position.x, dragon.position.z);
     if (controls && !grounded) {
       const h = controls.getHeading();
       const reach = controls.getSpeed() * 0.25;
       for (let i = 1; i <= 3; i++) {
         const d = (reach * i) / 3;
-        rock = Math.max(rock, world.getHeightAt(
+        rock = Math.max(rock, solidAt(
           dragon.position.x + Math.sin(h) * d,
           dragon.position.z + Math.cos(h) * d
         ));
@@ -2492,16 +2513,16 @@ function frame() {
         // two apart, and measuring it against the ground directly underneath
         // could not see the cliff at all: the aid lifts him up the wall, so he
         // is never actually near the rock he flew into.
-        const under = world.getHeightAt(dragon.position.x, dragon.position.z);
+        const under = solidAt(dragon.position.x, dragon.position.z);
         if (controls) {
           const h = controls.getHeading();
           const R = IMPACT_BASELINE;
           const ax = Math.sin(h), az = Math.cos(h);
           // Along his nose, and across it, so a cliff he clips at an angle
           // still reads as a cliff.
-          const gF = (world.getHeightAt(dragon.position.x + ax * R, dragon.position.z + az * R)
+          const gF = (solidAt(dragon.position.x + ax * R, dragon.position.z + az * R)
                     - under) / R;
-          const gS = (world.getHeightAt(dragon.position.x - az * R, dragon.position.z + ax * R)
+          const gS = (solidAt(dragon.position.x - az * R, dragon.position.z + ax * R)
                     - under) / R;
           const gx = ax * gF - az * gS, gz = az * gF + ax * gS;
           const inv = 1 / Math.hypot(gx, gz, 1);
@@ -2756,6 +2777,7 @@ function frame() {
     updateHunterMarkers();
   }
   stack?.update(sdt, camera);
+  berk?.update(sdt, camera, world.sky.state?.night ?? 0);
   baseDetail?.update(camera.position);
   pitWood?.update(camera.position, sdt);
   updateHunters(sdt);
