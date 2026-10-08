@@ -1,4 +1,4 @@
-import { terrainHeight, TERRAIN_SIZE, SEA_LEVEL, pitPaths } from "./terrain.js";
+import { TERRAIN_SIZE, pitPaths } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // The minimap.
@@ -15,23 +15,11 @@ import { terrainHeight, TERRAIN_SIZE, SEA_LEVEL, pitPaths } from "./terrain.js";
 //   - N, E, S and W round the rim, turning with him;
 //   - his X, altitude and Z underneath.
 //
-// The ground image is baked once from the height field, a few rows a frame
-// after load so it never stalls a frame.
+// It is drawn on the same parchment as the chart on Tab (map.js), in the same
+// ink, so the two are one map: the minimap is a window on the chart.
 // ---------------------------------------------------------------------------
 
-const BAKE = 448;                 // texels across the whole archipelago
 const HALF = TERRAIN_SIZE / 2;
-
-function colourAt(h) {
-  if (h < SEA_LEVEL - 30) return [16, 30, 48];
-  if (h < SEA_LEVEL - 4) return [22, 46, 66];
-  if (h < SEA_LEVEL) return [36, 70, 86];
-  if (h < 6) return [128, 120, 92];
-  if (h < 90) return [58, 86, 52];
-  if (h < 200) return [74, 90, 60];
-  if (h < 320) return [104, 100, 88];
-  return [206, 214, 222];
-}
 
 /**
  * @param {object} o
@@ -39,8 +27,9 @@ function colourAt(h) {
  *   getObjective()   {x, z, label} or null
  *   getSites()       [{x, z, label, found}]
  *   getHunters()     [{pos, yaw, state, ko, inside}] or null
+ *   getChart()       the chart's parchment canvas (map.js)
  */
-export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) {
+export function setupMinimap({ getPlayer, getObjective, getSites, getHunters, getChart }) {
   const wrap = document.createElement("div");
   wrap.id = "minimap";
   wrap.innerHTML = `<canvas></canvas><div class="mm-xyz"></div>`;
@@ -49,32 +38,9 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
   const xyz = wrap.querySelector(".mm-xyz");
   const g = canvas.getContext("2d");
 
-  // --- Bake ---------------------------------------------------------------
-  const base = document.createElement("canvas");
-  base.width = base.height = BAKE;
-  const bg = base.getContext("2d");
-  const img = bg.createImageData(BAKE, BAKE);
-  let row = 0;
-  function bakeSome() {
-    const end = Math.min(BAKE, row + 12);
-    for (; row < end; row++) {
-      const z = -HALF + (row + 0.5) / BAKE * TERRAIN_SIZE;
-      for (let i = 0; i < BAKE; i++) {
-        const x = -HALF + (i + 0.5) / BAKE * TERRAIN_SIZE;
-        const h = terrainHeight(x, z);
-        // A touch of hill shading from the next sample east.
-        const he = terrainHeight(x + TERRAIN_SIZE / BAKE, z);
-        const shade = Math.max(0.7, Math.min(1.25, 1 + (h - he) * 0.02));
-        const [r, gg, b] = colourAt(h);
-        const k = (row * BAKE + i) * 4;
-        img.data[k] = r * (h > 0 ? shade : 1); img.data[k + 1] = gg * (h > 0 ? shade : 1);
-        img.data[k + 2] = b * (h > 0 ? shade : 1); img.data[k + 3] = 255;
-      }
-    }
-    if (row < BAKE) setTimeout(bakeSome, 0);
-    else bg.putImageData(img, 0, 0);
-  }
-  setTimeout(bakeSome, 1500);
+  // The parchment, from map.js. Built a moment after load, off the first frames.
+  let base = null;
+  setTimeout(() => { base = getChart?.() ?? null; }, 2000);
 
   let size = 0, dpr = 1;
   function resize() {
@@ -102,7 +68,7 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
     g.clearRect(0, 0, size, size);
     g.save();
     g.beginPath(); g.arc(R, R, R - 1, 0, Math.PI * 2); g.clip();
-    g.fillStyle = "#101e30"; g.fillRect(0, 0, size, size);
+    g.fillStyle = "#d2c29b"; g.fillRect(0, 0, size, size);
 
     // Heading-up: his nose is (sin h, cos h) in x/z; on screen x is right and
     // +z is down, so turn the world by this to put his nose straight up.
@@ -117,9 +83,9 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
     g.save();
     g.translate(R, R);
     g.rotate(rot);
-    const texPerM = BAKE / TERRAIN_SIZE;
+    const texPerM = (base?.width ?? 1) / TERRAIN_SIZE;
     g.imageSmoothingEnabled = true;
-    g.drawImage(base,
+    if (base) g.drawImage(base,
       (p.x + HALF) * texPerM - range * texPerM, (p.z + HALF) * texPerM - range * texPerM,
       range * 2 * texPerM, range * 2 * texPerM,
       -R, -R, size, size);
@@ -127,8 +93,8 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
 
     // Forest trails into the pit, dotted.
     g.setLineDash([3, 4]);
-    g.strokeStyle = "rgba(170, 230, 140, 0.9)";
-    g.lineWidth = 2;
+    g.strokeStyle = "rgba(60, 96, 40, 0.9)";
+    g.lineWidth = 2.2;
     for (const path of pitPaths()) {
       g.beginPath();
       for (let i = 0; i < path.x.length; i += 2) {
@@ -143,7 +109,7 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
     for (const s of getSites() || []) {
       if (!s.found) continue;
       const [sx, sy] = toScreen(s.x, s.z);
-      g.strokeStyle = "rgba(236, 200, 150, 0.9)"; g.lineWidth = 1.5;
+      g.strokeStyle = "rgba(150, 60, 28, 0.95)"; g.lineWidth = 1.8;
       g.beginPath(); g.moveTo(sx - 4, sy - 4); g.lineTo(sx + 4, sy + 4); g.moveTo(sx + 4, sy - 4); g.lineTo(sx - 4, sy + 4); g.stroke();
     }
 
@@ -154,7 +120,7 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
       const d = Math.hypot(m.pos.x - p.x, m.pos.z - p.z);
       if (d > range) continue;
       const [sx, sy] = toScreen(m.pos.x, m.pos.z);
-      const col = m.state === "alert" ? "#ff4a3a" : m.state === "calm" || !m.state ? "#e8e2d4" : "#ffb03a";
+      const col = m.state === "alert" ? "#b0201a" : m.state === "calm" || !m.state ? "#43301b" : "#c06a10";
       const [fx, fy] = toScreen(m.pos.x + Math.sin(m.yaw) * range * 0.06, m.pos.z + Math.cos(m.yaw) * range * 0.06);
       g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.5;
       g.beginPath(); g.moveTo(sx, sy); g.lineTo(fx, fy); g.stroke();
@@ -168,8 +134,8 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
       const dx = sx - R, dy = sy - R, dd = Math.hypot(dx, dy);
       const off = dd > R - 12;
       if (off) { sx = R + dx / dd * (R - 12); sy = R + dy / dd * (R - 12); }
-      g.fillStyle = "#ff7a28"; g.strokeStyle = "#ff7a28";
-      g.shadowColor = "rgba(255,120,40,.8)"; g.shadowBlur = 6;
+      g.fillStyle = "#b8361a"; g.strokeStyle = "#b8361a";
+      g.shadowColor = "rgba(255,200,150,.9)"; g.shadowBlur = 3;
       if (off) {
         const a = Math.atan2(dy, dx);
         g.save(); g.translate(sx, sy); g.rotate(a);
@@ -182,24 +148,31 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters }) 
       g.shadowBlur = 0;
     }
 
-    // Him, in the middle, nose up.
-    g.fillStyle = "#ffffff";
-    g.beginPath(); g.moveTo(R, R - 8); g.lineTo(R + 5.5, R + 6); g.lineTo(R, R + 3); g.lineTo(R - 5.5, R + 6); g.closePath(); g.fill();
+    // Him, in the middle, nose up: a dark ink dart with a pale edge.
+    g.fillStyle = "#1c140c"; g.strokeStyle = "rgba(240, 228, 200, 0.95)"; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(R, R - 8); g.lineTo(R + 5.5, R + 6); g.lineTo(R, R + 3); g.lineTo(R - 5.5, R + 6); g.closePath(); g.stroke(); g.fill();
+    // Age the edge: a soft brown vignette inside the rim.
+    const vg = g.createRadialGradient(R, R, R * 0.62, R, R, R);
+    vg.addColorStop(0, "rgba(90, 60, 30, 0)"); vg.addColorStop(1, "rgba(90, 60, 30, 0.45)");
+    g.fillStyle = vg; g.fillRect(0, 0, size, size);
     g.restore();
 
     // Rim and compass letters, turning with him.
-    g.strokeStyle = "rgba(236, 230, 216, 0.35)"; g.lineWidth = 1.5;
-    g.beginPath(); g.arc(R, R, R - 1, 0, Math.PI * 2); g.stroke();
-    g.font = "700 12px Rajdhani, system-ui, sans-serif";
+    // A brass-and-leather rim, inked like the chart's frame.
+    g.strokeStyle = "#5a3e22"; g.lineWidth = 5;
+    g.beginPath(); g.arc(R, R, R - 3, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = "#b08a4e"; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(R, R, R - 6, 0, Math.PI * 2); g.stroke();
+    g.font = "600 13px Cinzel, Georgia, serif";
     g.textAlign = "center"; g.textBaseline = "middle";
     // North is world -z.
     for (const [lbl, x, z] of [["N", 0, -1], ["E", 1, 0], ["S", 0, 1], ["W", -1, 0]]) {
       const c = Math.cos(rot), s = Math.sin(rot);
       const vx = x * c - z * s, vy = x * s + z * c;
       const tx = R + vx * (R - 10), ty = R + vy * (R - 10);
-      g.fillStyle = "rgba(10, 14, 22, 0.75)";
-      g.beginPath(); g.arc(tx, ty, 8, 0, Math.PI * 2); g.fill();
-      g.fillStyle = lbl === "N" ? "#ff7a28" : "rgba(236, 230, 216, 0.85)";
+      g.fillStyle = "#e6d8b4"; g.strokeStyle = "#5a3e22"; g.lineWidth = 1.2;
+      g.beginPath(); g.arc(tx, ty, 8.5, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.fillStyle = lbl === "N" ? "#9e2c14" : "#43301b";
       g.fillText(lbl, tx, ty + 0.5);
     }
 
