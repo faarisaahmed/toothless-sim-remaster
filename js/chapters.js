@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { keyTag } from "./keymap.js";
 import { music } from "./audio.js";
 import { CHAPTER_LIST } from "./storyline.js";
-import { chart } from "./terrain.js";
+import { chart, BERK, SPAWN_XZ, WORLD_SCALE } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // MISSION 1 — "The Metal and the Dark"
@@ -90,7 +90,7 @@ const CAGE_BURN_R = 46;
 // ---------------------------------------------------------------------------
 const PLATE = (p) => p.addSample("alloy", "Hunter's plate");
 const RUNTIME = {
-  peacetime: { start: () => ({ pos: V(0, 300, chart(900)), toward: V(0, 0, chart(-1100)) }) },
+  peacetime: { start: () => ({ pos: V(SPAWN_XZ.x, 300, SPAWN_XZ.z), toward: V(BERK.x, 0, BERK.z + 200 * WORLD_SCALE) }) },
   wood: {
     start: () => ({ pos: V(SITES.camp.x + chart(900), 260, SITES.camp.z - chart(1400)), toward: SITES.camp }),
   },
@@ -206,7 +206,7 @@ export function mission1(ctx) {
         g.setWaypoint(SITES.camp.clone().setY(260), "Peaceable Country");
         g.toast("Berk.", 1600);
       },
-      done() { return game.flatDist(V(0, 0, chart(-1100))) > chart(2100); },
+      done() { return game.flatDist(V(BERK.x, 0, BERK.z + 200 * WORLD_SCALE)) > 2100 * WORLD_SCALE; },
       hold: 0.2,
     },
 
@@ -343,7 +343,7 @@ export function mission1(ctx) {
       enter(g, c) {
         const b = c.camp?.bearing ?? 0.9;
         const t = SITES.camp.clone().add(
-          V(Math.sin(b) * chart(1500), 0, Math.cos(b) * chart(1500))).setY(140);
+          V(Math.sin(b) * 1500 * WORLD_SCALE, 0, Math.cos(b) * 1500 * WORLD_SCALE)).setY(140);
         this._t = t;
         g.setWaypoint(t, "Open water");
       },

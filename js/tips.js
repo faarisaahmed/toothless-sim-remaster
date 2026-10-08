@@ -45,7 +45,7 @@ const TIPS = () => [
   `Hunters who lose you search for a few seconds, then shrug and go back to work.`,
   `Hold ${k("aim")} to turn his head without turning his body — and to see the hunters' vision cones.`,
   // --- The world
-  `The archipelago is about ten kilometres across. Berk is the biggest island in it.`,
+  `The archipelago is about forty-five kilometres across, and most of it is sea. Berk is the biggest island in it.`,
   `Free flight counts every named island you find. There are thirty-three.`,
   `Glacier Island keeps its snow all year. Dragon Peak is a volcano — nothing grows on it.`,
   `The forest isn't one tree: spruce in the valleys, pine on the ridges, birch at the edges, oak in the warm hollows.`,

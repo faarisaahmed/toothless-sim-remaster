@@ -3,7 +3,7 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { setupWings } from "./wings.js";
 import { wingRoots } from "./dragonrig.js";
 import { setupFlightRig } from "./flightrig.js";
-import { WORLD_SCALE } from "./terrain.js";
+import { chart } from "./terrain.js";
 
 // Wild dragons flying aerobatic routines in small family groups.
 //
@@ -21,8 +21,8 @@ const BABY_SIDE    = 7;
 const BABY_SCALE   = 0.42;
 const CEILING      = 1500;
 const FLOOR_MARGIN = 150;   // start pulling up this far above the ground
-// Scaled with the archipelago (terrain.js WORLD_SCALE): they roam the chart.
-const ROAM_RADIUS  = 4400 * WORLD_SCALE;
+// Scaled with the archipelago (terrain.js chart()): they roam the chart.
+const ROAM_RADIUS  = chart(4400);
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -130,7 +130,7 @@ export function setupFlights(scene, template, tuning, world, flightCount = 7, sp
       startHeading = pick([Math.PI / 2, -Math.PI / 2]) + rand(-0.45, 0.45);
     } else {
       const a = (i / flightCount) * Math.PI * 2 + rand(-0.35, 0.35);
-      const r = rand(700, 4000) * WORLD_SCALE;
+      const r = chart(rand(700, 4000));
       startPos = new THREE.Vector3(Math.cos(a) * r, rand(300, 900), Math.sin(a) * r);
       startHeading = rand(0, Math.PI * 2);
     }

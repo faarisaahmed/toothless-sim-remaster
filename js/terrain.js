@@ -31,14 +31,31 @@ export const SEA_FLOOR = -190;
 // rather than bloated copies of the same few. And the things people built,
 // which are absolute: the hunters' pit, Hollow Stack's camp, the sea stacks.
 // ---------------------------------------------------------------------------
-export const WORLD_SCALE = 3;
-export const PEAK_SCALE = 1.5;
-export const TERRAIN_SIZE = 10000 * WORLD_SCALE;
+//
+// And then the sea between them. Three times bigger islands three times
+// further apart left the same proportion of water as the model railway, and
+// from the air the chart read as one crowded landmass. Real archipelagos are
+// mostly sea, so positions are spread SPREAD further again than the islands
+// grow: each island keeps its size and shape round its own centre, and the
+// sounds between them open out to kilometres.
+export { WORLD_SCALE, PEAK_SCALE, SPREAD, CHART_SCALE } from "./worldscale.js";
+import { WORLD_SCALE, PEAK_SCALE, CHART_SCALE } from "./worldscale.js";
+export const TERRAIN_SIZE = 10000 * CHART_SCALE;
 /** Where snow starts lying, metres, before an island's own `snow` lowers it.
  *  Raised with the peaks, so the same summits are white. */
 export const SNOW_LINE = 320 * PEAK_SCALE;
-/** A position on the old ten-kilometre chart, in today's metres. */
-export const chart = (v) => v * WORLD_SCALE;
+/** A position on the old ten-kilometre chart, in today's metres. Positions
+ *  only: a size is WORLD_SCALE, and a point inside an island is its centre
+ *  through chart() plus its offset times WORLD_SCALE (see onIsland). */
+export const chart = (v) => v * CHART_SCALE;
+/** A point authored on the old chart INSIDE the island whose old-chart centre
+ *  is (cx, cz): the island moves with chart(), the offset grows with it. */
+export const onIsland = (cx, cz, x, z) =>
+  ({ x: chart(cx) + (x - cx) * WORLD_SCALE, z: chart(cz) + (z - cz) * WORLD_SCALE });
+/** Berk's centre, and where he starts: south of it, pointed at it, the same
+ *  distance off its coast as ever. */
+export const BERK = onIsland(0, -1300, 0, -1300);
+export const SPAWN_XZ = onIsland(0, -1300, 0, 900);
 
 // Prevailing wind, as a bearing in radians (the direction it blows *towards*).
 // The sea, the grass, the trees and the spray all read this, and the coasts are
@@ -493,12 +510,12 @@ const RAW_ISLANDS = [
 const lift = (h) => -SEA_FLOOR + (h + SEA_FLOOR) * PEAK_SCALE;
 function scaleIsland(isl) {
   const S = WORLD_SCALE;
-  if (isl.keepSize) return { ...isl, x: isl.x * S, z: isl.z * S };
+  if (isl.keepSize) return { ...isl, x: chart(isl.x), z: chart(isl.z) };
   const g = isl.grow ?? S;
   const hk = isl.keepHeight ? 1 : PEAK_SCALE;
   const out = {
     ...isl,
-    x: isl.x * S, z: isl.z * S, r: isl.r * g,
+    x: chart(isl.x), z: chart(isl.z), r: isl.r * g,
     h: isl.keepHeight ? isl.h : lift(isl.h),
     cliff: (isl.cliff ?? 0.28) * Math.min(1, hk / g),
     shelfW: (isl.shelfW ?? 0.4) * Math.min(1, PEAK_SCALE / g),
@@ -530,7 +547,7 @@ function scaleIsland(isl) {
   }
   if (isl.parts) {
     out.parts = isl.parts.map((p) => ({
-      ...p, x: p.x * S, z: p.z * S, r: p.r * g, h: isl.keepHeight ? p.h : lift(p.h),
+      ...p, x: chart(isl.x) + (p.x - isl.x) * g, z: chart(isl.z) + (p.z - isl.z) * g, r: p.r * g, h: isl.keepHeight ? p.h : lift(p.h),
     }));
   }
   return out;
@@ -560,9 +577,9 @@ function makeSkerries(parents) {
   const KEEP_CLEAR = [
     { x: 2900, z: 3800, r: 1500 },   // Dragon Hunter Island and its approach
     { x: 1750, z: 2500, r: 700 },    // Hollow Stack must stand alone
-    { x: 0, z: 900, r: 700 },        // spawn
     { x: 2080, z: 2320, r: 420 },    // the shoal — it is a fishing spot, not a reef
   ].map((k) => ({ x: chart(k.x), z: chart(k.z), r: chart(k.r) }));
+  KEEP_CLEAR.push({ ...SPAWN_XZ, r: 700 * WORLD_SCALE });       // spawn
   const EDGE = TERRAIN_SIZE / 2 - 100;
 
   for (const p of parents) {
