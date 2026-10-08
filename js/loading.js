@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { shuffledTips } from "./tips.js";
 
 // ---------------------------------------------------------------------------
 // The loading screen.
@@ -37,12 +38,19 @@ const CSS = `
               letter-spacing:.14em; font-weight:600; margin:0; text-shadow:0 0 40px rgba(255,138,61,.15); }
 .na-load .bar { width:min(360px,58vw); height:2px; margin-top:8px; background:rgba(236,230,216,.12);
                 overflow:hidden; border-radius:2px; }
-.na-load .bar i { display:block; height:100%; width:0%; background:var(--ember, #ff8a3d);
-                  box-shadow:0 0 12px rgba(255,138,61,.8); transition:width .3s ease; }
+.na-load .bar i { display:block; height:100%; width:100%; background:var(--ember, #ff8a3d);
+                  box-shadow:0 0 12px rgba(255,138,61,.8); transform-origin:0 50%; transform:scaleX(0);
+                  will-change:transform; }
 .na-load .what { font-size:.68rem; font-weight:600; letter-spacing:.28em; text-transform:uppercase;
                  color:var(--ink-3, #857e71); min-height:1em; }
-.na-load .tip { position:absolute; bottom:8vh; font-size:.82rem; font-weight:500; color:var(--ink-3, #857e71);
-                letter-spacing:.06em; max-width:min(560px,80vw); text-align:center; }
+.na-load .tip { position:absolute; bottom:9vh; font-size:.92rem; font-weight:500; color:var(--ink-2, #b8b0a0);
+                letter-spacing:.04em; line-height:1.5; max-width:min(620px,84vw); text-align:center;
+                min-height:3em; transition:opacity .5s ease; }
+.na-load .tip.fade { opacity:0; }
+.na-load .tip-head { position:absolute; bottom:calc(9vh + 3.3rem); font-size:.62rem; font-weight:700; letter-spacing:.4em;
+                     text-transform:uppercase; color:var(--ember-2, #ffb47a); opacity:.7; }
+.na-load .tip kbd { font:600 .78rem var(--ui, Rajdhani, sans-serif); padding:1px 6px; border-radius:4px;
+                    border:1px solid rgba(236,230,216,.3); background:rgba(236,230,216,.08); color:#ece6d8; }
 `;
 
 /**
@@ -63,25 +71,69 @@ export function showLoading({ title = "Night Alone", sub = "", tip = "" } = {}) 
     `<h1>${title}</h1>` +
     `<div class="bar"><i></i></div>` +
     `<div class="what">Loading</div>` +
-    (tip ? `<div class="tip">${tip}</div>` : "");
+    `<div class="tip-head">Did you know</div><div class="tip"></div>`;
   document.body.appendChild(el);
 
   const bar = el.querySelector(".bar i");
   const what = el.querySelector(".what");
+
+  // --- The bar ---------------------------------------------------------------
+  // Animated on the compositor (transform, via the Web Animations API), not by
+  // script or width transitions: the slow parts of loading — building the
+  // archipelago, compiling shaders — block the main thread for seconds at a
+  // time on a weak machine, and anything driven from the main thread freezes
+  // with it and then jumps. A compositor animation keeps running through that.
+  //
+  // Each step glides from wherever the bar is to the new value, and then keeps
+  // CREEPING toward the next milestone, easing off as it nears it, so the bar
+  // is always visibly moving and never runs ahead of the real work.
+  let shown = 0, anim = null;
+  const now = () => {
+    const m = getComputedStyle(bar).transform;
+    const v = m && m.startsWith("matrix(") ? parseFloat(m.slice(7)) : shown;
+    return Number.isFinite(v) ? v : shown;
+  };
+  function glide(to) {
+    const from = Math.min(to, now());
+    shown = to;
+    anim?.cancel();
+    const creep = Math.min(0.985, to + (1 - to) * 0.45);
+    const reach = 0.35 + (to - from) * 1.2;           // seconds to reach the step
+    anim = bar.animate([
+      { transform: `scaleX(${from})`, offset: 0 },
+      { transform: `scaleX(${to})`, offset: Math.min(0.5, reach / 14) },
+      { transform: `scaleX(${creep})`, offset: 1 },
+    ], { duration: 14000, easing: "cubic-bezier(.2,.7,.3,1)", fill: "forwards" });
+  }
+
+  // --- Tips ------------------------------------------------------------------
+  const tipEl = el.querySelector(".tip");
+  const tips = shuffledTips();
+  let tipI = 0;
+  const showTip = () => { tipEl.innerHTML = tips[tipI % tips.length]; tipI++; };
+  showTip();
+  const tipTimer = setInterval(() => {
+    tipEl.classList.add("fade");
+    setTimeout(() => { showTip(); tipEl.classList.remove("fade"); }, 500);
+  }, 5200);
 
   return {
     /** Change the line above the title (main.js knows the chapter; boot does not). */
     setSub(t) { const e = el.querySelector(".eyebrow"); if (e) e.innerHTML = t; },
     /** @param {number} t 0..1 @param {string} label what is happening */
     step(t, label) {
-      bar.style.width = `${Math.round(Math.max(0, Math.min(1, t)) * 100)}%`;
+      t = Math.max(0, Math.min(1, t));
+      if (t > shown + 0.001) glide(t);
       if (label) what.textContent = label;
     },
     done() {
-      bar.style.width = "100%";
+      glide(1);
       what.textContent = "Ready";
-      el.classList.add("out");
-      setTimeout(() => { el.remove(); style.remove(); }, 800);
+      clearInterval(tipTimer);
+      setTimeout(() => {
+        el.classList.add("out");
+        setTimeout(() => { el.remove(); style.remove(); }, 800);
+      }, 350);
     },
     fail(msg) {
       what.textContent = msg || "Something did not load";
