@@ -919,6 +919,8 @@ export function setupMap(getPlayer) {
   });
 
   return {
+    /** The finished parchment, building it on first ask (for the minimap). */
+    chart() { buildChart(); return chart; },
     update(dt) {
       const player = getPlayer();
       trailClock += dt;

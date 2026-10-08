@@ -378,6 +378,7 @@ const minimap = setupMinimap({
   getObjective: () => game.waypoint ? { x: game.waypoint.x, z: game.waypoint.z, label: game.waypointLabel } : null,
   getSites: () => getMapSites(),
   getHunters: () => rig?.hunters?.men ?? null,
+  getChart: () => map.chart(),
 });
 
 document.addEventListener("click", (e) => {

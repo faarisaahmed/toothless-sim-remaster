@@ -328,8 +328,9 @@ body:has(.na-bars.on) #hunter-marks { display: none; }
 #minimap { position: fixed; top: max(16px, env(safe-area-inset-top)); right: max(20px, env(safe-area-inset-right));
            z-index: 30; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 #minimap canvas { display: block; border-radius: 50%; box-shadow: 0 4px 18px rgba(0, 0, 0, .45); }
-#minimap .mm-xyz { display: flex; gap: 10px; font: 600 .78rem/1 var(--ui, Rajdhani, system-ui, sans-serif);
-                   letter-spacing: .06em; color: rgba(236, 230, 216, .85); background: rgba(10, 14, 22, .55);
-                   padding: 4px 10px; border-radius: 999px; font-variant-numeric: tabular-nums; }
-#minimap .mm-xyz b { color: #ff9a4a; font-weight: 700; margin-right: 3px; }
+#minimap .mm-xyz { display: flex; gap: 10px; font: 600 .8rem/1 Cinzel, Georgia, serif;
+                   letter-spacing: .04em; color: #43301b; background: linear-gradient(#e6d8b4, #d2c29b);
+                   border: 1.5px solid #5a3e22; padding: 4px 11px; border-radius: 4px;
+                   box-shadow: 0 2px 8px rgba(0, 0, 0, .4); font-variant-numeric: tabular-nums; }
+#minimap .mm-xyz b { color: #9e2c14; font-weight: 700; margin-right: 3px; }
 @media (max-width: 600px) { #minimap canvas { width: 120px !important; height: 120px !important; } }
