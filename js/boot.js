@@ -5,6 +5,7 @@ import * as saves from "./saves.js";
 import { runTitle } from "./title.js";
 import { runPrologue } from "./prologue.js";
 import { settings } from "./settings.js";
+import { showLoading } from "./loading.js";
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -61,6 +62,11 @@ function toFlight(extra = {}) {
   document.body.classList.remove("pre-flight");
   document.body.classList.add("in-flight");
   window.__nightAlone = { pad, dualsense, ...extra };
+  // Cover the screen NOW. main.js and its whole module graph take a moment to
+  // arrive, and until then the page's own HUD sat on a black screen; main.js
+  // picks this screen up and carries on with it.
+  window.__naLoading = showLoading({ title: "Night Alone", sub: extra.mode === "free" ? "Free flight" : "" });
+  window.__naLoading.step(0.02, "Loading the game");
   return import("./main.js");
 }
 
