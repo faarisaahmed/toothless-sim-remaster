@@ -816,6 +816,13 @@ function smax(a, b, k) {
 const DHI_X = 2900, DHI_Z = 3800;
 const pad = (name, bearing, dist, r, edge, h) =>
   ({ name, x: DHI_X + Math.cos(bearing) * dist, z: DHI_Z + Math.sin(bearing) * dist, r, edge, h });
+// Ledges: natural ground levelled only enough to lie on, with no village paint
+// (PADS are trodden earth). Sigrún's stack has a summit too small for a
+// thirteen-metre Stormcutter, so its top is opened out into a shelf.
+const LEDGES = [
+  { x: 2200, z: 1990, r: 17, edge: 8, h: 84.5 },
+];
+
 export const PADS = [
   pad("harbour", 1.45, 615, 88, 110, 7),
   pad("hall", 1.42, 538, 22, 26, 19),
@@ -1172,6 +1179,16 @@ export function terrainHeight(x, z) {
   if (PIT_RELIEF !== 0) h += PIT_RELIEF;
   // ...and the wooded gorges cut down through it at a walking grade.
   if (PATH_GRID) h = carvePitPaths(x, z, h);
+
+  for (const p of LEDGES) {
+    const dx = x - p.x, dz = z - p.z;
+    if (Math.abs(dx) > p.r + p.edge || Math.abs(dz) > p.r + p.edge) continue;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    const w = 1 - smoothstep(d, p.r, p.r + p.edge);
+    // Raised to the shelf only where the rock is already near it; cut down
+    // where it stands proud. Rough by a hand's breadth, not billiard-flat.
+    if (w > 0 && h > p.h - 12) h = lerp(h, p.h + noise2(x * 0.15, z * 0.15) * 0.3, w * w * (3 - 2 * w));
+  }
 
   // Levelled ground, last, so nothing above can put a stratum or a crag
   // through the middle of a village.

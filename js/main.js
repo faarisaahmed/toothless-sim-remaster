@@ -1893,18 +1893,42 @@ async function setupStoryDragons() {
   // A real Stormcutter when one is on disk (tools/dragons/); otherwise the
   // re-coloured Night Fury.
   const storm = await loadKit("stormcutter");
-  // The flat top of her stack: the highest gentle spot near its middle.
-  let best = null;
-  for (let a = 0; a < Math.PI * 2; a += 0.3) {
-    for (let r = 0; r < 110; r += 12) {
-      const x = SITES.sigrun.x + Math.cos(a) * r, z = SITES.sigrun.z + Math.sin(a) * r;
-      const h = world.getHeightAt(x, z);
-      const rough = Math.abs(world.getHeightAt(x + 6, z) - world.getHeightAt(x - 6, z))
-                  + Math.abs(world.getHeightAt(x, z + 6) - world.getHeightAt(x, z - 6));
-      const score = rough * 6 - h;
-      if (h > world.seaLevel + 8 && (!best || score < best.score)) best = { x, z, h, score };
+  // Where she lies on her stack: the spot furthest from any edge, not the
+  // highest. She is thirteen metres long, and "highest" put her on the lip
+  // with half of her over the drop. Clearance is how far you can walk from a
+  // spot, in the worst direction, before the ground falls away by more than a
+  // few metres.
+  const clearance = (x, z, h) => {
+    let worst = Infinity;
+    for (let k = 0; k < 16; k++) {
+      const b = (k / 16) * Math.PI * 2, ux = Math.cos(b), uz = Math.sin(b);
+      let d = 0;
+      for (; d < 40; d += 2) if (world.getHeightAt(x + ux * d, z + uz * d) < h - 3.5) break;
+      worst = Math.min(worst, d);
     }
-  }
+    return worst;
+  };
+  const perchSpot = (cx, cz, reach, nearTop = 6) => {
+    // Only the top: within a few metres of the highest ground in reach.
+    let topH = -Infinity;
+    for (let a = 0; a < Math.PI * 2; a += 0.25)
+      for (let r = 0; r <= reach; r += 6) topH = Math.max(topH, world.getHeightAt(cx + Math.cos(a) * r, cz + Math.sin(a) * r));
+    let found = null;
+    for (let a = 0; a < Math.PI * 2; a += 0.25) {
+      for (let r = 0; r <= reach; r += 6) {
+        const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+        const h = world.getHeightAt(x, z);
+        if (h < world.seaLevel + 8 || h < topH - nearTop) continue;
+        const rough = Math.abs(world.getHeightAt(x + 6, z) - world.getHeightAt(x - 6, z))
+                    + Math.abs(world.getHeightAt(x, z + 6) - world.getHeightAt(x, z - 6));
+        const score = clearance(x, z, h) - rough * 2;
+        if (!found || score > found.score) found = { x, z, h, score, clear: clearance(x, z, h) };
+      }
+    }
+    return found;
+  };
+  let best = perchSpot(SITES.sigrun.x, SITES.sigrun.z, 110);
+  console.info(`sigrun: perch ${best?.x.toFixed(0)},${best?.z.toFixed(0)} h ${best?.h.toFixed(1)} clearance ${best?.clear} m`);
   if (best) { SITES.sigrun.set(best.x, 0, best.z); storyCtx.sigrunY = best.h; }
   const sigrun = createNpcDragon(scene, { template: npcTemplate, scale: 1.45, tint: 0xb4672e, mix: 0.6, tuning, name: "sigrun",
     actor: storm && createActor(storm, { length: 13 }) });
@@ -1927,7 +1951,8 @@ async function setupStoryDragons() {
     atHollow() {
       placed = true;
       const k = SITES.stack;
-      sigrun.perch(perchAt(k.x + 28, k.z + 18, 0.6), 2.4);
+      const sp = perchSpot(k.x + 28, k.z + 18, 30) ?? { x: k.x + 28, z: k.z + 18 };
+      sigrun.perch(perchAt(sp.x, sp.z, 0.6), 2.4);
       eyvi.perch(perchAt(k.x + 36, k.z + 22, 0.2), 2.0);
       sigrun.setVisible(true); eyvi.setVisible(true);
     },
