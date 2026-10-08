@@ -1,4 +1,5 @@
 import { ISLANDS, terrainHeight, TERRAIN_SIZE, SEA_LEVEL } from "./world.js";
+import { WORLD_SCALE, PEAK_SCALE } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // The chart
@@ -16,7 +17,9 @@ const CHART_PX = 1500;  // the chart's drawing units; scaled to fit whatever's o
 // The chart is drawn at this multiple of CHART_PX. The minimap shows a few
 // hundred metres of it magnified, and at 1x the ink went soft and stepped.
 const CHART_RES = 2;
-const GRID     = 384;   // height-field samples per side — ~26 world units apart
+// Height-field samples per side: 39 m apart over the thirty-kilometre world
+// (it was 384 over ten, 26 m). Sampled on a worker -- see startField().
+const GRID     = 768;
 const HALF     = TERRAIN_SIZE / 2;
 
 // --- Palette ---------------------------------------------------------------
@@ -27,12 +30,13 @@ const MARKER    = "#a5372a";
 
 // Elevation bands, shallowest first. Sea is left as bare parchment so the wave
 // hatching under it still reads through the shallows.
+// (Heights scaled with the peaks, so the same summits are the dark ones.)
 const BANDS = [
   { h:   0, c: "#f3ecd6" },
-  { h: 140, c: "#e7d8ad" },
-  { h: 360, c: "#d7c08c" },
-  { h: 600, c: "#c1a469" },
-  { h: 820, c: "#a6864d" },
+  { h: 140 * PEAK_SCALE, c: "#e7d8ad" },
+  { h: 360 * PEAK_SCALE, c: "#d7c08c" },
+  { h: 600 * PEAK_SCALE, c: "#c1a469" },
+  { h: 820 * PEAK_SCALE, c: "#a6864d" },
 ];
 
 // Relief shading. Light from the north-west, which is where every engraver has
@@ -47,9 +51,9 @@ const RELIEF_EXAGGERATION = 2.6;
 // Contour levels drawn as ink lines over the wash.
 const CONTOURS = [
   { level: SEA_LEVEL, width: 2.2, alpha: 1,    coast: true },
-  { level: 260,       width: 1.1, alpha: 0.42, coast: false },
-  { level: 560,       width: 1.0, alpha: 0.38, coast: false },
-  { level: 820,       width: 0.9, alpha: 0.34, coast: false },
+  { level: 260 * PEAK_SCALE, width: 1.1, alpha: 0.42, coast: false },
+  { level: 560 * PEAK_SCALE, width: 1.0, alpha: 0.38, coast: false },
+  { level: 820 * PEAK_SCALE, width: 0.9, alpha: 0.34, coast: false },
 ];
 
 // Deterministic value hash. The wobble on the coastline has to be a function of
@@ -383,7 +387,7 @@ export function setupMap(getPlayer) {
       const y = cy + isl.r * scale * 0.62;
       const label = isl.name.toUpperCase();
 
-      c2d.font = `700 ${Math.round(16 + isl.r * 0.006)}px Cinzel, Georgia, serif`;
+      c2d.font = `700 ${Math.round(16 + isl.r / WORLD_SCALE * 0.006)}px Cinzel, Georgia, serif`;
       // Knock the wash back behind the text so it stays legible over contours.
       c2d.lineWidth = 5;
       c2d.strokeStyle = "rgba(240, 231, 205, 0.82)";
@@ -456,7 +460,7 @@ export function setupMap(getPlayer) {
   function paintScaleBar(c2d, x, y) {
     // The bar spans a round number of world units; leagues are invented, but a
     // chart without a scale bar doesn't look like a chart.
-    const span = 2000;
+    const span = 5000;
     const px = (span / TERRAIN_SIZE) * CHART_PX;
     const segs = 4;
 
@@ -628,10 +632,26 @@ export function setupMap(getPlayer) {
     c2d.restore();
   }
 
+  // The field comes off a worker (terrainworker.js "grid"), and the chart is
+  // painted when it lands; on the main thread only if there are no workers.
+  let sampling = false;
+  function startField() {
+    if (field || sampling) return;
+    sampling = true;
+    const done = (f) => { field = f; sampling = false; buildChart(); };
+    let w = null;
+    try {
+      w = new Worker(new URL("./terrainworker.js", import.meta.url), { type: "module" });
+    } catch { w = null; }
+    if (!w) { done(sampleField()); return; }
+    w.onmessage = ({ data }) => { w.terminate(); done(data.heights); };
+    w.onerror = () => { w.terminate(); done(sampleField()); };
+    w.postMessage({ kind: "grid", id: 0, n: GRID, x0: -HALF, z0: -HALF, size: TERRAIN_SIZE });
+  }
+
   function buildChart() {
     if (chart) return;
-
-    field = sampleField();
+    if (!field) { startField(); return; }
 
     const c = document.createElement("canvas");
     c.width = c.height = CHART_PX * CHART_RES;
@@ -923,7 +943,8 @@ export function setupMap(getPlayer) {
   });
 
   return {
-    /** The finished parchment, building it on first ask (for the minimap). */
+    /** The finished parchment, or null while it is still being sampled
+     *  (for the minimap, which asks again until it gets one). */
     chart() { buildChart(); return chart; },
     update(dt) {
       const player = getPlayer();

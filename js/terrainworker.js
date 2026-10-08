@@ -20,6 +20,19 @@ import { paintGround, edgeLoop, CURV_SPAN } from "./groundpaint.js";
 // ---------------------------------------------------------------------------
 
 self.onmessage = ({ data }) => {
+  // A plain grid of heights, n x n with both edges included -- the chart's
+  // field (map.js), which over thirty kilometres is too many samples to take
+  // on the main thread while the game is running.
+  if (data.kind === "grid") {
+    const { id, x0, z0, size, n } = data;
+    const heights = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) {
+      const z = z0 + (j / (n - 1)) * size;
+      for (let i = 0; i < n; i++) heights[j * n + i] = terrainHeight(x0 + (i / (n - 1)) * size, z);
+    }
+    self.postMessage({ id, heights }, [heights.buffer]);
+    return;
+  }
   const { id, x0, z0, size, res, skirt } = data;
   const step = size / res;
   // Padding: one cell for the normals, and enough cells to reach CURV_SPAN for

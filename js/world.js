@@ -40,12 +40,20 @@ export { terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL };
 // frequency ceiling documented in terrain.js: the mesh spacing is the hard
 // limit on how fine the coastline and the crags are allowed to be, and at 21 m
 // the islands could not hold a headland under a hundred metres across.
-const TERRAIN_SEGMENTS = 768;   // ~13 world units per quad
+//
+// Then the world went to thirty kilometres (terrain.js WORLD_SCALE), and 768
+// quads across it would be 39 m apiece. It is 1152 now: 26 m, 2.25 times the
+// vertices and the height samples, which is as far as the load budget goes.
+// The sheet is the far distance and the mirror now more than ever -- within a
+// couple of kilometres of him the streamed chunks (terrainlod.js) replace it at
+// 2-6 m, exactly as before -- so this is what a ridge five kilometres off is
+// drawn with, and 26 m is the right size for that.
+const TERRAIN_SEGMENTS = 1152;   // ~26 world units per quad
 
 // The sun, the weather and the clouds belong to sky.js now.
 
-const GRID_SPACING = 200;
-const GRID_STEP    = 25;
+const GRID_SPACING = 600;
+const GRID_STEP    = 50;
 const GRID_LIFT    = 1.5;
 
 const clamp = THREE.MathUtils.clamp;
@@ -187,8 +195,10 @@ export function setupWorld(scene, renderer, quality = {}) {
   // vertices are not. Same vertices, same normals, same colours; the only thing
   // that changes is how much of it can be skipped.
   // -------------------------------------------------------------------------
-  const GROUND_TILES = 8;
-  const TSEG = TERRAIN_SEGMENTS / GROUND_TILES;      // 96 quads per tile
+  // 16 x 16 at thirty kilometres: 1875 m tiles of 72 quads. terrainlod.js
+  // splits each into 3 x 3 chunks of 625 m, the size they always were.
+  const GROUND_TILES = 16;
+  const TSEG = TERRAIN_SEGMENTS / GROUND_TILES;      // 72 quads per tile
   const TVERT = TSEG + 1;
 
   const gpos = geo.attributes.position.array;
@@ -329,25 +339,29 @@ export function setupWorld(scene, renderer, quality = {}) {
   mark("flora");
 
   // --- Contour grid overlay (G) ---
+  // Built the first time it is switched on, not at load: over thirty
+  // kilometres it is a quarter of a million height samples for a debug view.
   const half = TERRAIN_SIZE / 2;
-  const gridPts = [];
-
-  for (let x = -half; x <= half; x += GRID_SPACING) {
-    for (let z = -half; z < half; z += GRID_STEP) {
-      gridPts.push(x, terrainHeight(x, z) + GRID_LIFT, z);
-      gridPts.push(x, terrainHeight(x, z + GRID_STEP) + GRID_LIFT, z + GRID_STEP);
-    }
-  }
-  for (let z = -half; z <= half; z += GRID_SPACING) {
-    for (let x = -half; x < half; x += GRID_STEP) {
-      gridPts.push(x, terrainHeight(x, z) + GRID_LIFT, z);
-      gridPts.push(x + GRID_STEP, terrainHeight(x + GRID_STEP, z) + GRID_LIFT, z);
-    }
-  }
-
   const gridGeo = new THREE.BufferGeometry();
-  gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(gridPts, 3));
-  mark("contourGrid");
+  let gridBuilt = false;
+  const buildGrid = () => {
+    if (gridBuilt) return;
+    gridBuilt = true;
+    const gridPts = [];
+    for (let x = -half; x <= half; x += GRID_SPACING) {
+      for (let z = -half; z < half; z += GRID_STEP) {
+        gridPts.push(x, terrainHeight(x, z) + GRID_LIFT, z);
+        gridPts.push(x, terrainHeight(x, z + GRID_STEP) + GRID_LIFT, z + GRID_STEP);
+      }
+    }
+    for (let z = -half; z <= half; z += GRID_SPACING) {
+      for (let x = -half; x < half; x += GRID_STEP) {
+        gridPts.push(x, terrainHeight(x, z) + GRID_LIFT, z);
+        gridPts.push(x + GRID_STEP, terrainHeight(x + GRID_STEP, z) + GRID_LIFT, z);
+      }
+    }
+    gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(gridPts, 3));
+  };
   const grid = new THREE.LineSegments(
     gridGeo,
     new THREE.LineBasicMaterial({
@@ -382,9 +396,9 @@ export function setupWorld(scene, renderer, quality = {}) {
   console.info(`world: build ${marks.join(", ")}`);
   console.info(
     `world: ${ISLANDS.length} islands (${ISLANDS.filter((i) => i.name).length} named), ` +
-    `${flora.treeCount} trees over ${flora.tileCount} tiles, ${flora.boulderCount} boulders, ` +
+    `${(TERRAIN_SIZE / 1000).toFixed(0)} km across, ` +
     `${surfSpray.siteCount} surf sites, ${groundTiles.length} terrain tiles, ` +
-    `shadows ${q.shadowMap}, grass ${flora.hasGrass ? "on" : "off"}`);
+    `shadows ${q.shadowMap}, grass ${flora.hasGrass ? "on" : "off"} (trees: see forest, which scatters on workers)`);
 
   // -------------------------------------------------------------------------
   // What the sea is allowed to see.
@@ -452,7 +466,7 @@ export function setupWorld(scene, renderer, quality = {}) {
       if (on) { photoreal?.update(sunDir); sweepPhotoreal(scene); }
     },
     photoreal,
-    toggleGrid() { grid.visible = !grid.visible; return grid.visible; },
+    toggleGrid() { buildGrid(); grid.visible = !grid.visible; return grid.visible; },
     toggleWireframe() {
       groundMat.wireframe = !groundMat.wireframe;
       return groundMat.wireframe;

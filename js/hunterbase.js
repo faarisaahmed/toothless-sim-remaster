@@ -3,7 +3,7 @@ import { prop } from "./props.js";
 import { mergeStatic, makeLightPool } from "./places.js";
 import { makeOrb } from "./placeholder.js";
 import { loadKit, createActor } from "./dragonkit.js";
-import { pitLayout, PADS, pitPaths, pitPathAt, fertility, terrainSlope } from "./terrain.js";
+import { pitLayout, PADS, pitPaths, pitPathAt, fertility, woodland, terrainSlope } from "./terrain.js";
 import { createHunters } from "./hunters.js";
 
 // ---------------------------------------------------------------------------
@@ -57,8 +57,9 @@ function makeCover(L, groundAt) {
     let c = grid[k];
     if (c < 0) {
       const cx = x0 + (i + 0.5) * CELL, cz = z0 + (j + 0.5) * CELL;
-      const f = fertility(cx, cz, groundAt(cx, cz), terrainSlope(cx, cz));
-      // forest.js keeps a spot when its roll is under f * 1.15.
+      const h = groundAt(cx, cz);
+      const f = fertility(cx, cz, h, terrainSlope(cx, cz)) * woodland(cx, cz, h);
+      // forestscatter.js keeps a spot when its roll is under f * 1.15.
       c = grid[k] = f < 0.16 ? 0 : Math.min(1, Math.max(0, (f * 1.15 - 0.1) / 0.9));
     }
     return c;

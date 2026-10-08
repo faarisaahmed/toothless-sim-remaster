@@ -145,6 +145,8 @@ export function showLoading({ title = "Night Alone", sub = "", tip = "" } = {}) 
       if (label) what.textContent = label;
     },
     done() {
+      // For tools/inspect.mjs and anyone timing the load: when it was ready.
+      performance.mark?.("na-ready");
       glide(1);
       what.textContent = "Ready";
       clearInterval(tipTimer);

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { fbm, TERRAIN_SIZE } from "./terrain.js";
+import { fbm, TERRAIN_SIZE, WORLD_SCALE, PEAK_SCALE } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // Land you can see and cannot reach.
@@ -41,11 +41,11 @@ import { fbm, TERRAIN_SIZE } from "./terrain.js";
  * Twelve and a half is the first distance at which the nearest of them is still
  * three kilometres away from the furthest he can get to it.
  */
-const RING_NEAR = TERRAIN_SIZE * 1.25;   // 12.5 km
+const RING_NEAR = TERRAIN_SIZE * 1.25;   // 37.5 km (12.5 on the old chart)
 /** ...and where they stop. The ocean disc is 30 km and it follows him, so from
  *  the far corner of the boundary the opposite side of this ring is 27 km out
  *  and still comfortably standing on water. */
-const RING_FAR  = TERRAIN_SIZE * 1.80;   // 18 km
+const RING_FAR  = TERRAIN_SIZE * 1.80;   // 54 km
 
 const COUNT = 26;
 
@@ -58,10 +58,12 @@ const COUNT = 26;
 // high, which at 12.5 km subtends seven degrees of width and two and a half of
 // height — the proportions of real land a long way off, rather than of a
 // mountain that has wandered up close.
-const SPAN_NEAR = 1100;   // m of radius at RING_NEAR
-const SPAN_FAR  = 2400;   // ...and at RING_FAR
-const RISE_NEAR = 520;    // m of peak
-const RISE_FAR  = 1250;
+// (Written for the ten-kilometre chart; scaled with the islands, so the far
+// land is the same shape against the sky from three times as far.)
+const SPAN_NEAR = 1100 * WORLD_SCALE;   // m of radius at RING_NEAR
+const SPAN_FAR  = 2400 * WORLD_SCALE;   // ...and at RING_FAR
+const RISE_NEAR = 520 * PEAK_SCALE;     // m of peak
+const RISE_FAR  = 1250 * PEAK_SCALE;
 
 // Mesh resolution. Twenty-six islands at 28x7 is about ten thousand triangles
 // for the entire horizon, merged into one draw call. At this range the
@@ -104,8 +106,11 @@ const DRAFT   = 190;
 // middle of the world, and a little further at the shore than at the summit,
 // because the haze is thickest low down and that vertical gradient is most of
 // what makes a ridge read as twenty kilometres off.
-const HAZE_NEAR = 0.30;   // fraction of fog colour already mixed in at RING_NEAR
-const HAZE_FAR  = 0.74;   // ...and out at the far end of the ring
+// Lower than they were (0.30, 0.74): the scene fog was thinned for the
+// thirty-kilometre world but these are three times as far away, so the fog
+// now does most of this on its own.
+const HAZE_NEAR = 0.12;   // fraction of fog colour already mixed in at RING_NEAR
+const HAZE_FAR  = 0.40;   // ...and out at the far end of the ring
 const HAZE_BASE = 0.14;   // extra at the waterline, over and above that
 
 /**

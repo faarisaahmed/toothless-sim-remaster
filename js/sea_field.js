@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { terrainHeight, SEA_LEVEL, WIND_BEARING } from "./terrain.js";
+import { terrainHeight, SEA_LEVEL, WIND_BEARING, TERRAIN_SIZE } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // The sea field.
@@ -20,8 +20,13 @@ import { terrainHeight, SEA_LEVEL, WIND_BEARING } from "./terrain.js";
 // eighth of the time.
 // ---------------------------------------------------------------------------
 
-export const SEA_FIELD_SIZE = 1024;
-export const SEA_FIELD_EXTENT = 10400;      // metres, half-width. Terrain is 10000 wide.
+// 1536 over the thirty-kilometre world is 20 m a texel, the same as 1024 gave
+// over ten: the surf line, the shoaling and the green over the sand all live in
+// this texture and all of them are drawn from close up. (2048 was 15 m and
+// nearly two seconds of load.) The coarse pass below is what keeps it
+// affordable -- it is still only the coast that is sampled for real.
+export const SEA_FIELD_SIZE = 1536;
+export const SEA_FIELD_EXTENT = TERRAIN_SIZE / 2 + 400;   // metres, half-width
 
 const H_MIN = -100, H_SPAN = 128;           // R channel range, 0.5 m per code
 const D_MAX = 600;                          // G channel range, metres
@@ -49,8 +54,10 @@ export function bakeSeaField() {
       const lo = Math.min(a, b, c, d), hi = Math.max(a, b, c, d);
       // Deep water and high ground are both smooth and both irrelevant to the
       // surf, so interpolate them. Anything that comes near the waterline gets
-      // sampled for real.
-      const smooth = hi < -88 || lo > 34;
+      // sampled for real. (The band was -88..34. Over thirty kilometres that
+      // took in every shelf in the archipelago, which is smooth on a 120 m
+      // block -- its noise is 600 m across -- and cost a second of load.)
+      const smooth = hi < -40 || lo > 20;
       for (let jj = 0; jj < C; jj++) {
         const ty = jj / C;
         const j = cj * C + jj;
@@ -114,7 +121,7 @@ export function bakeSeaField() {
   // March upwind from every point and count the land in the way. This is why
   // the water in a bay on the lee side is glassy while the same bay's headland
   // is taking three metres of swell — and it costs one texture channel.
-  const SH = 256;                                 // shelter is smooth; bake it coarse
+  const SH = 512;                                 // shelter is smooth; bake it coarse
   const shelter = new Float32Array(SH * SH);
   const ux = -Math.sin(WIND_BEARING), uz = -Math.cos(WIND_BEARING);
   const REACH = 1600, STEPS = 16;

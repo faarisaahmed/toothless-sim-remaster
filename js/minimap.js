@@ -1,4 +1,4 @@
-import { TERRAIN_SIZE, pitPaths } from "./terrain.js";
+import { TERRAIN_SIZE, WORLD_SCALE, pitPaths } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // The minimap.
@@ -39,8 +39,13 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters, ge
   const g = canvas.getContext("2d");
 
   // The parchment, from map.js. Built a moment after load, off the first frames.
+  // The chart samples its field on a worker, so keep asking until it has one.
   let base = null;
-  setTimeout(() => { base = getChart?.() ?? null; }, 2000);
+  const fetchBase = () => {
+    base = getChart?.() ?? null;
+    if (!base) setTimeout(fetchBase, 1000);
+  };
+  setTimeout(fetchBase, 2000);
 
   let size = 0, dpr = 1;
   function resize() {
@@ -60,7 +65,11 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters, ge
     const p = getPlayer();
     if (!p) return;
     // Zoom out with speed and height, so you see further when you go further.
-    const want = flying ? 750 + Math.min(1500, speed * 4 + Math.max(0, p.agl ?? 0) * 1.2) : 420;
+    // The islands are WORLD_SCALE times the size they were drawn at, and he
+    // is no faster: flat out, the rim is a dozen seconds away rather than six.
+    const want = flying
+      ? 900 + Math.min(1500 * WORLD_SCALE, speed * 9 + Math.max(0, p.agl ?? 0) * 2)
+      : 480;
     range += (want - range) * Math.min(1, dt * 1.5);
 
     const R = size / 2;

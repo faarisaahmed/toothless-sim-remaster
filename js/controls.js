@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { BTN } from "./gamepad.js";
 import { heldIn, isAction, claimedKeys } from "./keymap.js";
+import { WORLD_SCALE } from "./terrain.js";
 
 // Shortest signed angle from a to b, wrap-safe.
 export function angleDelta(a, b) {
@@ -370,8 +371,10 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // OUTWARD — flying along the edge or coming home costs him nothing. The
   // horizon islands are out there for him to look at while it happens
   // (horizon.js), so the reason is visible rather than administrative.
-  const EDGE_SOFT   = 5400;   // m per axis, just past the last island's shore
-  const EDGE_HARD   = 6400;   // ...and where it stops being a suggestion
+  // (Written for the ten-kilometre chart; the world is WORLD_SCALE times that
+  // now and so is the fence.)
+  const EDGE_SOFT   = 5400 * WORLD_SCALE;   // m per axis, just past the last island's shore
+  const EDGE_HARD   = 6400 * WORLD_SCALE;   // ...and where it stops being a suggestion
   const EDGE_TURN   = 0.62;   // rad/s of heading at the hard edge, at full outward
 
   // Seconds of the post-stall dive he cannot pull out of. Without it, holding

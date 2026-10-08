@@ -32,10 +32,12 @@ const PERIOD = 9.9;            // s — the period of the 155 m swell in ocean.j
 function findSurfSites(field) {
   const { heights: h, distance: d, size: S, step, extent } = field;
   const sites = [];
-  // Every third texel. At 20 m spacing that is still a site every 60 m of
-  // coast, which is far more than the pool can ever show.
-  for (let j = 2; j < S - 2; j += 3) {
-    for (let i = 2; i < S - 2; i += 3) {
+  // A site every 60 m of coast or so, which is far more than the pool can
+  // ever show: every third texel of the old 20 m field, every fourth of the
+  // 15 m one.
+  const every = Math.max(2, Math.round(60 / step));
+  for (let j = 2; j < S - 2; j += every) {
+    for (let i = 2; i < S - 2; i += every) {
       const k = j * S + i;
       if (d[k] > step * 1.6) continue;             // not on the waterline
       const hc = h[k];

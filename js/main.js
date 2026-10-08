@@ -16,7 +16,7 @@ import { makePlayer, createState } from "./player.js";
 import { SITES, RIG } from "./chapters.js";
 import { createSession } from "./session.js";
 import { buildHunterBase } from "./hunterbase.js";
-import { pitLayout } from "./terrain.js";
+import { pitLayout, chart, craterR } from "./terrain.js";
 import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
 import { chapterOfBeat, chapterById } from "./storyline.js";
 import { setMapSites, setMapObjective, getMapSites } from "./map.js";
@@ -64,7 +64,8 @@ const tuning = {
   padInvertY: false,
 };
 
-const SPAWN = new THREE.Vector3(0, 300, 900);
+// South of Berk, pointed at it: (0, 300, 900) on the old ten-kilometre chart.
+const SPAWN = new THREE.Vector3(0, 300, chart(900));
 
 // Up before anything heavy, so the black frame the user stares at is at least
 // a black frame that says what it is doing.
@@ -128,7 +129,10 @@ const camera = new THREE.PerspectiveCamera(
   70,     // widens toward 88 with speed
   window.innerWidth / window.innerHeight,
   1,      // near: the chase cam sits 14 units out, so 1 is plenty
-  50000   // far: has to contain the sky dome
+  // far: has to contain the sky dome, and since the world went to thirty
+  // kilometres, the horizon islands (horizon.js) and the sea under them, which
+  // from the edge of the boundary are seventy and eighty kilometres away
+  120000
 );
 // The aspect correction has to be applied at construction as well as on every
 // resize, or the first frame on a phone in portrait is drawn through the
@@ -510,6 +514,9 @@ let dive = null;
 let shake = 0;
 // Trees pick their level of detail round the camera, not the dragon.
 world.flora.setViewer?.(camera);
+// ...and they are scattered on workers, nearest first: nearest the spawn, until
+// there is a camera to be nearest to.
+world.flora.forest?.prioritise?.(SPAWN);
 // Land past the edge of the chart. Silhouettes only — see horizon.js. Built
 // here rather than inside setupWorld because it is not part of the world in the
 // sense the rest of that file means: nothing samples it, nothing collides with
@@ -558,7 +565,7 @@ function respawn() {
   // outward from him, so it is the island he was over or the next one.
   const p = dragon.position;
   let best = null;
-  for (let r = 0; r <= 2600 && !best; r += 60) {
+  for (let r = 0; r <= 6000 && !best; r += 60) {
     const n = Math.max(1, Math.round(r / 30));
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2;
@@ -1861,8 +1868,8 @@ function findCraterFloor() {
   let best = null;
   for (let a = 0; a < Math.PI * 2; a += 0.14) {
     for (let rr = 0; rr < 0.32; rr += 0.025) {
-      const x = isle.x + Math.cos(a) * rr * isle.r;
-      const z = isle.z + Math.sin(a) * rr * isle.r;
+      const x = isle.x + Math.cos(a) * rr * craterR(isle);
+      const z = isle.z + Math.sin(a) * rr * craterR(isle);
       const h = world.getHeightAt(x, z);
       if (h < world.seaLevel + 14) continue;      // not dry land
       let rough = 0;
@@ -2082,6 +2089,13 @@ async function setupStoryDragons() {
   await placesBuilt;
   await setupStoryDragons();
   session.placeDragon();
+  // The forest scatters on workers while the rest loads; wait for the woods
+  // round where he starts so he does not start over bare hills, but not for
+  // the far side of the archipelago, which can arrive while he flies -- and
+  // not for ever, whatever the workers are doing.
+  loading.step(0.5, "Planting the woods");
+  world.flora.forest?.prioritise?.(dragon.position);
+  await Promise.race([world.flora.forest?.nearReady, new Promise((r) => setTimeout(r, 8000))]);
   await warmUp(renderer, scene, camera, (t, label) => loading.step(0.45 + t * 0.55, label));
   loading.done();
   clock.getDelta();       // swallow the whole load as one dt, or frame one lurches

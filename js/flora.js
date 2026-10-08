@@ -239,15 +239,20 @@ export function createFlora(scene, opts = {}) {
     root, renderer: opts.renderer, sway: uniforms, swayShader,
     near: NEAR, far: FAR, onProgress,
   });
-  const boulders = forest.boulders;
   const pos = new THREE.Vector3(), q = new THREE.Quaternion(), euler = new THREE.Euler();
   const scl = new THREE.Vector3(), m4 = new THREE.Matrix4(), col = new THREE.Color();
   const nrm = { x: 0, y: 1, z: 0 };
   let viewer = null;
 
   // --- Boulders ------------------------------------------------------------
+  // They come out of the forest's scatter, which runs on workers, so they go
+  // in once it has finished.
   let boulderMesh = null;
-  if (boulders.length) {
+  let boulderCount = 0;
+  forest.ready.then(() => {
+    const boulders = forest.boulders;
+    boulderCount = boulders.length;
+    if (!boulders.length) return;
     const bg = boulderGeometry();
     boulderMesh = new THREE.InstancedMesh(bg, boulderMat, boulders.length);
     boulderMesh.castShadow = true;
@@ -270,8 +275,9 @@ export function createFlora(scene, opts = {}) {
     boulderMesh.instanceMatrix.needsUpdate = true;
     boulderMesh.instanceColor.needsUpdate = true;
     boulderMesh.computeBoundingSphere();
+    boulderMesh.visible = flora.enabled;
     root.add(boulderMesh);
-  }
+  });
 
   // --- Grass ---------------------------------------------------------------
   let grass = null;
@@ -357,14 +363,14 @@ export function createFlora(scene, opts = {}) {
 
   let t = 0;
 
-  return {
+  const flora = {
     root,
-    treeCount: forest.treeCount,
-    tileCount: forest.tileCount,
+    get treeCount() { return forest.treeCount; },
+    get tileCount() { return forest.tileCount; },
     forest,
     /** LOD round the camera rather than the dragon, when there is a camera. */
     setViewer(cam) { viewer = cam; },
-    boulderCount: boulders.length,
+    get boulderCount() { return boulderCount; },
     grass,
     hasGrass: !!grass,
 
@@ -435,6 +441,7 @@ export function createFlora(scene, opts = {}) {
       if (grass) root.remove(grass);
     },
   };
+  return flora;
 }
 
 /** Merge two geometries with the same attributes. Two crossed quads, one draw. */

@@ -69,6 +69,14 @@ Web Workers (`js/terrainlod.js`, `js/terrainworker.js`); Low keeps the single
 
 ## The forest
 
+The woods are stands a few kilometres across in the glens and on the lower
+slopes, with open turf and heath between (`woodland()` in `js/terrain.js`; the
+ground paint and the hunters' sight lines read it too) -- on a thirty-kilometre
+chart, forest everywhere fertile would be a million trees. About 275,000 are
+scattered one 625 m tile at a time on a small worker pool (`js/forestscatter.js`,
+`js/forestworker.js`), nearest the dragon first; the loading screen waits for
+the ones within 6 km and the rest arrive while he flies.
+
 The trees are the north-Atlantic wood the archipelago is drawn from. The species
 are Norway spruce, Scots pine, silver birch, rowan, sessile oak, juniper, and
 wind pines shorn flat on the exposed headlands. Each one is grown from a seeded
@@ -682,12 +690,20 @@ and cutscene design.
 
 ## The archipelago
 
-Ten kilometres square, modelled on the Faroes, the Hebrides and western Norway:
-fewer, bigger islands than it started with, sized like somewhere a village or a
-wood could stand. Berk is the biggest, four kilometres of fjord country with a
-sound bitten into its west side and a sea loch into its east; Berserker, Outcast,
-Raven Point and Glacier Island are not far short of it, and the rest are one to
-two kilometres across. They lie in groups, close enough in places that the
+Thirty kilometres square, modelled on the Faroes, the Hebrides and western
+Norway. It was ten, and at 335 m/s (750 mph) he crossed all of it in thirty
+seconds: the islands read as hills and flat out read as a stroll. The island
+table is still authored on the old ten-kilometre chart and scaled on the way in
+(`WORLD_SCALE` = 3 for positions and radii, `PEAK_SCALE` = 1.5 for summits above
+the water, in `js/terrain.js`), while everything in the height function that is
+measured in metres -- crags, gullies, strata, drainage -- stays the size it was,
+so a bigger island carries more of them rather than bloated ones. A third,
+kilometres-wide relief scale gives the big islands ranges and glens, and they
+get a few short sea lochs of their own beyond their named fjords. Berk is now
+about twelve kilometres of fjord country, Berserker, Outcast, Raven Point and
+Glacier Island not far short of it, the rest four to seven; Glacier Island tops
+out near 1,000 m and Dragon Peak near 950. The hunters' pit and Hollow Stack
+did not grow: what people built there is in absolute metres. They lie in groups, close enough in places that the
 water between them is a strait, with open water kept south of Berk and down the
 middle. About 37% of the chart is land, and a handful of skerries stand off the
 coasts as bare rock. Big islands are built from several bodies run together
@@ -698,7 +714,7 @@ coasts as bare rock. Big islands are built from several bodies run together
 
 `Tab`, or the touchpad on a DualSense, opens a hand-inked Norse sea chart of the
 archipelago. The coastlines and relief are traced from the same height field the
-terrain mesh is built from, by marching squares over an 384² sample grid — so
+terrain mesh is built from, by marching squares over a 768² sample grid (taken on a worker) — so
 what's on the parchment is what you fly over, down to the individual sea stacks.
 It's built once into an offscreen canvas during an idle slot after load, and the
 only things drawn live are the dragon marker, his heading and the trail of where

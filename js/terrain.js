@@ -9,9 +9,36 @@
 // no cache and no Math.random below the seed table.
 // ---------------------------------------------------------------------------
 
-export const TERRAIN_SIZE = 10000;
 export const SEA_LEVEL = 0;
 export const SEA_FLOOR = -190;
+
+// ---------------------------------------------------------------------------
+// Scale.
+//
+// The island table below is authored on the old ten-kilometre chart, and it
+// came out the size of a model railway: a dragon flat out at 335 m/s crossed
+// Berk in twelve seconds and the whole archipelago in thirty, so the islands
+// read as hills and 750 mph read as a stroll. Real north-Atlantic archipelagos
+// are an order bigger -- the Faroes are 110 km across, their islands 10-40 km
+// long, the peaks 500-880 m.
+//
+// So the table is scaled on the way in rather than rewritten: every position,
+// radius and part by WORLD_SCALE, every summit's height above the water by
+// PEAK_SCALE (less than the horizontal on purpose: a 3x mountain is a 1500 m
+// alp, which is not this coast). What is NOT scaled is everything in the
+// height function measured in metres -- the crags, gullies, strata, the
+// drainage, the coastline crinkle -- so a bigger island carries more of them
+// rather than bloated copies of the same few. And the things people built,
+// which are absolute: the hunters' pit, Hollow Stack's camp, the sea stacks.
+// ---------------------------------------------------------------------------
+export const WORLD_SCALE = 3;
+export const PEAK_SCALE = 1.5;
+export const TERRAIN_SIZE = 10000 * WORLD_SCALE;
+/** Where snow starts lying, metres, before an island's own `snow` lowers it.
+ *  Raised with the peaks, so the same summits are white. */
+export const SNOW_LINE = 320 * PEAK_SCALE;
+/** A position on the old ten-kilometre chart, in today's metres. */
+export const chart = (v) => v * WORLD_SCALE;
 
 // Prevailing wind, as a bearing in radians (the direction it blows *towards*).
 // The sea, the grass, the trees and the spray all read this, and the coasts are
@@ -259,15 +286,30 @@ const RAW_ISLANDS = [
   { name: "Dragon Hunter Island", x: 2900, z: 3800, r: 1000, h: 470, cliff: 0.24,
     elong: 0.92, rot: -0.35, lobe: 0.12, lobeK: 1.6, dome: 0,
     relief: 1.25, terrace: 0.3, scree: 1.35, shelfW: 0.36, beach: 0.2, bare: 0.32,
-    crater: { inner: 0.42, floor: 0.55, gate: 0.85, mouth: 0.17,
+    // R: what the crater's fractions are fractions OF, in metres. The pit is
+    // built on (hunterbase.js, basedetail.js, pitwood.js all stand on it in
+    // absolute metres), so it stays the size it was designed at however big
+    // the island around it grows. keepHeight for the same reason: the floor
+    // and the terraces are set as fractions of h.
+    crater: { inner: 0.42, floor: 0.55, gate: 0.85, mouth: 0.17, R: 1000,
               spiral: { pit: 0.115, turns: 4 } },
-    arms: { n: 3, twist: 5.0, amp: 0.22 } },
+    arms: { n: 3, twist: 5.0, amp: 0.22 }, keepHeight: true, domeScaled: 0.3,
+    // Grown less than the rest: it is a volcano with a pit in it, and the
+    // hunters live at the water. On the old chart the sea came in to the pads
+    // and to the rim on its own; on an island this size it has to be shown
+    // the way, so two sea lochs: one to the harbour cove (PADS, bearing 1.45,
+    // 615 m out) and one through the low side of the rim, which is the
+    // channel the supply ships use (hunterbase.js finds the lowest bearing
+    // round the rim and builds the dock there).
+    grow: 1.8,
+    fjords: [[1.45, 140, 0, 0.41], [2.16, 170, 0, 0.24]] },
 
   // Hollow Stack. `flat` turns off the relief and the crags so this comes out
   // as a plateau rather than a spire — the story lives on it, and you have to
   // land on it and walk from the shelter to the lab. STACK_Y = 102 in
   // chapters.js is the deck height; keep the top near it.
-  { name: "Hollow Stack", x: 1700, z: 2550, r: 340, h: 333, cliff: 0.42,
+  // keepSize: a stack is a stack. Moved with the chart, not grown with it.
+  { name: "Hollow Stack", keepSize: true, x: 1700, z: 2550, r: 340, h: 333, cliff: 0.42,
     elong: 0.9, rot: 1.2, lobe: 0.10, lobeK: 1.6, dome: 0,
     terrace: 0.75, shelfW: 0.5, beach: 0.15, bare: 0.6, flat: true },
 
@@ -417,7 +459,7 @@ const RAW_ISLANDS = [
 
   // A bare rock off the shoal. Left small: it is the one between Sigrún's
   // stack and the hunters, and the story wants that water open.
-  { name: "Odin's Respite", x: 2650, z: 2300, r: 300, h: 330, cliff: 0.14,
+  { name: "Odin's Respite", grow: 1.6, x: 2650, z: 2300, r: 300, h: 330, cliff: 0.14,
     elong: 0.62, rot: -1.0, lobe: 0.22, lobeK: 2.1, dome: 0.4,
     relief: 1.0, terrace: 0.6, shelfW: 0.3, beach: 0.15, bare: 0.5 },
 
@@ -425,6 +467,75 @@ const RAW_ISLANDS = [
     elong: 0.58, rot: 0.95, lobe: 0.28, lobeK: 1.6, dome: 0.35,
     relief: 0.85, terrace: 0.35, shelfW: 0.3, beach: 0.4, bare: 0.25 },
 ];
+
+// ---------------------------------------------------------------------------
+// The table above, at the size of the world (WORLD_SCALE, at the top).
+//
+//   x, z      times WORLD_SCALE, always -- the chart keeps its shape
+//   r, parts  times WORLD_SCALE too, or `grow` for the odd island that should
+//             grow less; `keepSize` moves an island with the chart and leaves
+//             it the size it is (Hollow Stack: the story is built on its top)
+//   h         the summit's height above the WATER times PEAK_SCALE. `h` is
+//             measured off the sea floor, hence -SEA_FLOOR either side.
+//             `keepHeight` leaves it (the hunters' pit is set in fractions of
+//             h, and the base stands on it)
+//   cliff     the sheer band is a fraction of r. On an island three times as
+//             wide and half again as high it would be a ramp, so it shrinks by
+//             the height ratio over the width ratio: the coast stays as steep.
+//   shelfW    the drowned foot, likewise: half again as wide in metres, not
+//             three times -- a shelf kilometres wide is a sandbank
+//   lobeK     a coastline three times as long has more headlands, not bigger
+//             ones
+//   fjords    half-width doubled: a sound you fly down should be the width of
+//             one, and they are three times as long already (`reach` is a
+//             fraction of r)
+// ---------------------------------------------------------------------------
+const lift = (h) => -SEA_FLOOR + (h + SEA_FLOOR) * PEAK_SCALE;
+function scaleIsland(isl) {
+  const S = WORLD_SCALE;
+  if (isl.keepSize) return { ...isl, x: isl.x * S, z: isl.z * S };
+  const g = isl.grow ?? S;
+  const hk = isl.keepHeight ? 1 : PEAK_SCALE;
+  const out = {
+    ...isl,
+    x: isl.x * S, z: isl.z * S, r: isl.r * g,
+    h: isl.keepHeight ? isl.h : lift(isl.h),
+    cliff: (isl.cliff ?? 0.28) * Math.min(1, hk / g),
+    shelfW: (isl.shelfW ?? 0.4) * Math.min(1, PEAK_SCALE / g),
+    lobeK: (isl.lobeK ?? 1.2) * (1 + (g - 1) * 0.3),
+    dome: isl.domeScaled ?? isl.dome,
+    snow: (isl.snow ?? 0) * hk,
+  };
+  if (isl.fjords) out.fjords = isl.fjords.map(([a, w, ...rest]) => [a, w * (1 + (g - 1) / 2), ...rest]);
+  // And the coast of a big island is more than its two or three named
+  // sounds: Faroese and Hebridean coasts are notched every few kilometres by
+  // a voe or a sea loch. So the big ones get a few short lochs of their own,
+  // at bearings the authored fjords leave alone, from a fixed seed per island.
+  if (!isl.crater && out.r >= 2000) {
+    let seed = 0;
+    for (const ch of isl.name || "") seed = (Math.imul(seed, 31) + ch.charCodeAt(0)) >>> 0;
+    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const taken = (out.fjords || []).map((f) => f[0]);
+    const want = Math.round(out.r / 1500);
+    const extra = [];
+    for (let k = 0; k < want * 4 && extra.length < want; k++) {
+      const a = rnd() * Math.PI * 2 - Math.PI;
+      const w = 105 + rnd() * 85, bend = (rnd() - 0.5) * 0.6, reach = 0.5 + rnd() * 0.22;
+      const clear = taken.every((b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) > 0.55);
+      if (!clear) continue;
+      taken.push(a);
+      extra.push([a, w, bend, reach]);
+    }
+    out.fjords = [...(out.fjords || []), ...extra];
+  }
+  if (isl.parts) {
+    out.parts = isl.parts.map((p) => ({
+      ...p, x: p.x * S, z: p.z * S, r: p.r * g, h: isl.keepHeight ? p.h : lift(p.h),
+    }));
+  }
+  return out;
+}
+const SCALED_ISLANDS = RAW_ISLANDS.map(scaleIsland);
 
 // ---------------------------------------------------------------------------
 // Skerries
@@ -451,24 +562,29 @@ function makeSkerries(parents) {
     { x: 1750, z: 2500, r: 700 },    // Hollow Stack must stand alone
     { x: 0, z: 900, r: 700 },        // spawn
     { x: 2080, z: 2320, r: 420 },    // the shoal — it is a fishing spot, not a reef
-  ];
+  ].map((k) => ({ x: chart(k.x), z: chart(k.z), r: chart(k.r) }));
+  const EDGE = TERRAIN_SIZE / 2 - 100;
 
   for (const p of parents) {
-    if (!p.name || p.r < 380) continue;
+    if (!p.name || p.r < chart(380)) continue;
     // Fewer than there were, and closer in. There used to be one per 420 m of
     // radius scattered out to nearly twice it, which on a chart of small
     // islands was most of the land on it: a sea of lumps no one could live on.
     // A skerry is a rock off a coast, so they now stand just off one.
-    const count = Math.round(p.r / 520);
+    // (Per kilometre of coast that is now a third of what it was: the coasts
+    // are three times as long, and a skerry is a rock, not a field of them.)
+    const count = Math.round(p.r / 1100);
     for (let i = 0; i < count; i++) {
       // Hug the parent's major axis, so a skerry field reads as the same ridge
       // carrying on underwater rather than as confetti.
       const along = (rnd() * 2 - 1);
       const a = (p.rot ?? 0) + along * 0.85 + (rnd() < 0.5 ? 0 : Math.PI);
-      const dist = p.r * (1.08 + rnd() * 0.4);
+      // Just off the coast, in metres rather than in island radii -- 1.08r
+      // to 1.48r is two kilometres out on an island this size.
+      const dist = p.r * 1.02 + rnd() * 900;
       const x = Math.round(p.x + Math.cos(a) * dist);
       const z = Math.round(p.z + Math.sin(a) * dist);
-      if (Math.abs(x) > 4900 || Math.abs(z) > 4900) continue;
+      if (Math.abs(x) > EDGE || Math.abs(z) > EDGE) continue;
 
       let blocked = false;
       for (const k of KEEP_CLEAR) if (Math.hypot(x - k.x, z - k.z) < k.r) blocked = true;
@@ -518,9 +634,9 @@ const STACKS = [
   { x: -750, z: 950, r: 120, h: 285, cliff: 0.10 },
   { x: 1900, z: -1600, r: 170, h: 440, cliff: 0.14 },
   { x: -1450, z: -150, r: 110, h: 265, cliff: 0.10 },
-  { x: 2200, z: 2000, r: 140, h: 300, cliff: 0.12 },
+  { x: 2200, z: 2000, r: 140, h: 324, cliff: 0.12 },   // Sigrún's (raised a little: the noise where it stands now is lower)
   { x: -300, z: 1800, r: 130, h: 278, cliff: 0.11 },
-].map((s) => ({ ...s, elong: 0.62, rot: s.x * 0.001, lobe: 0.16, lobeK: 2.6,
+].map((s) => ({ ...s, x: chart(s.x), z: chart(s.z), elong: 0.62, rot: s.x * 0.001, lobe: 0.16, lobeK: 2.6,
                 dome: 0.15, relief: 0.9, terrace: 0.65, scree: 1.4,
                 shelfW: 0.8, beach: 0.05, bare: 1 }));
 
@@ -536,6 +652,9 @@ const STACKS = [
 // the chart does not mistake them for sea stacks. Tallest wins in the height
 // loop, so they merge into the parent without a seam.
 // ---------------------------------------------------------------------------
+/** The radius a crater's fractions are fractions of: its own, if it has one. */
+export function craterR(isl) { return isl.crater?.R ?? isl.r; }
+
 function expandParts(list) {
   const out = [];
   for (const isl of list) {
@@ -548,7 +667,7 @@ function expandParts(list) {
   return out;
 }
 
-const LAND = expandParts(RAW_ISLANDS);
+const LAND = expandParts(SCALED_ISLANDS);
 export const ISLANDS = [...LAND, ...STACKS, ...makeSkerries(LAND)];
 
 // ---------------------------------------------------------------------------
@@ -566,7 +685,8 @@ export const ISLANDS = [...LAND, ...STACKS, ...makeSkerries(LAND)];
 // Applied as a multiplier on the island body inside terrainHeight, so the
 // walls are the island's own rock falling away and the drowned foot under the
 // channel is thinned too: a fjord is darker water than the coast outside it,
-// as it should be. None of them goes near Dragon Hunter Island; the pit, the
+// as it should be. Only Dragon Hunter Island's two go near the pit, and they are
+// sized to arrive where its harbour and its channel are; otherwise the pit, the
 // pads and the hunters are shaped in that island's own terms.
 //
 // Authored on the island, as `fjords: [[bearing, width, bend, reach]]`, rather
@@ -608,9 +728,13 @@ export const FJORDS = [
     segs.push({ ax, az, dx: bx - ax, dz: bz - az, len, from: total });
     total += len;
   }
-  const pad = Math.max(f.w[0], f.w[1]) * 1.6 + 70;   // +70 for the meander
+  // The long ones swing as well as meander: a sea loch ten kilometres long
+  // drawn as five straight legs reads as a canal. Short ones (Dragon Hunter
+  // Island's, which have to arrive where the harbour is) do not.
+  const swing = clamp((total - 2500) * 0.08, 0, 260);
+  const pad = Math.max(f.w[0], f.w[1]) * 1.6 + 70 + swing;   // +70 for the meander
   const xs = f.pts.map((p) => p[0]), zs = f.pts.map((p) => p[1]);
-  return { segs, total, w0: f.w[0], w1: f.w[1], seed: n * 17.3 + 5.1,
+  return { segs, total, swing, w0: f.w[0], w1: f.w[1], seed: n * 17.3 + 5.1,
            x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad,
            z0: Math.min(...zs) - pad, z1: Math.max(...zs) + pad };
 });
@@ -622,8 +746,12 @@ function fjordAt(x, z) {
     const f = FJORDS[n];
     if (x < f.x0 || x > f.x1 || z < f.z0 || z > f.z1) continue;
     // A valley a glacier cut is not a ruled line: it meanders, slowly.
-    const mx = x + noise2(x * 0.0032 + f.seed, z * 0.0032) * 60;
-    const mz = z + noise2(x * 0.0032, z * 0.0032 - f.seed) * 60;
+    let mx = x + noise2(x * 0.0032 + f.seed, z * 0.0032) * 60;
+    let mz = z + noise2(x * 0.0032, z * 0.0032 - f.seed) * 60;
+    if (f.swing > 0) {
+      mx += noise2(x * 0.00075 - f.seed, z * 0.00075 + 3.7) * f.swing;
+      mz += noise2(x * 0.00075 + 8.1, z * 0.00075 + f.seed) * f.swing;
+    }
     let dBest = 1e9, tBest = 0;
     for (const s of f.segs) {
       let u = ((mx - s.ax) * s.dx + (mz - s.az) * s.dz) / (s.len * s.len);
@@ -661,13 +789,14 @@ const ISX = new Float64Array(N), ISZ = new Float64Array(N);
 const IRELIEF = new Float64Array(N), ITERRACE = new Float64Array(N), ISCREE = new Float64Array(N);
 const ISHELF = new Float64Array(N), IBEACH = new Float64Array(N);
 const IREACH = new Float64Array(N);
+const IMACRO = new Float64Array(N);
 const IFLAT = new Uint8Array(N);
 const IROT = new Uint8Array(N);
 // Craters are rare enough that four parallel arrays of mostly zeroes beat a
 // branch on an object reference.
 const ICR = new Uint8Array(N);
 const ICR_IN = new Float64Array(N), ICR_FL = new Float64Array(N);
-const ICR_GA = new Float64Array(N), ICR_MO = new Float64Array(N);
+const ICR_GA = new Float64Array(N), ICR_MO = new Float64Array(N), ICR_R = new Float64Array(N);
 const ISP = new Uint8Array(N), ISP_PF = new Float64Array(N), ISP_T = new Float64Array(N);
 const IARM = new Uint8Array(N), IARM_TW = new Float64Array(N), IARM_AMP = new Float64Array(N);
 
@@ -710,6 +839,10 @@ for (let i = 0; i < N; i++) {
   IRELIEF[i] = isl.relief; ITERRACE[i] = isl.terrace; ISCREE[i] = isl.scree;
   ISHELF[i] = isl.shelfW; IBEACH[i] = isl.beach;
   IFLAT[i] = isl.flat ? 1 : 0;
+  // Only an island big enough to hold a mountain range gets one (see MACRO
+  // in terrainHeight): stacks, skerries and Hollow Stack keep the heights
+  // they were tuned to.
+  IMACRO[i] = smoothstep(isl.r, 700, 2200);
   // Unique, stable offsets into noise space, so no two islands share an outline.
   ISX[i] = ((isl.x * 0.0173 + isl.z * 0.0071) % 97) + 13.7;
   ISZ[i] = ((isl.z * 0.0191 - isl.x * 0.0059) % 89) + 41.3;
@@ -717,6 +850,7 @@ for (let i = 0; i < N; i++) {
     ICR[i] = 1;
     ICR_IN[i] = isl.crater.inner; ICR_FL[i] = isl.crater.floor;
     ICR_GA[i] = isl.crater.gate;  ICR_MO[i] = isl.crater.mouth;
+    ICR_R[i] = craterR(isl);
     if (isl.crater.spiral) {
       ISP[i] = 1; ISP_PF[i] = isl.crater.spiral.pit; ISP_T[i] = isl.crater.spiral.turns;
     }
@@ -736,8 +870,8 @@ for (let i = 0; i < N; i++) {
 // A uniform grid over the world in CSR form: one flat index array, one offset
 // per cell. The domain warp can throw a sample 400 m outside the terrain, so
 // the grid covers a margin and clamps rather than bounds-checking per sample.
-const GRID_MIN = -6000, GRID_CELL = 320;
-const GRID_N = Math.ceil((6000 - GRID_MIN) * 2 / GRID_CELL / 2);
+const GRID_MIN = -(TERRAIN_SIZE / 2 + 1000), GRID_CELL = 400;
+const GRID_N = Math.ceil(-GRID_MIN * 2 / GRID_CELL);
 const cellCount = new Int32Array(GRID_N * GRID_N);
 const GRID_START = new Int32Array(GRID_N * GRID_N + 1);
 let GRID_ITEMS = new Int32Array(0);
@@ -813,15 +947,20 @@ function smax(a, b, k) {
 // the ground at its height inside r and lets it go over `edge`, so it reads
 // as a shelf dug into the hill. hunterbase.js builds on these by name.
 // ---------------------------------------------------------------------------
-const DHI_X = 2900, DHI_Z = 3800;
+const DHI_X = chart(2900), DHI_Z = chart(3800);
 const pad = (name, bearing, dist, r, edge, h) =>
   ({ name, x: DHI_X + Math.cos(bearing) * dist, z: DHI_Z + Math.sin(bearing) * dist, r, edge, h });
 // Ledges: natural ground levelled only enough to lie on, with no village paint
 // (PADS are trodden earth). Sigrún's stack has a summit too small for a
 // thirteen-metre Stormcutter, so its top is opened out into a shelf.
-const LEDGES = [
-  { x: 2200, z: 1990, r: 17, edge: 8, h: 84.5 },
-];
+//
+// It was a hand-placed point (2200, 1990) at 84.5 m, which is where the top of
+// that stack happened to be. The stack moved with the chart and its top is
+// shaped by the noise where it now stands, so the shelf is found rather than
+// typed: at load, the summit within 50 m of the stack's centre, cut 3.5 m down,
+// as the hand-placed one was (see placeLedges below).
+export const LEDGES = [];
+const LEDGE_AT = [{ x: chart(2200), z: chart(2000), r: 17, edge: 8, cut: 3.5 }];
 
 export const PADS = [
   pad("harbour", 1.45, 615, 88, 110, 7),
@@ -923,6 +1062,9 @@ export function terrainHeight(x, z) {
       // reaches the inside face of the rim, so multiplying by it turns the
       // island's dome into a ring without touching the outer cliff at all.
       const inner = ICR_IN[i];
+      // The crater is measured in its own radius (crater.R), not the
+      // island's: the island grew with the chart and the pit did not.
+      const dc = d * IR[i] / ICR_R[i];
       let bowl;
       if (ISP[i]) {
         // The pit: a flat floor, then terraces climbing the wall in a spiral.
@@ -948,7 +1090,7 @@ export function terrainHeight(x, z) {
         // that is perfectly round to the metre reads as a model.
         const rag = noise2(x * 0.021 + 3.1, z * 0.021 - 7.4) * 0.006
                   + noise2(x * 0.067 - 9.2, z * 0.067 + 4.4) * 0.0022;
-        const dp = dl / IR[i] * (1 + wob) + rag;
+        const dp = dl / ICR_R[i] * (1 + wob) + rag;
         const sR = (dp - pf) / (top - pf);
         let g;
         if (sR <= 0) g = 0;
@@ -992,7 +1134,7 @@ export function terrainHeight(x, z) {
           PIT_RELIEF = rel;
         }
       } else {
-        bowl = smoothstep(d, inner - 0.2, inner + 0.06);
+        bowl = smoothstep(dc, inner - 0.2, inner + 0.06);
         f *= lerp(ICR_FL[i], 1, bowl);
       }
 
@@ -1001,11 +1143,15 @@ export function terrainHeight(x, z) {
       // and the bowl reads as a harbour rather than a quarry.
       let ang = Math.atan2(dz, dx) - ICR_GA[i];
       ang = Math.atan2(Math.sin(ang), Math.cos(ang));
-      const mouth = ICR_MO[i];
+      // A wedge through the rim, and past the crater's own radius a channel
+      // of the width the wedge had there: the island runs on for kilometres
+      // beyond the pit now, and a wedge carried to the coast would open it
+      // into a bay a kilometre and a half wide.
+      const mouth = dc > 1 ? ICR_MO[i] / dc : ICR_MO[i];
       const inWedge = 1 - smoothstep(Math.abs(ang), mouth * 0.45, mouth);
       // Only outside the floor: the cut is through the WALL, and it must not
       // drain the bowl it opens into.
-      const throughWall = smoothstep(d, inner - 0.04, inner + 0.16);
+      const throughWall = smoothstep(dc, inner - 0.04, inner + 0.16);
       f = Math.max(0, f * (1 - inWedge * throughWall * 1.06));
 
       // The floor is a floor — you land a dragon and stand a fortress on it —
@@ -1065,7 +1211,20 @@ export function terrainHeight(x, z) {
     // would put every summit 170 m too high.
     const rn = ridged(x * 0.0021, z * 0.0021, 3);
     const bn = fbm(x * 0.0014, z * 0.0014, 3) * 0.5 + 0.5;
-    const relief = rn * 0.5 + bn * 0.5;   // see the frequency ceiling below
+    let relief = rn * 0.5 + bn * 0.5;   // see the frequency ceiling below
+    // MACRO. The hills above are half a kilometre across, which was right
+    // for an island two kilometres wide and is an egg box on one ten
+    // kilometres wide: a big island is mountain ranges and the glens between
+    // them, with the half-kilometre hills on top. So on the big islands a
+    // third scale -- ridges two to three kilometres apart with broad valleys
+    // between -- takes over half of the relief. Same mean, so `h` still means
+    // what the table says.
+    const mk = IMACRO[i];
+    if (mk > 0 && flatness < 0.98) {
+      const M = ridged(x * 0.00042 + 31.7, z * 0.00042 - 12.9, 3) * 1.12
+              + fbm(x * 0.00021 - 7.3, z * 0.00021 + 19.1, 2) * 0.22;
+      relief = lerp(relief, relief * 0.36 + M * 0.72, mk);
+    }
     // Calibrated, not guessed. ridged() over five octaves has mean 0.28 and
     // tops out around 0.84, so this puts the valley floors of an island at
     // 0.62 of its `h` and its crests just over 1.0 — which is what makes `h`
@@ -1210,6 +1369,21 @@ export function terrainHeight(x, z) {
 
 flattenIslands();
 buildGrid();
+placeLedges();
+
+function placeLedges() {
+  for (const L of LEDGE_AT) {
+    let best = null;
+    for (let dz = -50; dz <= 50; dz += 3) {
+      for (let dx = -50; dx <= 50; dx += 3) {
+        if (dx * dx + dz * dz > 2500) continue;
+        const h = terrainHeight(L.x + dx, L.z + dz);
+        if (!best || h > best.h) best = { x: L.x + dx, z: L.z + dz, h };
+      }
+    }
+    if (best) LEDGES.push({ x: best.x, z: best.z, r: L.r, edge: L.edge, h: best.h - L.cut });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // The old ways into the pit.
@@ -1533,12 +1707,23 @@ function findClearing(name) {
 }
 
 export const CLEARING = findClearing("Peaceable Country");
+// See woodland(), below.
+const WOOD_FORCED = [];
+const WOOD_BIAS = -0.45;
+{
+  const dhi = ISLANDS.find((i) => i.name === "Dragon Hunter Island");
+  if (dhi) WOOD_FORCED.push({ x: dhi.x, z: dhi.z, r: 1300, edge: 500 });
+  if (CLEARING) WOOD_FORCED.push({ x: CLEARING.x, z: CLEARING.z, r: 1100, edge: 500 });
+  WOOD_FORCED.push({ x: chart(1700), z: chart(2550), r: 380, edge: 100 });   // Hollow Stack
+}
 
 /**
  * How readily this spot grows things, 0..1. Trees, grass and the terrain's
  * green all read this one function so a bare crag is bare in all three.
  */
-const HOLLOW_CAMP = { x: 1650, z: 2600 };   // SITES.stack, chapters.js
+// Hollow Stack's table centre on the chart, plus the camp's own offset from
+// it in metres: the stack moved with the chart and did not grow.
+const HOLLOW_CAMP = { x: chart(1700) - 50, z: chart(2550) + 50 };   // SITES.stack, chapters.js
 export function fertility(x, z, h, slope) {
   if (h < SEA_LEVEL + 4 || h > 350) return 0;
   const isl = islandAt(x, z);
@@ -1562,7 +1747,7 @@ export function fertility(x, z, h, slope) {
   // Nothing grows in a working pit: the floor and the terraces are trodden,
   // burnt and built on. The forest starts at the rim.
   if (isl && isl.crater) {
-    const dd = Math.hypot(x - isl.x, z - isl.z) / isl.r;
+    const dd = Math.hypot(x - isl.x, z - isl.z) / craterR(isl);
     f *= smoothstep(dd, isl.crater.inner + 0.03, isl.crater.inner + 0.13);
     // ...except down the old gullies, which have grown back thick (pitWood).
     const wood = pitWood(x, z);
@@ -1593,9 +1778,41 @@ export function fertility(x, z, h, slope) {
 }
 
 /**
+ * Whether this spot is in a wood at all, 0..1 -- on top of fertility, which
+ * says how well things grow here.
+ *
+ * On the old chart fertility alone decided it, and nearly every gentle green
+ * slope was closed forest. That was fine for thirty-seven square kilometres of
+ * land and is not for three hundred: at the same density it is a million trees
+ * and a ten-second scatter, and it would not look like this coast anyway. The
+ * north Atlantic islands are open turf and heath with the woods in the glens
+ * and on the sheltered lower slopes. So the woods come in stands a few
+ * kilometres across, favouring low ground, with open country between; the
+ * forest plants by fertility times this, the ground paints its needle litter
+ * by it, and the hunters' sight lines read it (hunterbase.js), so all three
+ * agree about where the trees are.
+ *
+ * Woods the story walks into are woods whatever the noise says: the hunters'
+ * island round the pit (its gullies are the way in under cover), the wood on
+ * Peaceable Country the clearing is cut out of, and the top of Hollow Stack.
+ */
+export function woodland(x, z, h) {
+  let forced = 0;
+  for (const w of WOOD_FORCED) {
+    const d = Math.hypot(x - w.x, z - w.z);
+    if (d < w.r + w.edge) forced = Math.max(forced, 1 - smoothstep(d, w.r, w.r + w.edge));
+  }
+  if (forced >= 1) return 1;
+  const n = fbm(x * 0.00031 + 5.3, z * 0.00031 - 9.1, 3) + fbm(x * 0.0013 - 2.1, z * 0.0013 + 6.6, 2) * 0.22;
+  const low = 1 - smoothstep(h, 50, 260);
+  const w = smoothstep(n + low * 0.42 + WOOD_BIAS, 0.0, 0.2);
+  return Math.max(w, forced);
+}
+
+/**
  * Where the hunters' pit is, for whoever builds on it (hunterbase.js).
  *
- *   x, z        world centre        floorR   radius of the flat floor, metres
+ *   x, z        world centre       floorR   radius of the flat floor, metres
  *   topR        where the terraces end and the rim wall begins
  *   rimR        roughly where the rim crest is
  *   turns       terraces, one per turn of the spiral
@@ -1608,11 +1825,12 @@ export function pitLayout(name = "Dragon Hunter Island") {
   if (!isl || !isl.crater?.spiral) return null;
   const c = isl.crater, sp = c.spiral;
   const top = c.inner - 0.035;
+  const R = craterR(isl);
   return {
-    isl, x: isl.x, z: isl.z, r: isl.r,
-    floorR: sp.pit * isl.r,
-    topR: top * isl.r,
-    rimR: (c.inner + 0.12) * isl.r,
+    isl, x: isl.x, z: isl.z, r: R,
+    floorR: sp.pit * R,
+    topR: top * R,
+    rimR: (c.inner + 0.12) * R,
     turns: sp.turns,
     roadAt(k, a) {
       // th is the bearing as terrainHeight measures it, 0..1 from atan2+0.5.
@@ -1622,7 +1840,7 @@ export function pitLayout(name = "Dragon Hunter Island") {
       const ux = Math.cos(a), uz = Math.sin(a);
       // The pit's radius wobbles a few percent with bearing; measure it.
       const wob = noise2(ux * 1.3 + ISX[ISLANDS.indexOf(isl)], uz * 1.3 + ISZ[ISLANDS.indexOf(isl)]) * 0.035;
-      const rr = dp * isl.r / (1 + wob);
+      const rr = dp * R / (1 + wob);
       return { x: isl.x + ux * rr, z: isl.z + uz * rr, r: rr };
     },
   };
