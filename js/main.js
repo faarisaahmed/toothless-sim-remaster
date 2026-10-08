@@ -16,7 +16,7 @@ import { makePlayer, createState } from "./player.js";
 import { SITES, RIG } from "./chapters.js";
 import { createSession } from "./session.js";
 import { buildHunterBase } from "./hunterbase.js";
-import { pitLayout, chart, craterR } from "./terrain.js";
+import { pitLayout, chart, craterR, SPAWN_XZ } from "./terrain.js";
 import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
 import { chapterOfBeat, chapterById } from "./storyline.js";
 import { setMapSites, setMapObjective, getMapSites } from "./map.js";
@@ -64,8 +64,9 @@ const tuning = {
   padInvertY: false,
 };
 
-// South of Berk, pointed at it: (0, 300, 900) on the old ten-kilometre chart.
-const SPAWN = new THREE.Vector3(0, 300, chart(900));
+// South of Berk, pointed at it: (0, 300, 900) on the old ten-kilometre chart,
+// measured from Berk (terrain.js SPAWN_XZ) so it stays off Berk's coast.
+const SPAWN = new THREE.Vector3(SPAWN_XZ.x, 300, SPAWN_XZ.z);
 
 // Up before anything heavy, so the black frame the user stares at is at least
 // a black frame that says what it is doing.

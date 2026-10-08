@@ -9,7 +9,12 @@
 //                towers, catapults and feeding stations ON those heights.
 // Change a number here and both follow. Nothing in here may import terrain.js.
 //
-// The island: centre (0, -3900), about 4.8 km across, long axis north-south.
+// The numbers are written for Berk centred at (0, -3900). The archipelago has
+// since been spread apart (worldscale.js SPREAD) and Berk moved with it, so
+// every table is shifted by where Berk is now, once, at the bottom of this
+// file. Read positions from these tables; never type them into other code.
+//
+// The island: centre (0, -3900) as authored, about 4.8 km across, long axis north-south.
 // He spawns at (0, 300, 2700), south of it and pointed at it, so the harbour
 // is cut into the SOUTH coast and is the first thing he sees: the two statues
 // at the mouth, the inlet running north between village-covered cliffs, and
@@ -117,6 +122,20 @@ export const INTERIOR = {
     { x: 1250, z: -2210, top: 330, pool: { x: 1240, z: -2080, r: 55 }, w: 18 },
   ],
 };
+
+// --- Where Berk is now -------------------------------------------------------
+// terrain.js BERK: Berk's old-chart centre (0, -1300) through chart().
+import { CHART_SCALE } from "./worldscale.js";
+const AUTHORED = { x: 0, z: -3900 };
+export const BERK_CENTRE = { x: 0 * CHART_SCALE, z: -1300 * CHART_SCALE };
+const DX = BERK_CENTRE.x - AUTHORED.x, DZ = BERK_CENTRE.z - AUTHORED.z;
+(function shift(o) {
+  if (Array.isArray(o)) { o.forEach(shift); return; }
+  if (!o || typeof o !== "object") return;
+  if (typeof o.x === "number" && typeof o.z === "number") { o.x += DX; o.z += DZ; }
+  if (typeof o.minX === "number") { o.minX += DX; o.maxX += DX; o.minZ += DZ; o.maxZ += DZ; }
+  for (const k in o) if (o[k] && typeof o[k] === "object") shift(o[k]);
+})([HARBOUR, STATUES, SPIRE, TERRACES, VILLAGE, SEA_STACK, INTERIOR]);
 
 /** Distance from (x, z) to the segment a–b, and how far along it (0..1). */
 export function segDist(x, z, a, b) {
