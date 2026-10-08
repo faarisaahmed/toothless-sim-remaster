@@ -7,6 +7,7 @@ import { setupTouch } from "./touch.js";
 import { bindDragon, noseSign } from "./dragonrig.js";
 const _floorP = new THREE.Vector3();
 import { music } from "./audio.js";
+import { buildLonghouse, chartTexture } from "./longhouse.js";
 import { setupPost } from "./postfx.js";
 
 // ---------------------------------------------------------------------------
@@ -125,7 +126,7 @@ export function runPrologue(pad = null, save = null) {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.85;
+    renderer.toneMappingExposure = 2.1;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060a);
@@ -152,76 +153,25 @@ export function runPrologue(pad = null, save = null) {
     window.addEventListener("resize", onResize);
 
     // --- Materials ----------------------------------------------------------
-    const woodDark  = tex.material(tex.wood({ planks: 5, warm: 0.82 }), { repeat: 2.2, roughness: 0.92, bumpScale: 0.05 });
-    const woodFloor = tex.material(tex.wood({ planks: 7, warm: 0.95 }), { repeat: 3.0, roughness: 0.86, bumpScale: 0.06 });
-    const woodBeam  = tex.material(tex.wood({ planks: 2, warm: 0.7 }),  { repeat: 1.4, roughness: 0.95, bumpScale: 0.07 });
-    const stoneMat  = tex.material(tex.stone(),  { repeat: 1.6, roughness: 0.95, bumpScale: 0.09 });
     const slabMat   = tex.material(tex.stone({ cols: 2, rows: 2 }), { repeat: 1, roughness: 0.8, bumpScale: 0.06 });
     const furMat    = tex.material(tex.fur(),    { repeat: 1.6, roughness: 1.0, bumpScale: 0.10 });
     const hideMat   = tex.material(tex.fur({ tint: [70, 52, 40] }), { repeat: 1.2, roughness: 1.0, bumpScale: 0.10 });
 
     // --- Shell --------------------------------------------------------------
+    // The house itself — timber, stone, loft, and everything along its walls —
+    // is js/longhouse.js. The story's own props below sit inside it.
     const room = new THREE.Group();
     scene.add(room);
-
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.d), woodFloor);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    room.add(floor);
-
-    function wall(w, h, x, y, z, ry) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), woodDark);
-      m.position.set(x, y, z);
-      m.rotation.y = ry;
-      m.receiveShadow = true;
-      room.add(m);
-      return m;
-    }
-    wall(ROOM.w, ROOM.h, 0, ROOM.h / 2, -ROOM.d / 2, 0);                 // back
-    wall(ROOM.w, ROOM.h, 0, ROOM.h / 2, ROOM.d / 2, Math.PI);            // front
-    wall(ROOM.d, ROOM.h, -ROOM.w / 2, ROOM.h / 2, 0, Math.PI / 2);       // left
-    wall(ROOM.d, ROOM.h, ROOM.w / 2, ROOM.h / 2, 0, -Math.PI / 2);       // right
-
-    // Pitched roof — two planes and a ridge. Longhouses aren't flat-ceilinged
-    // and the slope is most of what makes the space feel like a house.
-    // Two slopes meeting at a ridge. Each starts flat (rotateX) and then tips
-    // about Z; doing it on the geometry keeps the object transform readable.
-    const PITCH = 0.62;                       // radians of slope
-    const halfW = ROOM.w / 2;
-    const slopeLen = halfW / Math.cos(PITCH);
-    const ridgeY = ROOM.h + Math.tan(PITCH) * halfW;
-
-    for (const s of [-1, 1]) {
-      const g = new THREE.PlaneGeometry(slopeLen, ROOM.d);
-      g.rotateX(-Math.PI / 2);                // lay it flat
-      g.rotateZ(-s * PITCH);                  // tip it toward the ridge
-      const m = new THREE.Mesh(g, woodDark);
-      // Midpoint of this slope: halfway out from the ridge, halfway down.
-      m.position.set(s * halfW / 2, (ridgeY + ROOM.h) / 2, 0);
-      m.receiveShadow = true;
-      room.add(m);
-    }
-
-    // Beams across, and two uprights. Cheap, and they catch the firelight.
-    for (let i = -1; i <= 1; i++) {
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(ROOM.w + 0.4, 0.26, 0.3), woodBeam);
-      beam.position.set(0, ROOM.h - 0.2, i * 3.1);
-      beam.castShadow = beam.receiveShadow = true;
-      room.add(beam);
-    }
-    for (const x of [-ROOM.w / 2 + 0.5, ROOM.w / 2 - 0.5]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.34, ROOM.h, 0.34), woodBeam);
-      post.position.set(x, ROOM.h / 2, -3.1);
-      post.castShadow = true;
-      room.add(post);
-    }
+    const house = buildLonghouse(room, ROOM);
+    // The props below use the house's photographed wood and stone.
+    const woodBeamP = house.mats.beam, stoneMatP = house.mats.stone;
 
     // --- Hearth -------------------------------------------------------------
     const hearth = new THREE.Group();
     hearth.position.set(-5.0, 0, -0.5);
     room.add(hearth);
 
-    const ring = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.3, 0.34, 16, 1, true), stoneMat);
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.3, 0.34, 16, 1, true), stoneMatP);
     ring.position.y = 0.17;
     ring.castShadow = ring.receiveShadow = true;
     hearth.add(ring);
@@ -253,7 +203,7 @@ export function runPrologue(pad = null, save = null) {
     }
     // A couple of half-burnt logs.
     for (let i = 0; i < 3; i++) {
-      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.9, 7), woodBeam);
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.9, 7), woodBeamP);
       log.rotation.set(Math.PI / 2, 0, (i / 3) * Math.PI + 0.4);
       log.position.set(Math.cos(i * 2.1) * 0.3, 0.12, Math.sin(i * 2.1) * 0.3);
       log.castShadow = true;
@@ -283,7 +233,7 @@ export function runPrologue(pad = null, save = null) {
     opening.rotation.y = -Math.PI / 2;
     winFrame.add(opening);
 
-    const shutter = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.15, 1.55), woodBeam);
+    const shutter = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.15, 1.55), woodBeamP);
     shutter.position.set(-0.06, 0, 0);
     shutter.castShadow = true;
     winFrame.add(shutter);
@@ -349,7 +299,7 @@ export function runPrologue(pad = null, save = null) {
     const bed = new THREE.Group();
     bed.position.set(-3.6, 0, -5.4);
     room.add(bed);
-    const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.42, 1.5), woodBeam);
+    const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.42, 1.5), woodBeamP);
     bedFrame.position.y = 0.21;
     bedFrame.castShadow = bedFrame.receiveShadow = true;
     bed.add(bedFrame);
@@ -375,11 +325,11 @@ export function runPrologue(pad = null, save = null) {
     const saddleGrp = new THREE.Group();
     saddleGrp.position.set(4.6, 0, -2.2);
     room.add(saddleGrp);
-    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 0.9, 8), woodBeam);
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 0.9, 8), woodBeamP);
     stand.position.y = 0.45;
     stand.castShadow = true;
     saddleGrp.add(stand);
-    const cross = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.16), woodBeam);
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.16), woodBeamP);
     cross.position.y = 0.9;
     cross.castShadow = true;
     saddleGrp.add(cross);
@@ -401,12 +351,12 @@ export function runPrologue(pad = null, save = null) {
     const benchGrp = new THREE.Group();
     benchGrp.position.set(-5.0, 0, 3.3);
     room.add(benchGrp);
-    const benchTop = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 2.4), woodBeam);
+    const benchTop = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 2.4), woodBeamP);
     benchTop.position.y = 0.62;
     benchTop.castShadow = benchTop.receiveShadow = true;
     benchGrp.add(benchTop);
     for (const z of [-1.0, 1.0]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.62, 0.14), woodBeam);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.62, 0.14), woodBeamP);
       leg.position.set(0, 0.31, z);
       leg.castShadow = true;
       benchGrp.add(leg);
@@ -437,7 +387,7 @@ export function runPrologue(pad = null, save = null) {
     // The chart on the back wall
     const chart = new THREE.Mesh(
       new THREE.PlaneGeometry(2.6, 1.8),
-      tex.material(tex.parchment(), { repeat: 1, roughness: 0.95, bumpScale: 0.02 })
+      new THREE.MeshStandardMaterial({ map: chartTexture(), roughness: 0.95 })
     );
     chart.position.set(0.3, 2.4, -ROOM.d / 2 + 0.06);
     chart.receiveShadow = true;
@@ -627,6 +577,7 @@ export function runPrologue(pad = null, save = null) {
       raf = requestAnimationFrame(frame);
       const dt = Math.min(clock.getDelta(), 0.05);
       elapsed += dt;
+      house.update(elapsed);
 
       input.beginFrame(dt);
       document.body.classList.toggle("pad-live", !!pad?.connected());
@@ -819,6 +770,11 @@ export function runPrologue(pad = null, save = null) {
       camera.position.z = THREE.MathUtils.clamp(camera.position.z, -ROOM.d / 2 + 0.4, ROOM.d / 2 - 0.4);
       camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.7, ROOM.h - 0.4);
       camera.lookAt(focusX, focusY, focusZ);
+      // Debug: window.__proPin = { from: [x,y,z], look: [x,y,z] } pins the camera.
+      if (window.__proPin) {
+        camera.position.set(...window.__proPin.from);
+        camera.lookAt(...window.__proPin.look);
+      }
 
       post.render(dt);
       input.finishFrame(dt);
