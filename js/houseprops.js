@@ -339,3 +339,94 @@ export function buildSlab() {
   g.add(second);
   return g;
 }
+
+// ===========================================================================
+// The tail fin
+// ===========================================================================
+/**
+ * Hiccup's first prosthetic tail fin, the one that flew badly: a lobed fin of
+ * red-dyed leather stretched over a frame of iron spars fanning from a hinge
+ * block, the cable runs and the pivot rod still on it, a white emblem painted
+ * on the leather. Lies flat, origin under the hinge, fin extending toward +x.
+ */
+export function buildTailFin() {
+  const g = new THREE.Group();
+  const iron = ironMat();
+  // The fin outline: a broad swept lobe with a scalloped trailing edge, like
+  // his real one (the fin is about 1.1 m long).
+  const shape = new THREE.Shape();
+  shape.moveTo(0, -0.08);
+  shape.bezierCurveTo(0.35, -0.22, 0.75, -0.5, 1.12, -0.42);
+  // Scallops along the back edge between the spar tips.
+  const tips = [[1.12, -0.42], [1.02, -0.12], [0.98, 0.16], [0.86, 0.42], [0.62, 0.56]];
+  for (let i = 1; i < tips.length; i++) {
+    const [x0, y0] = tips[i - 1], [x1, y1] = tips[i];
+    shape.quadraticCurveTo((x0 + x1) / 2 - 0.08, (y0 + y1) / 2, x1, y1);
+  }
+  shape.bezierCurveTo(0.42, 0.5, 0.18, 0.24, 0, 0.08);
+  shape.lineTo(0, -0.08);
+  const leatherTex = canvasTex(512, 512, (c, W, H) => {
+    c.fillStyle = "#8a2418"; c.fillRect(0, 0, W, H);
+    // Grain and wear, and a darker patch where it was oiled.
+    for (let i = 0; i < 4000; i++) {
+      c.fillStyle = Math.random() < 0.5 ? "rgba(40,6,2,.2)" : "rgba(200,90,60,.14)";
+      c.fillRect(Math.random() * W, Math.random() * H, 1 + Math.random() * 3, 1);
+    }
+    // Stitching along the spars (they run from the hinge, left middle).
+    c.strokeStyle = "rgba(230,200,150,.55)"; c.lineWidth = 2; c.setLineDash([6, 6]);
+    for (const [x, y] of [[1.0, 0.08], [0.92, 0.36], [0.86, 0.62], [0.72, 0.86]]) {
+      c.beginPath(); c.moveTo(0, H * 0.5); c.lineTo(x * W, (1 - y) * H); c.stroke();
+    }
+    c.setLineDash([]);
+    // The emblem: a white skull-and-wings mark, painted roughly.
+    c.fillStyle = "rgba(235,228,212,.92)";
+    const cx = W * 0.55, cy = H * 0.5;
+    c.beginPath(); c.arc(cx, cy, 34, 0, Math.PI * 2); c.fill();
+    c.fillRect(cx - 22, cy + 20, 44, 26);
+    c.fillStyle = "#8a2418";
+    c.beginPath(); c.arc(cx - 13, cy - 2, 9, 0, Math.PI * 2); c.arc(cx + 13, cy - 2, 9, 0, Math.PI * 2); c.fill();
+    c.fillRect(cx - 3, cy + 12, 6, 12);
+  });
+  const geo = new THREE.ShapeGeometry(shape, 24);
+  // Map the shape (x 0..1.12, y -0.5..0.6) into the texture.
+  const uv = geo.attributes.uv, pp = geo.attributes.position;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, pp.getX(i) / 1.12, (pp.getY(i) + 0.5) / 1.1);
+  // A gentle sag between the spars, so it reads as leather and not a board.
+  for (let i = 0; i < pp.count; i++) {
+    const x = pp.getX(i), y = pp.getY(i);
+    pp.setZ(i, -0.025 * Math.sin(Math.min(1, x) * Math.PI) * (0.5 + 0.5 * Math.cos(y * 18)));
+  }
+  geo.computeVertexNormals();
+  const leather = new THREE.MeshStandardMaterial({ map: leatherTex, roughness: 0.75, side: THREE.DoubleSide });
+  const fin = mesh(geo, leather);
+  fin.rotation.x = -Math.PI / 2;
+  fin.position.y = 0.05;
+  g.add(fin);
+  // Spars: iron rods from the hinge to each tip.
+  for (const [x, y] of tips) {
+    const len = Math.hypot(x, y);
+    const rod = mesh(new THREE.CylinderGeometry(0.009, 0.013, len, 6), iron);
+    rod.rotation.z = -Math.PI / 2;
+    rod.rotation.y = Math.atan2(y, x);
+    rod.position.set(x / 2, 0.06, -y / 2);
+    g.add(rod);
+  }
+  // Hinge block, pivot rod, the cable runs off the front, a pulley wheel.
+  const hinge = box(0.16, 0.08, 0.22, "rough_wood", 0.3, { tint: 0x8a6a50 });
+  hinge.position.set(-0.04, 0.05, 0);
+  g.add(hinge);
+  const pivot = mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 8), iron);
+  pivot.rotation.x = Math.PI / 2;
+  pivot.position.set(-0.04, 0.1, 0);
+  g.add(pivot);
+  const wheel = mesh(new THREE.TorusGeometry(0.05, 0.012, 6, 16), iron);
+  wheel.position.set(-0.12, 0.1, 0.08);
+  wheel.rotation.y = Math.PI / 2;
+  g.add(wheel);
+  const cableMat = new THREE.MeshStandardMaterial({ color: 0x3a2e22, roughness: 0.9 });
+  for (const dz of [-0.06, 0.06]) {
+    const pts = [new THREE.Vector3(-0.08, 0.1, dz), new THREE.Vector3(-0.35, 0.03, dz * 2), new THREE.Vector3(-0.6, 0.01, dz * 4 + 0.1)];
+    g.add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.006, 5), cableMat));
+  }
+  return g;
+}
