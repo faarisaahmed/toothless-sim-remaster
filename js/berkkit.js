@@ -659,12 +659,13 @@ export function makeSmoke(sources, puffs = 5) {
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         float size = 1.5 + t * 7.0;
         vA = smoothstep(0.0, 0.12, t) * (1.0 - t) * clamp(1.0 - (-mv.z - 700.0) / 500.0, 0.0, 1.0);
-        gl_PointSize = clamp(uScale * size / -mv.z, 0.0, 220.0);
+        gl_PointSize = clamp(uScale * size / -mv.z, 0.0, 110.0);
+        vA *= smoothstep(25.0, 90.0, -mv.z);
         gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform sampler2D tSmoke; uniform float uNight; varying float vA;
       void main(){ vec4 c = texture2D(tSmoke, gl_PointCoord);
         vec3 col = mix(vec3(0.62, 0.62, 0.62), vec3(0.08, 0.08, 0.1), uNight);
-        gl_FragColor = vec4(col, c.a * vA * 0.42); }`,
+        gl_FragColor = vec4(col, c.a * vA * 0.32); }`,
     transparent: true, depthWrite: false,
   });
   const pts = new THREE.Points(geo, m);

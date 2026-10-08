@@ -313,7 +313,7 @@ function pier(b, fires, x0, z0, dir, len, y, rnd) {
   const n = Math.round(len / 5);
   for (let i = 0; i <= n; i++) {
     const px = x0 + dir * (i * len / n);
-    for (const s of [-1, 1]) b.limb(V(px, HARBOUR.floor - 2, z0 + s * (w / 2 - 0.3)), V(px, y + (i % 3 === 0 ? 1.2 : 0), z0 + s * (w / 2 - 0.3)), 0.4, 0.35, { seg: 6, tile: TILE.TIMBER, colour: 0x6a5a48 });
+    for (const s of [-1, 1]) b.limb(V(px, HARBOUR.floor - 2, z0 + s * (w / 2 - 0.3)), V(px, y + (i % 3 === 0 ? 1.2 : 0), z0 + s * (w / 2 - 0.3)), 0.4, 0.35, { seg: 5, tile: TILE.TIMBER, colour: 0x6a5a48 });
   }
   for (const s of [-1, 1]) b.box(len, 0.4, 0.4, cx, y - 0.6, z0 + s * (w / 2), { tile: TILE.TIMBER, colour: DARKW });
   // Barrels, crates, a coil of rope, a lamp at the end.
@@ -537,7 +537,7 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
         const len = Math.hypot(x1 - x0, z1 - z0);
         const yaw = Math.atan2(x1 - x0, z1 - z0);
         b.box(10, 0.5, len + 0.3, (x0 + x1) / 2, qy + 0.8, (z0 + z1) / 2, { tile: TILE.OLD, colour: WOOD }, yaw);
-        b.limb(V(x0 - side * 4.6, HARBOUR.floor, z0), V(x0 - side * 4.6, qy + 0.6, z0), 0.45, 0.4, { seg: 6, tile: TILE.TIMBER, colour: 0x6a5a48 });
+        if (i % 2 === 0) b.limb(V(x0 - side * 4.6, HARBOUR.floor, z0), V(x0 - side * 4.6, qy + 0.6, z0), 0.45, 0.4, { seg: 5, tile: TILE.TIMBER, colour: 0x6a5a48 });
         if (i % 7 === 3) torch(b, fires, x0 - side * 4.2, qy + 1.05, z0);
       }
       // Piers and ships.
@@ -760,6 +760,9 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
     g.computeBoundingSphere();
     districtMeshes.push({ mesh, c: g.boundingSphere.center.clone(), r: g.boundingSphere.radius, big: /statue|hall/.test(name) });
   }
+  // The terraces' clutter is up the hillsides, where the harbour's mirror
+  // barely sees it; the statues, the hall and the wharves stay reflected.
+  excludeFromReflection?.(...districtMeshes.filter((d) => /west|east|north/.test(d.mesh.name)).map((d) => d.mesh));
 
   // Houses: per archetype one detailed and one far InstancedMesh. Which
   // instance is in which is redone as the camera moves.
@@ -788,9 +791,9 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
     }
     return { near, mid, far, list: per[a] };
   });
-  // The sea's mirror gets the village as blocks; the detail is not worth a
-  // second pass at the distance anyone sees it reflected from.
-  excludeFromReflection?.(...sets.flatMap((S) => [S.near, S.mid]));
+  // The houses stay out of the sea's mirror: up on the terraces, the harbour
+  // barely reflects them, and they are most of Berk's triangles.
+  excludeFromReflection?.(...sets.flatMap((S) => [S.near, S.mid, S.far]));
   // Collision for the houses: the block-and-roof shapes, merged per district.
   {
     const parts = new Map();
@@ -900,9 +903,13 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
         acc = 0; lastCam.copy(cp);
         partition(cp);
         for (const d of districtMeshes) {
-          // The small districts are clutter beyond a few kilometres; the
-          // statues and the hall are landmarks and always stand.
-          d.mesh.visible = d.big || cp.distanceTo(d.c) - d.r < 4500;
+          // The small districts are clutter beyond a couple of kilometres; the
+          // statues and the hall are landmarks and always stand. Only what
+          // is close casts into the shadow map, which is a few hundred
+          // metres across and would otherwise be handed the whole village.
+          const gap = cp.distanceTo(d.c) - d.r;
+          d.mesh.visible = d.big || gap < 2200;
+          d.mesh.castShadow = gap < 300;
         }
       }
       // The nearest fires light the stone round them.

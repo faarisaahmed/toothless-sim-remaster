@@ -186,7 +186,12 @@ export function buildArchetype(A) {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) f.box(0.9, stilt + 6, 0.9, sx * (L / 2 + 1.4), stilt / 2 - 3, sz * (W / 2 + 1.4), { tile: TILE.TIMBER, colour: DARKW });
   }
   f.box(2 * ex, wallH + base, 2 * ez, 0, (wallH + base) / 2, 0, { tile: TILE.PLANK, colour: WOOD });
-  for (const [x, sz] of wins) f.box(1.6, 1.6, 0.2, x, wy, sz * (ez + 0.1), { tile: TILE.PLAIN, colour: WIN, glow: 1 });
+  // Windows as single quads on the wall: two triangles, not twelve.
+  for (const [x, sz] of wins) {
+    const q = new THREE.PlaneGeometry(1.6, 1.6);
+    if (sz < 0) q.rotateY(Math.PI);
+    f.add(q, new THREE.Matrix4().makeTranslation(x, wy, sz * (ez + 0.05)), { tile: TILE.PLAIN, colour: WIN, glow: 1, flat: true });
+  }
   gableRoof(f, { L: 2 * ex, W: 2 * ez, y0, roofH, oh, paint: roofPaint, tile: roofTile, colour: roofC, heads: false });
   if (chimney) f.box(1.5, chimney.y - y0, 1.5, chimney.x, (chimney.y + y0) / 2, chimney.z, { tile: TILE.STONE, colour: 0x9a948a });
 
