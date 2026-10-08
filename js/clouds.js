@@ -408,6 +408,7 @@ const COMP_FRAG = /* glsl */`
   uniform sampler2D tClouds;
   uniform sampler2D tDepth;
   uniform sampler2D tLowDepth;
+  uniform sampler2D tCurrent;   // this frame's march, before temporal blending
   uniform mat4 uProjInv;
   uniform vec2 uLowSize;
   float sceneDist( vec2 uv ) {
@@ -431,13 +432,18 @@ const COMP_FRAG = /* glsl */`
       float rel = abs( log( max( dl, 0.1 ) / max( d0, 0.1 ) ) );
       if ( rel < bestRel ) { bestRel = rel; bestUv = uv; }
       float w = bl * exp( -rel * 12.0 ) + 1e-5 * bl;
-      acc += texture2D( tClouds, uv ) * w;
+      // Close to the camera (the dragon) the haze in front is a few metres'
+      // worth and needs no smoothing over time — and the history there holds
+      // the SKY's haze from frames when the sky was behind that pixel, which
+      // trails a pale rim round him as he moves. Take this frame's only.
+      vec4 cs = d0 < 120.0 ? texture2D( tCurrent, uv ) : texture2D( tClouds, uv );
+      acc += cs * w;
       wsum += w;
     }
     vec4 c = acc / wsum;
     // Nothing nearby was marched at this pixel's distance (a thin wing edge
     // smaller than a low-res texel): take the closest in depth outright.
-    if ( wsum < 0.02 ) c = texture2D( tClouds, bestUv );
+    if ( wsum < 0.02 ) c = d0 < 120.0 ? texture2D( tCurrent, bestUv ) : texture2D( tClouds, bestUv );
     gl_FragColor = vec4( s.rgb * c.a + c.rgb, s.a );
   }
 `;
@@ -546,7 +552,7 @@ export class CloudPass extends Pass {
       depthTest: false, depthWrite: false,
       uniforms: {
         tScene: { value: null }, tClouds: { value: null }, tDepth: { value: null },
-        tLowDepth: { value: null }, uProjInv: { value: new THREE.Matrix4() },
+        tLowDepth: { value: null }, tCurrent: { value: null }, uProjInv: { value: new THREE.Matrix4() },
         uLowSize: { value: new THREE.Vector2(1, 1) },
       },
     });
@@ -623,6 +629,7 @@ export class CloudPass extends Pass {
     this.compMat.uniforms.tClouds.value = dst.texture;
     this.compMat.uniforms.tDepth.value = readBuffer.depthTexture;
     this.compMat.uniforms.tLowDepth.value = this.marchRT.texture[1];
+    this.compMat.uniforms.tCurrent.value = this.marchRT.texture[0];
     this.compMat.uniforms.uProjInv.value.copy(cam.projectionMatrixInverse);
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.compQuad.render(renderer);
