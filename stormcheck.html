@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Storm Check</title>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  body { margin: 0; background: #20242c; color: #ddd; font: 13px system-ui, sans-serif; }
+  #note { position: fixed; top: 6px; left: 8px; }
+</style>
+</head>
+<body>
+<!--
+  The Stormcutter (js/dragonkit.js, the "storm" rig) on its own, filmed.
+
+  Rows are viewpoints, columns are moments in time.
+
+    stormcheck.html?mode=idle      idle | droop | sleep | fly | bones
+                   &views=front,side,top,q
+                   &frames=6&span=6     columns, seconds between first and last
+                   &len=13              actor length (m)
+                   &bones=1             draw the skeleton over the mesh
+                   &glb=...             (mode=bones) a raw glb to show at rest
+-->
+<div id="note"></div>
+<canvas id="strip"></canvas>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { loadKit, createActor, STORM_POSES } from "./js/dragonkit.js";
+
+const q = new URLSearchParams(location.search);
+const MODE = q.get("mode") ?? "idle";
+const VIEWS = (q.get("views") ?? "front,side,top,q").split(",");
+const FRAMES = +(q.get("frames") ?? 6), SPAN = +(q.get("span") ?? 6);
+const LEN = +(q.get("len") ?? 13), BONES = q.get("bones") === "1", ZOOM = +(q.get("zoom") ?? 1);
+const CW = +(q.get("cw") ?? 360), CH = +(q.get("ch") ?? 260);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(CW, CH);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9fb4c8);
+scene.add(new THREE.HemisphereLight(0xeef4ff, 0x6b6050, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(4, 10, 6);
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x7a7060 }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+const grid = new THREE.GridHelper(40, 40, 0x444444, 0x666666);
+grid.position.y = 0.01;
+scene.add(grid);
+const cam = new THREE.PerspectiveCamera(35, CW / CH, 0.05, 500);
+
+const strip = document.getElementById("strip");
+strip.width = CW * FRAMES; strip.height = CH * VIEWS.length;
+const sg = strip.getContext("2d");
+
+function shoot(target, size, label, col) {
+  helper?.update?.();
+  const c = new THREE.Vector3().copy(target);
+  VIEWS.forEach((v, row) => {
+    const d = size * 1.9 * ZOOM;
+    if (v === "side") cam.position.set(c.x + d, c.y + size * 0.1, c.z);
+    else if (v === "top") cam.position.set(c.x, c.y + d * 1.2, c.z + 0.01);
+    else if (v === "back") cam.position.set(c.x, c.y + size * 0.25, c.z - d);
+    else if (v === "q") cam.position.set(c.x + d * 0.62, c.y + d * 0.45, c.z + d * 0.62);
+    else if (v === "qb") cam.position.set(c.x - d * 0.62, c.y + d * 0.45, c.z - d * 0.62);
+    else cam.position.set(c.x, c.y + size * 0.15, c.z + d);
+    cam.lookAt(c);
+    renderer.render(scene, cam);
+    sg.drawImage(renderer.domElement, col * CW, row * CH);
+    sg.fillStyle = "#000"; sg.font = "12px system-ui";
+    sg.fillText(`${v}  ${label}`, col * CW + 6, row * CH + 14);
+  });
+}
+
+let helper = null;
+// Bones as dots, and a line to the parent only where the parent is a real
+// joint (not the root everything hangs off), so chains show as chains.
+function boneMarks(obj) {
+  const bones = [];
+  obj.traverse((o) => { if (o.isBone && !/Camera|Food|_rootJoint|prefab|Root_03|Anchor/.test(o.name)) bones.push(o); });
+  const pg = new THREE.BufferGeometry(), lg = new THREE.BufferGeometry();
+  const pts = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xffff00, size: 6, sizeAttenuation: false, depthTest: false }));
+  const lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x00ff66, depthTest: false }));
+  pts.renderOrder = lines.renderOrder = 10;
+  scene.add(pts, lines);
+  const v = new THREE.Vector3();
+  const upd = () => {
+    obj.updateMatrixWorld(true);
+    const P = [], L = [];
+    for (const b of bones) {
+      b.getWorldPosition(v); P.push(v.x, v.y, v.z);
+      if (b.parent.isBone && bones.includes(b.parent)) { L.push(v.x, v.y, v.z); b.parent.getWorldPosition(v); L.push(v.x, v.y, v.z); }
+    }
+    pg.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
+    lg.setAttribute("position", new THREE.Float32BufferAttribute(L, 3));
+  };
+  upd();
+  return { update: upd };
+}
+if (MODE === "bones") {
+  const g = await new GLTFLoader().loadAsync(q.get("glb") ?? "./assets/models/dragons/stormcutter.glb");
+  scene.add(g.scene);
+  g.scene.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.material.transparent = true; o.material.opacity = 0.55; } });
+  helper = new THREE.SkeletonHelper(g.scene);
+  helper.material.depthTest = false;
+  scene.add(helper);
+  const box = new THREE.Box3().setFromObject(g.scene);
+  const s = box.getSize(new THREE.Vector3());
+  ground.position.y = box.min.y - 0.01; grid.position.y = box.min.y;
+  shoot(box.getCenter(new THREE.Vector3()), Math.max(s.x, s.z) * 0.6, "rest", 0);
+} else {
+  // ?pose={"FOLD_UPPER":{"lift":-1}} overrides the pose tables, for tuning.
+  for (const [k, v] of Object.entries(JSON.parse(q.get("pose") ?? "{}"))) Object.assign(STORM_POSES[k], v);
+  const kit = await loadKit(q.get("kit") ?? "stormcutter");
+  const actor = createActor(kit, { length: LEN });
+  window.__actor = actor;
+  scene.add(actor.root);
+  actor.root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  if (BONES) helper = boneMarks(actor.root);
+  if (MODE === "droop") actor.setDroop(1);
+  if (MODE !== "rest") actor.setMode(MODE === "droop" ? "idle" : MODE);
+  if (MODE === "fly") actor.root.position.y = LEN * 0.5;
+  const dt = 1 / 60;
+  const step = MODE === "rest" ? () => {} : (d) => actor.update(d);
+  for (let i = 0; i < 60; i++) step(dt);
+  const every = FRAMES > 1 ? SPAN / (FRAMES - 1) : 0;
+  let t = 0;
+  for (let f = 0; f < FRAMES; f++) {
+    if (f) for (let k = 0; k < Math.round(every / dt); k++) { step(dt); t += dt; }
+    actor.root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(actor.root, true);
+    const c = box.getCenter(new THREE.Vector3());
+    const sz = box.getSize(new THREE.Vector3());
+    shoot(c, Math.max(sz.x, sz.z, sz.y) * 0.62, `${MODE} t=${t.toFixed(2)}`, f);
+  }
+  document.getElementById("note").textContent = "";
+}
+window.__ready = true;
+</script>
+</body>
+</html>
