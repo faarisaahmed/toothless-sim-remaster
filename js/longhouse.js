@@ -67,7 +67,7 @@ export function houseMat(slug, w, h, tile, { tint = 0xffffff, rot = 0, rough = 1
 }
 
 /** A box whose faces carry the texture in metres (so a 4 m beam is not one stretched plank). */
-function box(w, h, d, slug, tile, opts = {}) {
+export function box(w, h, d, slug, tile, opts = {}) {
   const g = new THREE.BoxGeometry(w, h, d);
   // Rescale each face's UVs to its own size in metres.
   const uv = g.attributes.uv, n = g.attributes.normal;
@@ -82,7 +82,7 @@ function box(w, h, d, slug, tile, opts = {}) {
   return m;
 }
 
-function canvasTex(w, h, draw) {
+export function canvasTex(w, h, draw) {
   const c = document.createElement("canvas");
   c.width = w; c.height = h;
   draw(c.getContext("2d"), w, h);

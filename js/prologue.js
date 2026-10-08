@@ -8,6 +8,7 @@ import { bindDragon, noseSign } from "./dragonrig.js";
 const _floorP = new THREE.Vector3();
 import { music } from "./audio.js";
 import { buildLonghouse, chartTexture } from "./longhouse.js";
+import { buildSaddle, buildBed, buildSlab } from "./houseprops.js";
 import { setupPost } from "./postfx.js";
 
 // ---------------------------------------------------------------------------
@@ -153,9 +154,6 @@ export function runPrologue(pad = null, save = null) {
     window.addEventListener("resize", onResize);
 
     // --- Materials ----------------------------------------------------------
-    const slabMat   = tex.material(tex.stone({ cols: 2, rows: 2 }), { repeat: 1, roughness: 0.8, bumpScale: 0.06 });
-    const furMat    = tex.material(tex.fur(),    { repeat: 1.6, roughness: 1.0, bumpScale: 0.10 });
-    const hideMat   = tex.material(tex.fur({ tint: [70, 52, 40] }), { repeat: 1.2, roughness: 1.0, bumpScale: 0.10 });
 
     // --- Shell --------------------------------------------------------------
     // The house itself — timber, stone, loft, and everything along its walls —
@@ -295,57 +293,19 @@ export function runPrologue(pad = null, save = null) {
     }
 
     // --- Furniture ----------------------------------------------------------
-    // Hiccup's bed
-    const bed = new THREE.Group();
+    // Hiccup's bed, Toothless's slab, the saddle on its horse (houseprops.js).
+    const bed = buildBed();
     bed.position.set(-3.6, 0, -5.4);
     room.add(bed);
-    const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.42, 1.5), woodBeamP);
-    bedFrame.position.y = 0.21;
-    bedFrame.castShadow = bedFrame.receiveShadow = true;
-    bed.add(bedFrame);
-    const bedding = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.3, 1.42), furMat);
-    bedding.position.y = 0.56;
-    bedding.castShadow = bedding.receiveShadow = true;
-    bed.add(bedding);
 
-    // His slab — warm stone, a hollow worn into it, pelts around the edge.
-    const slab = new THREE.Group();
+    const slab = buildSlab();
     slab.position.set(...SLAB.pos);
     room.add(slab);
-    const slabTop = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.62, 0.34, 20), slabMat);
-    slabTop.position.y = 0.17;
-    slabTop.receiveShadow = slabTop.castShadow = true;
-    slab.add(slabTop);
-    const pelt = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.1, 20), hideMat);
-    pelt.position.y = 0.36;
-    pelt.receiveShadow = true;
-    slab.add(pelt);
 
-    // Saddle on a stand
-    const saddleGrp = new THREE.Group();
+    const saddleGrp = buildSaddle();
     saddleGrp.position.set(4.6, 0, -2.2);
+    saddleGrp.rotation.y = -0.5;
     room.add(saddleGrp);
-    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 0.9, 8), woodBeamP);
-    stand.position.y = 0.45;
-    stand.castShadow = true;
-    saddleGrp.add(stand);
-    const cross = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.16), woodBeamP);
-    cross.position.y = 0.9;
-    cross.castShadow = true;
-    saddleGrp.add(cross);
-    const seat = new THREE.Mesh(new THREE.SphereGeometry(0.46, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: 0x4a3120, roughness: 0.62, metalness: 0.05 }));
-    seat.scale.set(1, 0.62, 1.25);
-    seat.position.y = 0.92;
-    seat.castShadow = true;
-    saddleGrp.add(seat);
-    for (const s of [-1, 1]) {
-      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.62, 0.05),
-        new THREE.MeshStandardMaterial({ color: 0x33210f, roughness: 0.8 }));
-      strap.position.set(s * 0.36, 0.62, 0.1);
-      strap.castShadow = true;
-      saddleGrp.add(strap);
-    }
 
     // Bench, with the prototype fin half under it
     const benchGrp = new THREE.Group();
