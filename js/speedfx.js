@@ -154,7 +154,7 @@ export function createSpeedFx(scene) {
     }
     ringT += dt;
     ringMat.opacity = Math.max(0, 0.7 * (1 - ringT / 0.6));
-    ring.visible = ringMat.opacity > 0.01;
+    ring.visible = false;   // the shock ring read as an impact wave; off
     ring.scale.setScalar(4 + ringT * 90);
     return crossed;
   }
