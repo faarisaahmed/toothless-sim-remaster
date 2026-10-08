@@ -1538,6 +1538,7 @@ export const CLEARING = findClearing("Peaceable Country");
  * How readily this spot grows things, 0..1. Trees, grass and the terrain's
  * green all read this one function so a bare crag is bare in all three.
  */
+const HOLLOW_CAMP = { x: 1650, z: 2600 };   // SITES.stack, chapters.js
 export function fertility(x, z, h, slope) {
   if (h < SEA_LEVEL + 4 || h > 350) return 0;
   const isl = islandAt(x, z);
@@ -1583,6 +1584,11 @@ export function fertility(x, z, h, slope) {
     const d = Math.hypot(x - CLEARING.x, z - CLEARING.z);
     f *= 0.04 + 0.96 * smoothstep(d, CLEARING_R, CLEARING_EDGE);
   }
+  // Hollow Stack's camp: the hideout sits in a hollow of bare rock and turf
+  // that the wind keeps clear, so the wood stops short of it. Must match
+  // SITES.stack in chapters.js; stackdetail.js dresses what is left.
+  const dh = Math.hypot(x - HOLLOW_CAMP.x, z - HOLLOW_CAMP.z);
+  if (dh < 40) f *= 0.2 + 0.8 * smoothstep(dh, 18, 40);
   return clamp(f * 1.25, 0, 1);
 }
 

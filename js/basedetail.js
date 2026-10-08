@@ -39,7 +39,7 @@ const lerp = THREE.MathUtils.lerp;
 const smoothstep = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const clamp = THREE.MathUtils.clamp;
 
-function rng(seed) {
+export function rng(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -64,8 +64,8 @@ function distToPath(px, pz, path) {
 }
 
 // --- Procedural textures -----------------------------------------------------
-function canvas(w, h = w) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
-function tex(c, srgb = true) {
+export function canvas(w, h = w) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+export function tex(c, srgb = true) {
   const t = new THREE.CanvasTexture(c);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
@@ -73,7 +73,7 @@ function tex(c, srgb = true) {
 }
 
 /** A low shrub's worth of tiny strokes, rising from the bottom of the card. */
-function shrubTexture({ seed, strokes, hues, flowers = null, size = 256 }) {
+export function shrubTexture({ seed, strokes, hues, flowers = null, size = 256 }) {
   const r = rng(seed);
   const c = canvas(size);
   const g = c.getContext("2d");
@@ -103,7 +103,7 @@ function shrubTexture({ seed, strokes, hues, flowers = null, size = 256 }) {
 }
 
 /** Gravelly, cracked bark for logs; grain for planks. */
-function woodTexture(seed, base, grain) {
+export function woodTexture(seed, base, grain) {
   const r = rng(seed);
   const c = canvas(64, 256);
   const g = c.getContext("2d");
@@ -141,7 +141,7 @@ function stoneGeometry(seed, detail = 1, flat = 0.65) {
 }
 
 /** Crossed cards in a dome, for a low bush or a tuft. */
-function bushGeometry(cards = 5, tilt = 0.35) {
+export function bushGeometry(cards = 5, tilt = 0.35) {
   const parts = [];
   for (let i = 0; i < cards; i++) {
     const q = new THREE.PlaneGeometry(1, 1, 1, 1);
