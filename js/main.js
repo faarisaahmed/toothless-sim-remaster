@@ -2349,7 +2349,9 @@ function frame() {
             // Arriving badly costs the speed as well as the health. Without it
             // he bounces off a cliff still doing 700 mph, which reads as the
             // collision not having happened.
-            controls.bleedSpeed?.(0.45);
+            // A real crash stops him dead. He hit the rock; he does not bounce
+            // off it still flying.
+            controls.bleedSpeed?.(1);
           } else {
             // No damage still costs speed. Whatever part of his motion went
             // INTO the ground is gone — the ground took it — and dragging along
@@ -2358,10 +2360,15 @@ function frame() {
             // all: he slid up a cliff at 700 mph and carried on.
             const v = Math.hypot(sp, vy) || 1;
             const into = Math.max(0, -((ax * sp) * (-gx * inv) + vy * inv + (az * sp) * (-gz * inv)) / v);
-            const lose = !wasGrounded
-              ? Math.min(0.85, into * 1.2)
-              : 1 - Math.exp(-dt * (0.9 + 4 * into));
-            controls.scrapeSpeed?.(lose);
+            if (!wasGrounded && into > 0.3) {
+              // Flew into it rather than along it: stopped, whatever the damage.
+              controls.bleedSpeed?.(1);
+            } else {
+              const lose = !wasGrounded
+                ? Math.min(0.85, into * 1.4)
+                : 1 - Math.exp(-dt * (0.9 + 4 * into));
+              controls.scrapeSpeed?.(lose);
+            }
           }
         }
 
@@ -2919,9 +2926,8 @@ function frame() {
   }
   // Speed cues, after the camera is placed so the streaks wrap round it.
   if (speedFx.update(dt, camera, dragon, !grounded && !game.cine)) {
-    // The crack of the sound barrier.
+    // The crack of the sound barrier: felt, not drawn.
     pad.rumble.pulse(1, 1, 0.45);
-    shake = 1;
   }
   if (shake > 0.001 && !camPin) {
     camera.position.x += (Math.random() - 0.5) * shake * 0.6;

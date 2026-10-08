@@ -473,8 +473,8 @@ export function mission1(ctx) {
     // failures — that IS the journal (§2.3).
     {
       id: "lab",
-      objective: "Find out what the metal is.",
-      get sub() { return `Hold ${keyTag("landUse")} at the shelf.`; },
+      objective: "Test the metal plate from the snare.",
+      get sub() { return `Hold ${keyTag("landUse")} at the shelf to try your fire on it.`; },
       enter(g, c) {
         // The plate came off the snare in the clearing, so he already has it.
         c.setInteract(SITES.stack.clone().add(V(6, 0, -4)), "Test the plate", 190);
@@ -489,7 +489,7 @@ export function mission1(ctx) {
             player.record("alloy", { fire: l.fire, condition: l.cond, result: l.result });
             g.toast(l.show, 1400);
             g.setObjective(this.objective,
-              `${i + 1} of ${LAB_LINES.length} &nbsp;·&nbsp; ${l.fire}, ${l.cond}`);
+              `Try ${i + 1} of ${LAB_LINES.length} &nbsp;·&nbsp; ${l.how}`);
             g.refreshState();
             await new Promise((r) => setTimeout(r, 1400));
           }
@@ -503,8 +503,8 @@ export function mission1(ctx) {
     // -----------------------------------------------------------------------
     {
       id: "sleep",
-      objective: "Sleep.",
-      get sub() { return `Hold ${keyTag("landUse")} at the shelter.`; },
+      objective: "Nothing works. Rest.",
+      get sub() { return `Hold ${keyTag("landUse")} at the shelter to sleep.`; },
       enter(g, c) { c.setInteract(SITES.stack.clone(), "Sleep", 190); },
       update(dt, g, c) { if (c.tookInteract()) this._slept = true; },
       done() { return this._slept; },
@@ -523,7 +523,7 @@ export function mission1(ctx) {
           to:   V(k.x + 9, STACK_Y + 3.2, k.z - 1),
           look: V(k.x + 6, STACK_Y + 1.0, k.z - 4),
           seconds: 5.5,
-          line: "A hole in the plate.",
+          line: "In his sleep he breathed a different fire — and burned clean through the plate.",
         });
         g.refreshState();
       },
@@ -532,8 +532,8 @@ export function mission1(ctx) {
     // -----------------------------------------------------------------------
     {
       id: "fire",
-      objective: "Do it awake.",
-      get sub() { return `Hold ${keyTag("sleepfire")}.`; },
+      objective: "Breathe that fire again — awake.",
+      get sub() { return `Hold ${keyTag("sleepfire")} to breathe sleepfire.`; },
       enter(g) { g.setWaypoint(null); },
       update(dt, g, c) { if (player.lastFired > 0) this._did = true; },
       done() { return this._did; },
@@ -1137,17 +1137,21 @@ function labProgress(player) {
 }
 
 const LAB_LINES = [
-  { fire: "plasma", cond: "cold", result: "nothing",
-    show: "<span style='font-size:.55em;letter-spacing:.2em'>NOTHING</span>" },
-  { fire: "plasma", cond: "soaked", result: "nothing",
-    show: "<span style='font-size:.55em;letter-spacing:.2em'>NOTHING. WET NOTHING</span>" },
-  { fire: "smoulder", cond: "sustained", result: "warm",
-    show: "<span style='font-size:.55em;letter-spacing:.2em'>WARM. THAT IS ALL</span>" },
-  { fire: "plasma", cond: "pre-heated", result: "dented",
-    show: "<span style='font-size:.55em;letter-spacing:.2em'>A DENT.</span><br>" +
-          "<span style='font-size:.42em;letter-spacing:.24em;color:#9a9384'>THIS IS THE ONE THAT LOOKS LIKE PROGRESS</span>" },
-  { fire: "plasma", cond: "repeated", result: "same dent",
-    show: "<span style='font-size:.55em;letter-spacing:.2em'>THE SAME DENT</span>" },
+  { fire: "plasma", cond: "cold", result: "nothing", how: "a plasma blast on the cold plate",
+    show: "<span style='font-size:.55em;letter-spacing:.2em'>NOT A MARK</span>" +
+          "<br><span style='font-size:.42em;letter-spacing:.2em;color:#9a9384'>PLASMA, COLD PLATE</span>" },
+  { fire: "plasma", cond: "soaked", result: "nothing", how: "a blast on the plate soaked in seawater",
+    show: "<span style='font-size:.55em;letter-spacing:.2em'>NOTHING</span>" +
+          "<br><span style='font-size:.42em;letter-spacing:.2em;color:#9a9384'>PLASMA, SOAKED PLATE</span>" },
+  { fire: "smoulder", cond: "sustained", result: "warm", how: "a slow, steady flame",
+    show: "<span style='font-size:.55em;letter-spacing:.2em'>IT ONLY GETS WARM</span>" +
+          "<br><span style='font-size:.42em;letter-spacing:.2em;color:#9a9384'>A SLOW, STEADY FLAME</span>" },
+  { fire: "plasma", cond: "pre-heated", result: "dented", how: "a blast on the heated plate",
+    show: "<span style='font-size:.55em;letter-spacing:.2em'>A DENT</span>" +
+          "<br><span style='font-size:.42em;letter-spacing:.2em;color:#9a9384'>PLASMA ON THE HEATED PLATE</span>" },
+  { fire: "plasma", cond: "repeated", result: "same dent", how: "the same again",
+    show: "<span style='font-size:.55em;letter-spacing:.2em'>THE SAME DENT</span>" +
+          "<br><span style='font-size:.42em;letter-spacing:.2em;color:#9a9384'>ORDINARY FIRE WILL NOT BREAK IT</span>" },
 ];
 
 export { LAB_LINES };

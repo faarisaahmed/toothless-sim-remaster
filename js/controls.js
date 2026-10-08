@@ -1373,6 +1373,9 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
       mode = "level"; modeT = 0; recoverHold = 0; diveCommit = 0;
       if (rollDir !== 0) { currentRoll -= rollDir * Math.PI * 2; }
       rollDir = 0; rollT = 0; rollLat = 0; rollUp = 0; rollRate = 0;
+      // A dead stop stays a stop for a moment: he has to gather himself
+      // before the throttle answers again.
+      if (fraction >= 1) recoverHold = Math.max(recoverHold, 1.0);
     },
     /**
      * A hunter's bola has landed: bind his wings for `seconds`.
