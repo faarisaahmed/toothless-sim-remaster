@@ -49,6 +49,7 @@ import { createSpeedFx } from "./speedfx.js";
 import { createDownScreen } from "./downscreen.js";
 import { createSplashes } from "./splash.js";
 import { createPitWood } from "./pitwood.js";
+import { createBerkLand } from "./berkland.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -523,6 +524,9 @@ world.flora.forest?.prioritise?.(SPAWN);
 // sense the rest of that file means: nothing samples it, nothing collides with
 // it, and the height field does not know it exists.
 const horizon = setupHorizon(scene);
+// Berk's arch, waterfalls, rivers and pools (berkland.js): the parts of the
+// island a height field cannot be.
+const berkLand = createBerkLand(scene, { material: world.groundTiles[0]?.material });
 // Kept out of the mirror pass, and it is not an optimisation. A nine-kilometre
 // island reflected in water that is itself nine kilometres away is a shape the
 // reflection has no resolution to place: it renders as a second, inverted
@@ -2827,6 +2831,7 @@ function frame() {
   if (flights) flights.update(sdt);
 
   world.update(dragon ? dragon.position : null, sdt);
+  berkLand.update(sdt);
 
   // Manual camera swing (C). The only thing besides the mouse allowed to touch
   // yaw, and it only runs because the player asked for it.

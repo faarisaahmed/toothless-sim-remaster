@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { patchShader } from "./photoreal.js";
+import { BERK_SHAPE } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // The ground.
@@ -173,6 +174,31 @@ const FRAG_PARS = /* glsl */`
   // dither in this distance band, each drawing exactly the pixels the other
   // does not (pitmat.js uses the same pattern, complemented).
   uniform vec2 uHoleFade;     // metres from the camera: start, end
+  // Berk (terrain.js BERK_SHAPE): centre and 1 / half-axes of its outline.
+  // Its cliffs are layered sandstone, striped per pixel -- a heightfield
+  // cliff is one tall triangle and vertex colour cannot stripe it.
+  uniform vec4 uBerk;
+  float berkK( vec2 p ) {
+    vec2 u = ( p - uBerk.xy ) * uBerk.zw;
+    u *= u;
+    return 1.0 - smoothstep( 1.02, 1.3, sqrt( sqrt( u.x * u.x + u.y * u.y ) ) );
+  }
+  vec3 sandstone( vec3 p ) {
+    float w = sin( p.x * 0.0019 + p.z * 0.0013 ) * 2.0 + sin( p.z * 0.0041 - p.x * 0.0023 ) * 1.2;
+    float y = p.y;
+    float thin = sin( y * 0.9 + w * 0.5 ) * 0.5 + 0.5;
+    float thick = sin( y * 0.155 + w ) * 0.5 + 0.5;
+    float fine = sin( y * 2.7 + w * 1.7 ) * 0.5 + 0.5;
+    float t = clamp( 0.22 + thick * 0.5 + ( thin - 0.5 ) * 0.32 + ( fine - 0.5 ) * 0.12, 0.0, 1.0 );
+    vec3 c = mix( vec3( 0.198, 0.078, 0.027 ), vec3( 0.571, 0.323, 0.127 ), t );
+    float rust = smoothstep( 0.72, 0.95, sin( y * 0.061 - w * 0.7 ) ) * 0.6;
+    float pale = smoothstep( 0.8, 0.98, sin( y * 0.043 + 1.3 + w * 0.4 ) ) * 0.55;
+    c = mix( c, vec3( 0.323, 0.102, 0.034 ), rust );
+    c = mix( c, vec3( 0.686, 0.527, 0.323 ), pale );
+    // Weathered: some grey in it, more on some beds than others.
+    float grey = 0.22 + 0.18 * ( sin( y * 0.031 + w * 1.3 ) * 0.5 + 0.5 );
+    return mix( c, vec3( dot( c, vec3( 0.2126, 0.7152, 0.0722 ) ) ) * vec3( 1.05, 1.0, 0.95 ), grey );
+  }
 
   // The second read of every layer is this much larger and turned by this much,
   // so its repeat never lines up with the first one's.
@@ -380,6 +406,13 @@ const FRAG_MAIN = /* glsl */`
 
     if ( wRock > 0.004 ) {
       vec3 c = norm( triD( tRockD, vWPos, bw, uTileA.x ), 0 );
+      // Berk's sandstone: the colour comes per pixel from the strata, carried
+      // through the structure term so macro * tex comes out banded.
+      float bkR = berkK( vWPos.xz );
+      if ( bkR > 0.004 ) {
+        vec3 ss = sandstone( vWPos );
+        c *= mix( vec3( 1.0 ), ss / max( macro, vec3( 0.015 ) ), bkR * smoothstep( 0.3, 0.7, slope ) );
+      }
       vec3 rn = triN( tRockN, vWPos, bw, gN, uTileA.x );
       #ifndef TERRAIN_LQ
         // Photoreal: crags. The same rock relief a hundred metres to the
@@ -490,6 +523,12 @@ const FRAG_MAIN = /* glsl */`
     wNormal = normalize( mix( gN, normalize( nrm ), detail * mix( 0.9, 0.55, gBig ) * ( 1.0 - smoothstep( 300.0, 1400.0, dist ) * 0.6 ) ) );
   }
 
+  // ...and beyond the detail, Berk's cliffs are still striped.
+  {
+    float bkF = berkK( vWPos.xz ) * smoothstep( 0.35, 0.75, slope ) * ( 1.0 - detail );
+    if ( bkF > 0.004 ) albedo = mix( albedo, sandstone( vWPos ), bkF );
+  }
+
   // Far beyond the detail, the blotch field still varies the ground so whole
   // islands are not one flat wash of vertex colour.
   albedo *= mix( 1.0, 0.82 + blotch * 0.2, 1.0 - detail * 0.6 );
@@ -542,6 +581,7 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
     uWet: { value: 0 },
     uHole: { value: new THREE.Vector3(0, 0, 0) },
     uHoleFade: { value: new THREE.Vector2(70, 150) },
+    uBerk: { value: new THREE.Vector4(BERK_SHAPE.cx, BERK_SHAPE.cz, 1 / BERK_SHAPE.ax, 1 / BERK_SHAPE.az) },
   };
 
   const mat = new THREE.MeshStandardMaterial({

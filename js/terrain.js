@@ -9,6 +9,8 @@
 // no cache and no Math.random below the seed table.
 // ---------------------------------------------------------------------------
 
+import { HARBOUR, STATUES, SPIRE, TERRACES, VILLAGE, SEA_STACK, INTERIOR, segDist } from "./berklayout.js";
+
 export const SEA_LEVEL = 0;
 export const SEA_FLOOR = -190;
 
@@ -1000,7 +1002,7 @@ let PIT_TREAD = 0, PIT_RELIEF = 0;
 // The old ways into the pit (see pitPaths, below): null until they are built.
 let PATH_GRID = null;
 
-export function terrainHeight(x, z) {
+function naturalHeight(x, z) {
   PIT_RELIEF = 0;
   const w = warp(x, z);
   const px = w.x, pz = w.z;
@@ -1376,16 +1378,521 @@ export function terrainHeight(x, z) {
     if (w > 0) h = lerp(h, p.h + noise2(x * 0.02 + 7.7, z * 0.02 - 2.2) * 0.35, w * w * (3 - 2 * w));
   }
 
+  return h;
+}
+
+export function terrainHeight(x, z) {
+  // Berk is drawn rather than grown (see berkHeight, below): one box test
+  // and the rest of the world pays nothing for it.
+  let h = (x > BK.x0 && x < BK.x1 && z > BK.z0 && z < BK.z1) ? berkHeight(x, z) : naturalHeight(x, z);
   if (h < SEA_LEVEL && h > SEA_LEVEL - SHOAL_TAPER * 2.8) {
     const d = SEA_LEVEL - h;
     h = SEA_LEVEL - d * (1 + SHOAL_STEEP * Math.exp(-(d * d) / (SHOAL_TAPER * SHOAL_TAPER)));
   }
-
   return h;
 }
 
+// ---------------------------------------------------------------------------
+// Berk, as in the films.
+//
+// Every other island is grown from the table and the noise. Berk is drawn: a
+// cliff-girt island with a harbour inlet cut into its south coast, two statue
+// plinths standing in the mouth, a rock spire at the head with its summit
+// levelled for the Great Hall, a village of stacked shelves climbing the cliffs
+// either side, and behind it an interior of sandstone mesas -- forest on their
+// tops, strata down their walls -- standing out of a valley floor that rivers
+// drain to the sea.
+//
+// Every position and height comes from berklayout.js, which berk.js builds on
+// too, so the shelves are where the houses are. Nothing here is a world
+// literal: the island's outline is derived from the layout's own extents, so if
+// the layout moves Berk, this follows.
+//
+// The island is a rounded superellipse round INTERIOR.region whose south coast
+// runs through the harbour mouth. Outside it the sea floor shelves off, and
+// past a sound some hundreds of metres wide the natural terrain (the old Berk's
+// capes, the neighbours) takes over again.
+// ---------------------------------------------------------------------------
+const BREG = INTERIOR.region;
+const BK = (() => {
+  const south = HARBOUR.mouth.z - 10;            // the coast line, at the mouth
+  const north = BREG.minZ - 380;
+  const k = {
+    cx: (BREG.minX + BREG.maxX) / 2,
+    cz: (south + north) / 2,
+    ax: (BREG.maxX - BREG.minX) / 2 + 320,
+    az: (south - north) / 2,
+    south,
+  };
+  // Wide enough that the coastline noise (under a kilometre either way) and
+  // the sound beyond it are always inside.
+  k.x0 = k.cx - k.ax - 1800; k.x1 = k.cx + k.ax + 1800;
+  k.z0 = north - 1800;
+  k.z1 = Math.max(south, SEA_STACK.z + SEA_STACK.r) + 1400;
+  return k;
+})();
+/** Berk's outline (a superellipse, exponent 4), for the ground material. */
+export const BERK_SHAPE = { cx: BK.cx, cz: BK.cz, ax: BK.ax, az: BK.az };
+const VALLEY = INTERIOR.valleyH;
+// The terrace shelves' risers: how sharp the step between two levels is, in
+// metres (a softmin temperature). Small enough that a shelf is level to a hand's
+// breadth right to its lip.
+const TER_TAU = 1.0;
+
+// Per-mesa constants, worked out once.
+// Besides the layout's mesas, a few buttes of this file's own standing in the
+// coastal uplands either side of the village, so the island reads as a wall of
+// giants from the sea and not as a cliff with a village in it. Placed off the
+// island's own frame, so they move with the layout.
+const EXTRA_BUTTES = [
+  { dx: -1500, dz: -480, r: 190, h: 300 },
+  { dx: 1520, dz: -420, r: 210, h: 320 },
+  { dx: -1800, dz: -1500, r: 170, h: 270 },
+  { dx: 2120, dz: -2950, r: 160, h: 290 },
+].map((b) => ({ x: BK.cx + b.dx, z: BK.south + b.dz, r: b.r, h: b.h }));
+const MESAS = [...INTERIOR.mesas, ...EXTRA_BUTTES].map((m, n) => {
+  const foot = VALLEY + 28;
+  const tiers = m.h > 420 ? 5 : m.h > 340 ? 4 : 3;
+  const tierH = (m.h - foot) / tiers;
+  const cliffW = tierH * 0.12;
+  const ledgeW = 7;
+  const reach = m.r * 1.13 + 16 + tiers * (cliffW + ledgeW + 3) + 80;
+  return { ...m, foot, tiers, tierH, cliffW, ledgeW, reach, sx: n * 7.31 + 1.7, sz: n * 3.97 - 5.2 };
+});
+// The sea stack is a mesa with its feet in the sea.
+function seaStack(x, z, r, h, n) {
+  const foot = -12, tiers = 3, tierH = (h - foot) / tiers, cliffW = tierH * 0.1, ledgeW = 4;
+  return { x, z, r, h, foot, tiers, tierH, cliffW, ledgeW,
+           reach: r * 1.13 + 16 + tiers * (cliffW + ledgeW + 3) + 60, sx: 51.3 + n * 5.1, sz: -17.9 + n * 3.3 };
+}
+// The layout's lone stack, and two smaller ones of this file's own further
+// along the coast (clear of the line from the spawn to the harbour mouth).
+const SEA_STACKS = [
+  seaStack(SEA_STACK.x, SEA_STACK.z, SEA_STACK.r, SEA_STACK.h, 0),
+  seaStack(BK.cx + 1150, BK.south + 620, 52, 135, 1),
+  seaStack(BK.cx - 1750, BK.south + 380, 44, 105, 2),
+];
+
+/**
+ * One mesa: a forested table, a wall of stacked sandstone tiers -- each a sheer
+ * band and a narrow ledge, so the strata run level all the way round -- and a
+ * scree apron at the foot. -1e9 off it.
+ */
+function mesaAt(m, x, z) {
+  const dx = x - m.x, dz = z - m.z;
+  const R = m.reach;
+  if (dx > R || dx < -R || dz > R || dz < -R) return -1e9;
+  const d2 = dx * dx + dz * dz;
+  if (d2 > R * R) return -1e9;
+  const d = Math.sqrt(d2);
+  const inv = d > 1 ? 1 / d : 0, ux = dx * inv, uz = dz * inv;
+  // Bays and buttresses in plan, a few at the mesa's own scale and a gully
+  // every sixty metres or so.
+  const lob = noise2(ux * 1.4 + m.sx, uz * 1.4 + m.sz) * 0.075
+            + noise2(ux * 3.7 + m.sz, uz * 3.7 - m.sx) * 0.03;
+  const gul = noise2(x * 0.017 + m.sx, z * 0.017 - m.sz) * 9 + noise2(x * 0.045 - m.sz, z * 0.045) * 3;
+  const s = d - m.r * (1 + lob) + gul;
+  if (s <= 0) {
+    // The table: level to a few metres, a little higher in the middle, so the
+    // forest on it reads as a lid.
+    const t = d / m.r;
+    return m.h + noise2(x * 0.011 + m.sx, z * 0.011 + m.sz) * 2.2 + noise2(x * 0.035, z * 0.035 - m.sx) * 0.8
+         + 2.5 - t * t * 4;
+  }
+  const lw = m.ledgeW + noise2(x * 0.02 - m.sx, z * 0.02 + m.sz) * 3;
+  const Wt = m.cliffW + lw;
+  const k = Math.floor(s / Wt);
+  if (k < m.tiers) {
+    const u = s - k * Wt;
+    return m.h - k * m.tierH - m.tierH * smoothstep(u, 0, m.cliffW) - u * 0.06;
+  }
+  // The scree: everything that has come off the walls.
+  const sc = s - m.tiers * Wt;
+  return m.foot - sc * 0.62 - sc * sc * 0.0016;
+}
+
+// --- Rivers --------------------------------------------------------------
+// Each river is its layout polyline, carried on past the last point by a sea
+// loch so it always reaches open water, meandering a little in plan. The bed
+// is found at load (berkPrepare): the running minimum of the valley under it,
+// less a few metres, so it never climbs, and dropping to the sea at the end.
+const RIVER_MEANDER = 34;
+const RIVERS = INTERIOR.rivers.map((pts, n) => {
+  const p = pts.map((q) => ({ x: q.x, z: q.z }));
+  const a = p[p.length - 2], b = p[p.length - 1];
+  const L = Math.hypot(b.x - a.x, b.z - a.z);
+  p.push({ x: b.x + (b.x - a.x) / L * 1400, z: b.z + (b.z - a.z) / L * 1400 });
+  const segs = [];
+  let total = 0;
+  for (let k = 1; k < p.length; k++) {
+    const ax = p[k - 1].x, az = p[k - 1].z, dx = p[k].x - ax, dz = p[k].z - az;
+    const len = Math.hypot(dx, dz);
+    segs.push({ ax, az, dx, dz, len, from: total,
+                x0: Math.min(ax, ax + dx) - 360, x1: Math.max(ax, ax + dx) + 360,
+                z0: Math.min(az, az + dz) - 360, z1: Math.max(az, az + dz) + 360 });
+    total += len;
+  }
+  return { pts: p, segs, total, mouthS: total - 1400, bed: null, step: 20, seed: n * 13.7 + 2.9 };
+});
+const _riv = { d: 1e9, bed: 0, w: 0 };
+/** Nearest river channel: lateral distance, bed height and half-width there. */
+function riverAt(x, z) {
+  _riv.d = 1e9;
+  for (let n = 0; n < RIVERS.length; n++) {
+    const r = RIVERS[n];
+    if (!r.bed) continue;
+    let mx = 0, mz = 0, warped = false;
+    for (const sg of r.segs) {
+      if (x < sg.x0 || x > sg.x1 || z < sg.z0 || z > sg.z1) continue;
+      if (!warped) {
+        mx = x + noise2(x * 0.0031 + r.seed, z * 0.0031) * RIVER_MEANDER;
+        mz = z + noise2(x * 0.0031, z * 0.0031 - r.seed) * RIVER_MEANDER;
+        warped = true;
+      }
+      let u = ((mx - sg.ax) * sg.dx + (mz - sg.az) * sg.dz) / (sg.len * sg.len);
+      u = u < 0 ? 0 : u > 1 ? 1 : u;
+      const ex = mx - sg.ax - sg.dx * u, ez = mz - sg.az - sg.dz * u;
+      const d = Math.sqrt(ex * ex + ez * ez);
+      if (d < _riv.d) {
+        const sAt = sg.from + u * sg.len;
+        const fi = sAt / r.step, i0 = Math.min(r.bed.length - 2, Math.floor(fi));
+        _riv.d = d;
+        _riv.bed = lerp(r.bed[i0], r.bed[i0 + 1], fi - i0);
+        _riv.w = 13 + 22 * clamp(sAt / r.mouthS, 0, 1) + 50 * clamp((sAt - r.mouthS) / 600, 0, 1);
+      }
+    }
+  }
+  return _riv;
+}
+
+// --- The harbour -----------------------------------------------------------
+const HB_A = HARBOUR.mouth, HB_B = HARBOUR.head;
+/** Half-width of the inlet's water at fraction t from mouth (0) to head (1). */
+function harbourHW(t) {
+  const hw = HARBOUR.halfWidth;
+  if (t < 0.4) return lerp(HARBOUR.mouthHalfWidth, hw, smoothstep(t, 0, 0.4));
+  if (t > 0.65) return lerp(hw, hw * 0.78, smoothstep(t, 0.65, 1));
+  return hw;
+}
+
+// --- Village ---------------------------------------------------------------
+const VIL_PAD = 150;
+/**
+ * The village's ground: every terrace (and the quays) is a level; each point
+ * takes the level of the shelf it is nearest, by a soft minimum sharp enough
+ * that the step between two shelves is a sheer riser in the gap between them.
+ * Returns the level and how far (m) the nearest shelf is, for the blend.
+ */
+const _vil = { h: 0, dmin: 1e9 };
+const _terD = new Float64Array(TERRACES.length);
+function villageAt(x, z, dQuay) {
+  let dmin = dQuay;
+  for (let i = 0; i < TERRACES.length; i++) {
+    const T = TERRACES[i];
+    const d = segDist(x, z, T.a, T.b).d - T.w / 2;
+    _terD[i] = d;
+    if (d < dmin) dmin = d;
+  }
+  // Weights relative to the nearest, so nothing underflows far out.
+  let w = Math.exp(-(dQuay - dmin) / TER_TAU);
+  let sw = w, sh = w * HARBOUR.quayH;
+  for (let i = 0; i < TERRACES.length; i++) {
+    const e = _terD[i] - dmin;
+    if (e > 40) continue;
+    w = Math.exp(-e / TER_TAU);
+    sw += w; sh += w * TERRACES[i].h;
+  }
+  _vil.h = sh / sw;
+  _vil.dmin = dmin;
+  return _vil;
+}
+
+/** 0 off the village, 1 on it: keeps the forest and the grass off the shelves. */
+export function berkVillageMask(x, z) {
+  const dx = Math.max(VILLAGE.minX - x, x - VILLAGE.maxX, 0);
+  const dz = Math.max(VILLAGE.minZ - z, z - VILLAGE.maxZ, 0);
+  if (dx > 80 || dz > 80) return 0;
+  return 1 - smoothstep(Math.hypot(dx, dz), 10, 80);
+}
+
+/** Inside Berk's drawn box at all? (Cheap; for the forest, grass and paint.) */
+export function inBerk(x, z) {
+  return x > BK.x0 && x < BK.x1 && z > BK.z0 && z < BK.z1;
+}
+
+// --- The island's outline ----------------------------------------------------
+/**
+ * Metres inland from Berk's coast (negative at sea): a superellipse's own
+ * distance estimate, with headlands and coves on it except round the harbour
+ * mouth, where the statues have to stand where the layout says.
+ */
+function berkInland(x, z) {
+  const u = (x - BK.cx) / BK.ax, v = (z - BK.cz) / BK.az;
+  const u2 = u * u, v2 = v * v;
+  const F = u2 * u2 + v2 * v2;
+  const q = Math.sqrt(Math.sqrt(F));
+  const q3 = q * q * q;
+  const gx = (u2 * u) / BK.ax, gz = (v2 * v) / BK.az;
+  const g = Math.sqrt(gx * gx + gz * gz) / Math.max(q3, 1e-9);
+  let inland = g > 1e-7 ? Math.min(6000, (1 - q) / g) : 6000;
+  // Calm round the village coast and dead calm at the mouth.
+  const vx = Math.max(VILLAGE.minX - x, x - VILLAGE.maxX, 0);
+  const vz = Math.max(VILLAGE.minZ - z, z - VILLAGE.maxZ, 0);
+  const calm = 0.06 + 0.94 * smoothstep(Math.hypot(vx, vz), 0, 700);
+  const mouth = smoothstep(Math.hypot(x - HB_A.x, z - HB_A.z), 260, 520);
+  inland += (noise2(x * 0.0002 - 5.7, z * 0.0002 + 2.2) * 320 + noise2(x * 0.00045 + 1.3, z * 0.00045 + 6.1) * 380
+           + noise2(x * 0.0011 + 4.1, z * 0.0011 - 7.7) * 170
+           + noise2(x * 0.0042 - 3.3, z * 0.0042 + 9.2) * 45
+           + noise2(x * 0.014 + 1.9, z * 0.014 + 3.4) * 12) * calm * mouth;
+  return inland;
+}
+
+/** The island's ground before the people and the water: valley, hills, coastal uplands. */
+function berkBase(x, z, inland) {
+  const roll = fbm(x * 0.0007 + 3.3, z * 0.0007 - 1.1, 3) * 24;
+  const hills = smoothstep(fbm(x * 0.00042 - 8.2, z * 0.00042 + 4.4, 2), 0.08, 0.55) * 75;
+  const rim = 135 * (1 - smoothstep(inland, 60, 1200));
+  // The village sits in an amphitheatre: the land round it stands high, and
+  // inside it, between the shelves and round the spire, it is low, so the
+  // spire stands free.
+  const ex = Math.max(VILLAGE.minX - x, x - VILLAGE.maxX), ez = Math.max(VILLAGE.minZ - z, z - VILLAGE.maxZ);
+  const sd = ex > 0 || ez > 0 ? Math.hypot(Math.max(ex, 0), Math.max(ez, 0)) : Math.max(ex, ez);
+  const amph = 120 * (1 - smoothstep(sd, 0, 750)) * smoothstep(sd, -220, -40);
+  let g = VALLEY + roll + hills + Math.max(rim, amph);
+  g += (ridged(x * 0.0044, z * 0.0044, 2) - 0.44) * 10;
+  // Sandstone weathers in steps too.
+  const step = 26 + noise2(x * 0.0009 - 40, z * 0.0009 + 12) * 6;
+  const qq = g / step, fl = Math.floor(qq);
+  const stepped = (fl + smoothstep(qq - fl, 0.35, 0.85)) * step;
+  return lerp(g, stepped, 0.55 * smoothstep(g, VALLEY + 25, VALLEY + 60));
+}
+
+/** Berk's land surface (no coast cliff, no plinths). */
+function berkLand(x, z, inland, withPools = true) {
+  let h = berkBase(x, z, inland);
+
+  // Rivers: a flat bed a river's width across, banks rising off it. Cut
+  // into the valley before the mesas go on, so a river never bites a mesa.
+  const rv = riverAt(x, z);
+  if (rv.d < 360) {
+    const bank = rv.bed + Math.max(0, rv.d - rv.w) * 0.42 + Math.max(0, rv.d - rv.w - 30) * 0.25;
+    if (bank < h) h = bank;
+  }
+
+  // Mesas.
+  for (let i = 0; i < MESAS.length; i++) {
+    const m = mesaAt(MESAS[i], x, z);
+    if (m > h) h = m;
+  }
+  // Plunge pools under the waterfalls.
+  if (withPools) {
+    for (const p of BERK_POOLS) {
+      const dx = x - p.x, dz = z - p.z;
+      if (dx > p.r * 2 || dx < -p.r * 2 || dz > p.r * 2 || dz < -p.r * 2) continue;
+      const t = Math.sqrt(dx * dx + dz * dz) / p.r;
+      if (t > 1.9) continue;
+      const bowl = p.h - 5 + 6.5 * t * t;
+      if (bowl < h) h = lerp(bowl, h, smoothstep(t, 1.25, 1.9));
+    }
+  }
+
+  // The village and the harbour.
+  const hs = segDist(x, z, HB_A, HB_B);
+  const hw = harbourHW(hs.t);
+  const dQuay = hs.d - hw - HARBOUR.quayW;
+  if (dQuay < 400 || inVillageBox(x, z, VIL_PAD)) {
+    const v = villageAt(x, z, dQuay);
+    const wv = 1 - smoothstep(v.dmin, 55, 130);
+    if (wv > 0) h = lerp(h, v.h, wv);
+  }
+  if (hs.d < hw + HARBOUR.quayW) {
+    if (hs.d < hw) {
+      const wall = smoothstep(hs.d, hw - 6, hw);
+      h = lerp(HARBOUR.floor + noise2(x * 0.02, z * 0.02) * 1.5, HARBOUR.quayH, wall);
+    } else h = HARBOUR.quayH;
+  }
+
+  // The spire: a sheer stack of rock at the harbour head, its summit planed
+  // flat for the Great Hall.
+  {
+    const dx = x - SPIRE.x, dz = z - SPIRE.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d < SPIRE.baseR + 40) {
+      if (d <= SPIRE.topR) h = SPIRE.topH;
+      else {
+        const inv = 1 / d;
+        const n = noise2(dx * inv * 2.2 + 9.1, dz * inv * 2.2 - 3.3) * 0.06 + noise2(x * 0.03, z * 0.03) * 0.025;
+        const t = ((d - SPIRE.topR) / (SPIRE.baseR - SPIRE.topR)) * (1 - n) - 0.004;
+        const sh = SPIRE.topH * (1
+          - smoothstep(t, 0.0, 0.06) * 0.38
+          - smoothstep(t, 0.13, 0.2) * 0.32
+          - smoothstep(t, 0.29, 0.38) * 0.2
+          - smoothstep(t, 0.42, 0.75) * 0.1);
+        if (sh > h) h = sh;
+      }
+    }
+  }
+  return h;
+}
+
+function inVillageBox(x, z, pad) {
+  return x > VILLAGE.minX - pad && x < VILLAGE.maxX + pad && z > VILLAGE.minZ - pad && z < VILLAGE.maxZ + pad;
+}
+
+/** The whole of Berk's box: island, coast, sea floor, sound, then the world. */
+function berkHeight(x, z) {
+  const inland = berkInland(x, z);
+  let h;
+  if (inland > -2) {
+    const L = berkLand(x, z, inland);
+    // The coast: sea cliffs, steep and a little broken.
+    const cliff = -8 + inland * (5.5 + noise2(x * 0.02, z * 0.02) * 1.5);
+    h = Math.min(L, cliff);
+  } else {
+    // The sea floor off the cliffs: a short bench, then down.
+    const off = -inland;
+    let sb = -8 - 36 * smoothstep(off, 0, 260) - 50 * smoothstep(off, 200, 900)
+           + noise2(x * 0.004, z * 0.004) * 4;
+    // The harbour channel runs on out through the mouth.
+    const hs = segDist(x, z, HB_A, HB_B);
+    if (hs.d < harbourHW(hs.t)) sb = Math.min(sb, HARBOUR.floor);
+    // Past the sound, the world again -- except south of the coast, where
+    // the old Berk's southern cape stood and the harbour's approach is now.
+    const wN = smoothstep(off, 220, 820);
+    if (wN > 0) {
+      let h0 = naturalHeight(x, z);
+      const southK = smoothstep(z, BK.south - 300, BK.south + 250) * (1 - smoothstep(z, BK.z1 - 500, BK.z1));
+      if (southK > 0) h0 = lerp(h0, Math.min(h0, -40), southK);
+      h = lerp(sb, h0, wN);
+    } else h = sb;
+  }
+
+  // The statues' plinths: rock columns out of the sea, flat on top.
+  for (const s of STATUES) {
+    const dx = x - s.x, dz = z - s.z;
+    if (dx > s.plinthR + 14 || dx < -s.plinthR - 14 || dz > s.plinthR + 14 || dz < -s.plinthR - 14) continue;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    let p;
+    if (d <= s.plinthR) p = s.plinthH;
+    else {
+      const w = 7 + noise2(x * 0.08, z * 0.08) * 3;
+      p = s.plinthH - (s.plinthH + 24) * smoothstep(d - s.plinthR, 0, w);
+    }
+    if (p > h) h = p;
+  }
+  // The lone stack off the mouth.
+  for (let i = 0; i < SEA_STACKS.length; i++) {
+    const st = mesaAt(SEA_STACKS[i], x, z);
+    if (st > h) h = st;
+  }
+  return h;
+}
+
+/**
+ * How much of a place is drawn Berk, 0..1: 1 on the island and its sea
+ * cliffs, 0 across the sound where the natural terrain is back. The ground
+ * paint reads it for the sandstone, the forest for the tree line.
+ */
+export function berkAmount(x, z) {
+  if (!(x > BK.x0 && x < BK.x1 && z > BK.z0 && z < BK.z1)) return 0;
+  return 1 - smoothstep(-berkInland(x, z), 250, 700);
+}
+
+/** Is this spot in a river channel or a plunge pool on Berk (for the trees)? */
+export function berkWet(x, z) {
+  if (!(x > BK.x0 && x < BK.x1 && z > BK.z0 && z < BK.z1)) return 0;
+  for (const p of BERK_POOLS) {
+    const d = Math.hypot(x - p.x, z - p.z);
+    if (d < p.r * 1.3) return 1;
+  }
+  const rv = riverAt(x, z);
+  return rv.d < rv.w + 10 ? 1 : 0;
+}
+
+/** On a mesa's table (for the forest: every one is wooded). */
+export function berkMesaTop(x, z) {
+  for (let i = 0; i < MESAS.length; i++) {
+    const m = MESAS[i];
+    const dx = x - m.x, dz = z - m.z;
+    if (dx * dx + dz * dz < m.r * m.r * 1.1) return 1;
+  }
+  return 0;
+}
+
+/** River beds and pool levels, worked out once the noise is ready. */
+export const BERK_POOLS = [];
+function berkPrepare() {
+  for (const r of RIVERS) {
+    const n = Math.ceil(r.total / r.step) + 2;
+    const bed = new Float64Array(n);
+    let run = Infinity;
+    for (let i = 0; i < n; i++) {
+      const s = Math.min(r.total, i * r.step);
+      // Where on the polyline is s?
+      let px = r.pts[0].x, pz = r.pts[0].z;
+      for (const sg of r.segs) {
+        if (s <= sg.from + sg.len) { const u = (s - sg.from) / sg.len; px = sg.ax + sg.dx * u; pz = sg.az + sg.dz * u; break; }
+      }
+      // The ground a little either side, at the lowest.
+      let g = Infinity;
+      for (const [ox, oz] of [[0, 0], [25, 0], [-25, 0], [0, 25], [0, -25]]) {
+        g = Math.min(g, berkBase(px + ox, pz + oz, berkInland(px + ox, pz + oz)));
+      }
+      run = Math.min(run, g - 7);
+      const toSea = -8 + Math.max(0, r.mouthS - s) * 0.075;
+      bed[i] = Math.min(run, toSea);
+    }
+    r.bed = bed;
+  }
+  for (const w of INTERIOR.waterfalls) {
+    const p = w.pool;
+    let lo = Infinity;
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const x = p.x + Math.cos(a) * p.r * 1.05, z = p.z + Math.sin(a) * p.r * 1.05;
+      lo = Math.min(lo, berkLand(x, z, berkInland(x, z), false));
+    }
+    BERK_POOLS.push({ x: p.x, z: p.z, r: p.r, h: lo - 1.2 });
+  }
+}
+
+/**
+ * The natural water above the sea on Berk, for berkland.js to draw: each
+ * river as a centre line of {x, z, y (water surface), w (half-width)} where
+ * it runs above sea level, and the plunge pools.
+ */
+export function berkWaters() {
+  const rivers = RIVERS.map((r) => {
+    const out = [];
+    for (let s = 0; s <= r.total; s += 12) {
+      let px = 0, pz = 0;
+      for (const sg of r.segs) {
+        if (s <= sg.from + sg.len) { const u = (s - sg.from) / sg.len; px = sg.ax + sg.dx * u; pz = sg.az + sg.dz * u; break; }
+      }
+      // The channel is cut round the meandered point; the world point whose
+      // meander lands on the centre line is, near enough, this one.
+      let wx = px, wz = pz;
+      for (let it = 0; it < 3; it++) {
+        wx = px - noise2(wx * 0.0031 + r.seed, wz * 0.0031) * RIVER_MEANDER;
+        wz = pz - noise2(wx * 0.0031, wz * 0.0031 - r.seed) * RIVER_MEANDER;
+      }
+      const fi = s / r.step, i0 = Math.min(r.bed.length - 2, Math.floor(fi));
+      const bed = lerp(r.bed[i0], r.bed[i0 + 1], fi - i0);
+      const w = 13 + 22 * clamp(s / r.mouthS, 0, 1);
+      out.push({ x: wx, z: wz, y: bed + 1.3, w });
+      if (bed < -1) break;
+    }
+    return out;
+  });
+  return { rivers, pools: BERK_POOLS.map((p) => ({ ...p, y: p.h })) };
+}
+
+/** A mesa's top height and actual rim radius along a bearing, for berkland.js. */
+export function berkMesas() { return MESAS.map((m) => ({ x: m.x, z: m.z, r: m.r, h: m.h })); }
+
 flattenIslands();
 buildGrid();
+berkPrepare();
 placeLedges();
 
 function placeLedges() {
@@ -1742,7 +2249,11 @@ const WOOD_BIAS = -0.45;
 // it in metres: the stack moved with the chart and did not grow.
 const HOLLOW_CAMP = { x: chart(1700) - 50, z: chart(2550) + 50 };   // SITES.stack, chapters.js
 export function fertility(x, z, h, slope) {
-  if (h < SEA_LEVEL + 4 || h > 350) return 0;
+  // Berk's mesas are forested on their tops, five hundred metres up; its
+  // village, harbour and spire are not forested at all.
+  const bk = berkAmount(x, z);
+  if (h < SEA_LEVEL + 4 || h > (bk > 0 ? 560 : 350)) return 0;
+  if (bk > 0 && (berkVillageMask(x, z) >= 1 || berkWet(x, z))) return 0;
   const isl = islandAt(x, z);
   const bare = isl ? isl.bare : 0.5;
   // Patchiness rides ON TOP of a floor instead of replacing it.
@@ -1777,7 +2288,8 @@ export function fertility(x, z, h, slope) {
   // it, so the wood was pushed off the hills and onto the valley floors.
   f *= 1 - smoothstep(slope, 0.46, 0.88);
   f *= smoothstep(h, 4, 22);                   // above the beach
-  f *= 1 - smoothstep(h, 215, 335);            // below the tree line
+  f *= 1 - smoothstep(h, 215, 335) * (1 - bk);  // below the tree line (Berk has none)
+  if (bk > 0) f *= 1 - berkVillageMask(x, z);
   if (CLEARING) {
     // Burnt out in the middle, dying at the edge, wood again beyond it. The
     // margin is wide on purpose: a clearing that ends on a circle reads as a
@@ -1815,13 +2327,15 @@ export function fertility(x, z, h, slope) {
  */
 export function woodland(x, z, h) {
   let forced = 0;
+  // Every mesa top on Berk is a wood.
+  if (berkAmount(x, z) > 0 && berkMesaTop(x, z)) return 1;
   for (const w of WOOD_FORCED) {
     const d = Math.hypot(x - w.x, z - w.z);
     if (d < w.r + w.edge) forced = Math.max(forced, 1 - smoothstep(d, w.r, w.r + w.edge));
   }
   if (forced >= 1) return 1;
   const n = fbm(x * 0.00031 + 5.3, z * 0.00031 - 9.1, 3) + fbm(x * 0.0013 - 2.1, z * 0.0013 + 6.6, 2) * 0.22;
-  const low = 1 - smoothstep(h, 50, 260);
+  const low = 1 - smoothstep(h, 50, 260) * (1 - 0.6 * berkAmount(x, z));
   const w = smoothstep(n + low * 0.42 + WOOD_BIAS, 0.0, 0.2);
   return Math.max(w, forced);
 }
