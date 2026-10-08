@@ -42,6 +42,9 @@ export function createSpeedFx(scene) {
       void main() { gl_FragColor = vec4( uColor, vA * uOpacity ); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
+  // Off: the streaks read as a cheap effect. Kept in the code in case a
+  // subtler version is wanted; ENABLED gates them.
+  const ENABLED = false;
   const lines = new THREE.LineSegments(g, mat);
   lines.frustumCulled = false;
   lines.renderOrder = 5;
@@ -103,7 +106,7 @@ export function createSpeedFx(scene) {
     // Streaks: visible from about 90 m/s, full by flat out.
     const k = THREE.MathUtils.smoothstep(speed, 90, 330);
     mat.uniforms.uOpacity.value = k * 0.5;
-    lines.visible = k > 0.01;
+    lines.visible = ENABLED && k > 0.01;
     if (lines.visible) {
       const c = camera.position;
       // Length: a twentieth of a second of travel, so the stretch grows with speed.
