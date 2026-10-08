@@ -15,9 +15,9 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 //   "auto"   the ones tools/dragons/build_dragons.py rigged: a proper
 //            hierarchy with fixed names (Spine_, Neck_, Head, Tail_, WingL_,
 //            WingR_). Posed bone by bone.
-//   "storm"  the Stormcutter: every bone a direct child of one root, so a
-//            wing is a set of siblings, and moving it means swinging all of
-//            them round the shoulder together.
+//   "storm"  the Stormcutter: its own skeleton, re-chained and moved onto
+//            the body by build_dragons.py (it came flat: a hundred siblings).
+//            Four wings, a tail, a neck: posed joint by joint in stormRig().
 //   "bip"    the Nadder and the Gronckle: a 3ds Max biped rig with thirty
 //            animations of its own, which are simply played.
 //
@@ -218,8 +218,8 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
   body.traverse((o) => {
     if (!o.isBone) return;
     const P = o.parent.getWorldQuaternion(new THREE.Quaternion());
-    rest.set(o, { q: o.quaternion.clone(), p: o.position.clone(), P, Pi: P.clone().invert(),
-      x: o.getWorldPosition(new THREE.Vector3()).x });
+    const w = o.getWorldPosition(new THREE.Vector3());
+    rest.set(o, { q: o.quaternion.clone(), p: o.position.clone(), P, Pi: P.clone().invert(), x: w.x, w });
   });
 
   // Wing sets: [{bones, pivot, side, upper}]
@@ -242,28 +242,6 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     for (const pre of ["Neck", "NeckB"]) {
       for (let i = 0; i < 3; i++) { const b = findBone(body, new RegExp(`^${pre}_${i}$`)); if (b) necks.push(b); }
     }
-  } else if (kit.kind === "storm") {
-    // Each of the four wings: shoulder (upper pair only), arm, forearm, hand
-    // and its fingers — all siblings, so the joints are applied by hand.
-    for (const [tag, side, upper] of [["Lu", 1, 1], ["Ll", 1, 0], ["Ru", -1, 1], ["Rl", -1, 0]]) {
-      const all = [], fore = [], hand = [];
-      let sh = null, el = null, wr = null;
-      body.traverse((o) => {
-        if (!o.isBone) return;
-        const m = o.name.match(new RegExp(`^Bone_${tag}_(Shoulder|Arm|ForeArm|Hand|Wing)`));
-        if (!m) return;
-        all.push(o);
-        if (m[1] === "Shoulder" || (m[1] === "Arm" && !sh)) sh = o;
-        if (m[1] === "ForeArm") { el = o; fore.push(o); }
-        if (m[1] === "Hand") wr = o;
-        if (m[1] === "Hand" || m[1] === "Wing") hand.push(o);
-      });
-      if (!all.length || !sh || !el || !wr) continue;
-      const R = (b) => rest.get(b).p;
-      wings.push({ all, fore: [...fore, ...hand], hand, sh: R(sh), el: R(el), wr: R(wr),
-        side: Math.sign(rest.get(sh).x) || side, upper });
-    }
-    for (let i = 1; i <= 6; i++) { const b = findBone(body, new RegExp(`^Bone_M_Tail0${i}`)); if (b) tails.push(b); }
   }
 
   // --- posing helpers -------------------------------------------------------
@@ -279,19 +257,8 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
     bone.quaternion.copy(r.Pi).multiply(q).multiply(r.P).multiply(r.q);
   }
 
-  /** Turn a set of sibling bones, as they are now, round a pivot (parent
-   *  space) by q (actor frame). */
-  const _l = new THREE.Quaternion();
-  function spin(bones, pivot, q) {
-    const r0 = rest.get(bones[0]);
-    _l.copy(r0.Pi).multiply(q).multiply(r0.P);
-    for (const b of bones) {
-      b.position.sub(pivot).applyQuaternion(_l).add(pivot);
-      b.quaternion.premultiply(_l);
-    }
-  }
-
   const state = { mode: "idle", t: Math.random() * 10, beat: 0, droop: 0, flapRate: 1.6, next: 0 };
+  const storm = kit.kind === "storm" ? stormRig({ body, root, inner, rest, turn, state, length }) : null;
 
   function poseWings() {
     for (const w of wings) {
@@ -304,7 +271,6 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
         // not stand with fifteen metres of wing held out.
         lift = -0.22 + Math.sin(state.t * 0.9) * 0.03;
         sweep = 1.35;
-        if (w.all) { lift = w.upper ? 0.1 : -0.35; sweep = 1.0; }
         if (w.side > 0 && state.droop > 0) { lift -= state.droop * 0.45; sweep -= state.droop * 0.5; }
       }
       // Lift about the nose axis (+ raises the +X wing), then sweep about up
@@ -329,26 +295,11 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
             : _q.setFromAxisAngle(UP, -0.35 * w.side);
           turn(w.chain[1], q1.clone());
         }
-      } else if (w.all) {
-        // Joint by joint, outermost first, every pivot still where it rests.
-        const s = w.side, fly = state.mode === "fly";
-        for (const b of w.all) { const r = rest.get(b); b.position.copy(r.p); b.quaternion.copy(r.q); }
-        if (fly) {
-          spin(w.hand, w.wr, _q.setFromAxisAngle(FWD, Math.sin(state.beat - 1.2) * 0.35 * s));
-          spin(w.fore, w.el, _q.setFromAxisAngle(FWD, Math.sin(state.beat - 0.7) * 0.25 * s));
-        } else {
-          // Folded the way a bat folds: forearm forward along the arm, hand
-          // and fingers back along that, the whole thing laid on the flank.
-          spin(w.hand, w.wr, _q.setFromAxisAngle(UP, 2.7 * s));
-          spin(w.fore, w.el, _q.setFromAxisAngle(UP, -2.5 * s));
-        }
-        spin(w.all, w.sh, q);
       }
     }
     // The tail sways; the neck looks round, slowly.
     const sway = state.mode === "fly" ? 0.08 : 0.16;
     tails.forEach((b, i) => {
-      if (kit.kind === "storm") return;      // siblings, not a chain: left alone
       turn(b, _q.setFromAxisAngle(UP, Math.sin(state.t * 0.8 - i * 0.5) * sway * (0.3 + i * 0.15)));
     });
     necks.forEach((b, i) => {
@@ -385,9 +336,249 @@ export function createActor(kit, { length = 8, tint = null, mix = 0.35 } = {}) {
         }
       }
       if (mixer) { mixer.update(dt); if (pelvis) pin(state.mode !== "fly"); }
-      if (kit.kind !== "bip") poseWings();
+      if (storm) storm.pose(dt);
+      else if (kit.kind !== "bip") poseWings();
     },
   };
   actor.setMode("idle");
   return actor;
+}
+
+// ---------------------------------------------------------------------------
+// The Stormcutter, joint by joint.
+//
+// build_dragons.py gives her a real skeleton: pelvis > spine > neck > head,
+// pelvis > six tail bones, pelvis > legs, and four wings, each spine >
+// (shoulder) > arm > forearm > hand > four two-bone fingers and two membrane
+// flaps. Every joint here is a turn in the actor's frame (+X her left, +Y up,
+// +Z her nose) on top of its rest pose, carried along by its parent's turn —
+// so "about Y" at the wrist means about the wing's own surface normal,
+// wherever the arm has put it.
+//
+// The rest pose is the wing spread flat and level. From it:
+//   FOLDING is in the wing's own plane (elbow forward, wrist back, the fingers
+//   closed up like a fan), and then the whole folded wing is swung back and
+//   rolled down onto the flank at the shoulder. The upper wings lie over the
+//   lower ones.
+//   THE BEAT is a lift about the nose axis at the shoulder; each joint further
+//   out follows the one before it a little late, so the bend runs out along
+//   the wing, and on the upstroke the wing half folds. The two pairs are out
+//   of step; the tail and neck move against the body's heave.
+//   THE BROKEN WING (her left upper, under setDroop) hangs half open, rolled
+//   down until the fingertips drag, and swings slack with her breathing.
+// ---------------------------------------------------------------------------
+const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), AZ = new THREE.Vector3(0, 0, 1);
+const Qx = (a) => new THREE.Quaternion().setFromAxisAngle(AX, a);
+const Qy = (a) => new THREE.Quaternion().setFromAxisAngle(AY, a);
+const Qz = (a) => new THREE.Quaternion().setFromAxisAngle(AZ, a);
+/** Turn by a, then b, then c: c * b * a. */
+const Q3 = (c, b, a) => c.multiply(b).multiply(a);
+const lerp = THREE.MathUtils.lerp;
+const ease = (cur, to, rate, dt) => cur + (to - cur) * (1 - Math.exp(-rate * dt));
+
+// Wing poses. sweep: back, in the wing plane, at the shoulder. lift: up about
+// the nose axis (negative rolls a folded wing down the flank). twist: leading
+// edge down. elbow: forearm folded forward. wrist: hand folded back. close:
+// fingers fanned shut (0 open .. 1 together). bendE/W/F/T: out-of-plane bend
+// at elbow, wrist, finger root, finger tip (the beat's lag).
+const FOLD_UPPER = { sweep: 1.42, lift: -0.9, twist: -0.1, elbow: 2.75, wrist: 2.85, close: 1, bendE: 0, bendW: -0.05, bendF: -0.08, bendT: -0.22 };
+const FOLD_LOWER = { sweep: 1.38, lift: -1.25, twist: -0.1, elbow: 2.75, wrist: 2.85, close: 1, bendE: 0, bendW: -0.05, bendF: -0.08, bendT: -0.22 };
+const BROKEN = { sweep: 0.6, lift: -0.42, twist: -0.3, elbow: 0.55, wrist: 0.45, close: 0.15, bendE: 0, bendW: -0.22, bendF: -0.15, bendT: -0.15 };
+const WING_KEYS = Object.keys(FOLD_UPPER);
+/** The pose tables, for tuning from a test page (stormcheck.html). */
+export const STORM_POSES = { FOLD_UPPER, FOLD_LOWER, BROKEN };
+
+function stormRig({ body, root, inner, rest, turn, state, length }) {
+  const B = (k) => findBone(body, new RegExp(`^Bone_${k}_\\d`));
+  const all = [];
+  body.traverse((o) => { if (o.isBone && rest.has(o)) all.push(o); });
+  const ID = new THREE.Quaternion();
+
+  // A big animal beats slowly: 0.55 Hz at thirteen metres, quicker small.
+  state.flapRate = 0.55 * Math.sqrt(13 / Math.max(length, 1));
+
+  const wings = [];
+  for (const [tag, s, upper] of [["Lu", 1, 1], ["Ll", 1, 0], ["Ru", -1, 1], ["Rl", -1, 0]]) {
+    const w = { s, upper, broken: tag === "Lu", arm: B(`${tag}_Arm`), fore: B(`${tag}_ForeArm`), hand: B(`${tag}_Hand`),
+      fingers: [], flaps: [] };
+    if (!w.arm || !w.fore || !w.hand) continue;
+    // How far back each finger fans at rest, in the wing plane: closing the
+    // fan turns each one forward by that much, onto the leading finger.
+    const fan = (from, to) => { const d = to.clone().sub(from); return Math.atan2(-d.z, d.x * s); };
+    let a0 = null;
+    for (const f of "ABCD") {
+      const a = B(`${tag}_WingFinger${f}01`), b = B(`${tag}_WingFinger${f}02`);
+      if (!a || !b) continue;
+      const ang = fan(rest.get(a).w, rest.get(b).w);
+      if (a0 === null) a0 = ang;
+      w.fingers.push({ a, b, ang: ang - a0, k: "ABCD".indexOf(f) });
+    }
+    for (const f of "BC") {
+      const fl = B(`${tag}_WingFingerFlap${f}01`);
+      if (fl) w.flaps.push({ b: fl, ang: fan(rest.get(w.hand).w, rest.get(fl).w) - (a0 ?? 0) });
+    }
+    wings.push(w);
+  }
+  const tail = [1, 2, 3, 4, 5, 6].map((i) => B(`M_Tail0${i}`)).filter(Boolean);
+  const pelvis = B("M_Pelvis"), spine = B("M_Spine01"), neck = B("M_Neck01"), head = B("M_Head"), jaw = B("M_Jaw");
+  const legs = ["L", "R"].map((s) => ({ up: B(`${s}_UpLeg`), leg: B(`${s}_Leg`), tar: B(`${s}_Tarsal`), foot: B(`${s}_Foot`) }))
+    .filter((l) => l.up && l.leg && l.tar && l.foot);
+  const fins = [];
+  for (const [k, s] of [["L", 1], ["R", -1]]) for (const f of ["A", "C"]) { const b = B(`${k}_Pelvicfin${f}01`); if (b) fins.push({ b, s, k: f === "A" ? 1 : 0.8 }); }
+  const lids = ["Lu", "Ru"].map((s) => B(`${s}_Eyelid`)).filter(Boolean);
+  const _v = new THREE.Vector3();
+  const footY = () => {
+    let lo = Infinity;
+    for (const l of legs) lo = Math.min(lo, inner.worldToLocal(l.foot.getWorldPosition(_v)).y);
+    return lo;
+  };
+  root.updateMatrixWorld(true);
+  const foot0 = legs.length ? footY() : 0;
+  const body0 = body.position.clone();
+
+  // Blends, eased so a change of mode is a movement, not a cut.
+  const m = { t: 0, fly: 0, sleep: 0, droop: 0, curl: 0.3, look: { yaw: 0, pitch: 0 }, want: { yaw: 0, pitch: 0 }, nextLook: 0, blink: 3 };
+
+  /** turn(), about the PARENT's joint rather than the bone's own: the
+   *  fingers and membrane flaps sit off the hand, and fan round the wrist. */
+  const _d = new THREE.Quaternion();
+  function turnAbout(bone, q) {
+    const r = rest.get(bone);
+    _d.copy(r.Pi).multiply(q).multiply(r.P);
+    bone.quaternion.copy(_d).multiply(r.q);
+    bone.position.copy(r.p).applyQuaternion(_d);
+  }
+
+  function poseWing(w, p, broken) {
+    const s = w.s;
+    turn(w.arm, Q3(Qx(p.twist), Qz(s * p.lift), Qy(s * p.sweep)));
+    turn(w.fore, Q3(Qz(s * p.bendE), Qy(-s * p.elbow), ID.clone()));
+    turn(w.hand, Q3(Qz(s * p.bendW), Qy(s * p.wrist), ID.clone()));
+    for (const f of w.fingers) {
+      // Closed, the fingers lie a hair apart rather than through each other.
+      const shut = -s * (f.ang - f.k * 0.035) * p.close;
+      const slack = broken ? Math.sin(m.t * 0.9 - f.k * 0.6) * 0.03 * broken - f.k * 0.03 * broken : 0;
+      turnAbout(f.a, Q3(Qz(s * (p.bendF + slack)), Qy(shut), ID.clone()));
+      turn(f.b, Qz(s * p.bendT * (1 + f.k * 0.25)));
+    }
+    for (const f of w.flaps) turnAbout(f.b, Q3(Qz(s * p.bendF), Qy(-s * f.ang * p.close * 0.97), ID.clone()));
+  }
+
+  // One wing's pose at a point in the beat. L is the wing's angle above level
+  // as the stroke goes; each joint further out takes it a little later.
+  const L = (ph, amp) => 0.1 + amp * Math.sin(ph);
+  function flyPose(ph, amp, out) {
+    const up = 0.5 + 0.5 * Math.cos(ph);       // 1 mid-upstroke, 0 mid-downstroke
+    const l0 = L(ph, amp), l1 = L(ph - 0.45, amp), l2 = L(ph - 0.95, amp * 1.05);
+    const l3 = L(ph - 1.4, amp * 1.1), l4 = L(ph - 1.8, amp * 1.1);
+    out.sweep = 0.12 + 0.32 * up;
+    out.lift = l0;
+    out.twist = -0.16 * Math.cos(ph) + 0.04;
+    out.elbow = 0.15 + 0.6 * up;
+    out.wrist = 0.1 + 0.95 * up;
+    out.close = 0.08 + 0.5 * up;
+    out.bendE = l1 - l0;
+    out.bendW = l2 - l1 - 0.12 * up;
+    out.bendF = l3 - l2;
+    out.bendT = (l4 - l3) * 0.8;
+    return out;
+  }
+
+  const tmp = {}, tmpF = {};
+  function pose(dt) {
+    const t = (m.t = state.t);
+    const flying = state.mode === "fly", sleeping = state.mode === "sleep";
+    m.fly = ease(m.fly, flying ? 1 : 0, 2.2, dt);
+    m.sleep = ease(m.sleep, sleeping ? 1 : 0, 0.8, dt);
+    m.droop = ease(m.droop, state.droop, 1.5, dt);
+    const f = m.fly, sl = m.sleep * (1 - f), idle = (1 - f) * (1 - sl);
+    const ph = state.beat;
+
+    for (const b of all) { const r = rest.get(b); b.quaternion.copy(r.q); b.position.copy(r.p); }
+
+    // Breath: a slow swell through the chest, deeper asleep.
+    const breath = Math.sin(t * (2 * Math.PI) / lerp(3.6, 5.5, sl));
+
+    // --- wings
+    for (const w of wings) {
+      const fold = w.upper ? FOLD_UPPER : FOLD_LOWER;
+      flyPose(ph - (w.upper ? 0 : 1.35), w.upper ? 0.62 : 0.55, tmpF);
+      const broken = w.broken ? m.droop : 0;
+      for (const k of WING_KEYS) {
+        const rp = broken ? lerp(fold[k], BROKEN[k], broken) : fold[k];
+        let fp = tmpF[k];
+        // A broken wing in the air beats shallow and half shut.
+        if (broken && k === "lift") fp = lerp(fp, 0.05 + (fp - 0.1) * 0.35, broken);
+        tmp[k] = lerp(rp, fp, f);
+      }
+      // At rest the folded wings rise and settle with her breathing; the
+      // broken one swings slack a moment after.
+      tmp.lift += (1 - f) * (breath * 0.012 + (w.broken ? Math.sin(t * 0.9 - 0.8) * 0.025 * broken : 0));
+      tmp.lift -= sl * 0.08 * (w.upper ? 0.5 : 1);
+      poseWing(w, tmp, broken * (1 - f));
+    }
+
+    // --- body: breathing, and the slow shift of weight from foot to foot.
+    const shift = Math.sin(t * 0.21) * idle;
+    const curlSide = Math.sign(m.curl) || 1;
+    if (spine) turn(spine, Q3(Qy(shift * 0.05 - sl * 0.25 * curlSide), Qz(shift * 0.035), Qx(breath * 0.015 - 0.03 * f)));
+    const qp = Q3(Qy(shift * 0.035 + sl * 0.12 * curlSide), Qz(-shift * 0.03), ID.clone());
+    if (pelvis) turn(pelvis, qp);
+    const qpi = qp.clone().invert();
+
+    // --- legs: kept upright under a turning hip; tucked back in the air,
+    // folded under her asleep.
+    for (const l of legs) {
+      turn(l.up, qpi.clone().multiply(Qx(1.05 * f - 1.0 * sl)));
+      turn(l.leg, Qx(0.3 * f + 0.2 * sl));
+      turn(l.tar, Qx(0.45 * f + 1.2 * sl));
+      turn(l.foot, Qx(0.7 * f - 0.4 * sl));
+    }
+
+    // --- the hip fins: laid back along the tail at rest, spread in the air.
+    for (const fn of fins) {
+      const back = lerp(0.95, 0.15 + 0.1 * Math.sin(ph - 1), f) * fn.k, down = lerp(-0.35, 0.05 * Math.sin(ph - 1.5), f);
+      turn(fn.b, Q3(Qz(fn.s * down), Qy(fn.s * back), ID.clone()));
+    }
+
+    // --- tail: a travelling wave, a curl that wanders, lowered at rest.
+    m.curl = lerp(m.curl, 0.3 + Math.sin(t * 0.05) * 0.5, sl > 0.5 ? 0 : 0.002);
+    tail.forEach((b, i) => {
+      const k = i / Math.max(1, tail.length - 1);
+      const wave = Math.sin(t * lerp(1.05, 0.5, sl) - i * 0.75) * (0.035 + 0.05 * k) * lerp(1, 0.25, sl);
+      const fwave = Math.sin(ph + Math.PI - i * 0.6) * (0.03 + 0.04 * k);
+      const yaw = lerp(m.curl * (0.06 + 0.05 * k) + wave, curlSide * 0.6, sl) * (1 - f) + f * Math.sin(t * 0.7 - i * 0.6) * 0.025;
+      const pitch = (1 - f) * (i === 0 ? -0.2 : i === 1 ? -0.12 : 0.05) + f * (fwave + (i === 0 ? 0.04 : 0));
+      turn(b, Q3(Qy(yaw), Qx(pitch), ID.clone()));
+    });
+
+    // --- neck and head: she looks about, slowly; asleep, chin to the ground.
+    m.nextLook -= dt;
+    if (m.nextLook <= 0) {
+      m.nextLook = 2.5 + Math.random() * 4.5;
+      m.want.yaw = (Math.random() * 2 - 1) * 0.7;
+      m.want.pitch = -0.12 + Math.random() * 0.32;
+    }
+    m.look.yaw = ease(m.look.yaw, m.want.yaw, 1.4, dt);
+    m.look.pitch = ease(m.look.pitch, m.want.pitch, 1.4, dt);
+    const lyaw = lerp(m.look.yaw * idle, -curlSide * 0.9, sl);
+    const lpitch = lerp(m.look.pitch * idle + breath * 0.01, 0.42, sl) - f * (Math.sin(ph) * 0.07 + 0.05);
+    if (neck) turn(neck, Q3(Qy(lyaw * 0.45), Qx(lpitch * 0.5 + sl * 0.12), ID.clone()));
+    if (head) turn(head, Q3(Qy(lyaw * 0.55), Qx(lpitch * 0.5), Qz(curlSide * 0.25 * sl)));
+    if (jaw) turn(jaw, Qx(-0.04 * Math.max(0, breath) * idle));
+    // Blinks; asleep, the eyes shut.
+    m.blink -= dt;
+    if (m.blink < -0.15) m.blink = 2 + Math.random() * 5;
+    const shut = Math.max(sl, m.blink < 0 ? 1 : 0);
+    for (const lid of lids) turn(lid, Qx(shut * 0.9));
+
+    // --- the body: on its feet at rest, heaving with the beat in the air.
+    body.position.copy(body0);
+    if (legs.length && f < 1) {
+      root.updateMatrixWorld(true);
+      body.position.y += (foot0 - footY()) * (1 - f);
+    }
+    body.position.y += f * -Math.sin(ph - 0.4) * 0.012 * length / inner.scale.y;
+  }
+  return { pose };
 }

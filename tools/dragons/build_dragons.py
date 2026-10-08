@@ -26,8 +26,9 @@ Bone names are a fixed vocabulary js/dragonkit.js animates by:
   Root, Spine_0..n, Neck_0..n (NeckB_ for a second neck), Head (HeadB),
   Tail_0..n, WingL_0..2, WingR_0..2.
 
-Already-rigged sources (Stormcutter, Nadder, Gronckle) are copied through
-untouched, skeleton and animations and all; js/dragonkit.js knows their names.
+Already-rigged sources (Nadder, Gronckle) are copied through untouched,
+skeleton and animations and all; js/dragonkit.js knows their names. The
+Stormcutter's skeleton is re-chained and moved onto its body (build_storm).
 """
 import bpy
 import bmesh
@@ -47,7 +48,7 @@ AUTO = {
     "thunderdrum": {"necks": 1},
     "zippleback":  {"necks": 2},
 }
-PASS = ["stormcutter", "nadder", "gronckle"]
+PASS = ["nadder", "gronckle"]
 
 
 def reset():
@@ -229,6 +230,219 @@ def build_pass(name):
     print(f"copied {name}")
 
 
+# --- the Stormcutter: re-chain the skeleton it came with --------------------
+#
+# The baby Stormcutter arrives skinned, but flat: every one of its hundred
+# bones is a direct child of one root, so nothing hangs off anything — a wing
+# is thirty loose siblings and the tail is six. Worse, the skeleton is not
+# where the mesh is: some unit slip in the FBX it came through left the bones
+# about 4/3 the size of the body and a little forward of it (the skinning is
+# still exact at rest, because every inverse bind matrix matches its bone, but
+# every joint pivots about a point in mid-air off the limb it moves).
+#
+# So this does two things, by editing the glTF directly rather than through a
+# Blender round trip (which crushes this model; see build_pass):
+#
+#   1. MOVES each bone onto the body: fits the one similarity (scale, offset)
+#      that maps bone segments onto the centroids of the vertices they drive,
+#      and puts every bone there, keeping its orientation, with unit scale.
+#   2. CHAINS them: pelvis > spine > neck > head; pelvis > tail 1..6; pelvis >
+#      thigh > shin > tarsal > foot; spine > (shoulder) > arm > forearm > hand
+#      > finger 01 > finger 02, for all four wings.
+#
+# Each bone keeps its world rest transform under the new parents (locals are
+# recomputed), and its inverse bind matrix is rewritten to match its new place,
+# so the mesh at rest is exactly what it was: the vertex weights are untouched.
+STORM_PARENTS = [
+    # (child prefix, parent prefix); prefixes match "Bone_<prefix>_<n>"
+    ("M_Pelvis", "Root"),
+    ("M_Spine01", "M_Pelvis"),
+    ("M_Breath", "M_Spine01"),
+    ("M_Neck01", "M_Spine01"),
+    ("M_Head", "M_Neck01"),
+    ("M_Tail01", "M_Pelvis"),
+    ("M_Tail02", "M_Tail01"), ("M_Tail03", "M_Tail02"), ("M_Tail04", "M_Tail03"),
+    ("M_Tail05", "M_Tail04"), ("M_Tail06", "M_Tail05"),
+] + [
+    pair for s in "LR" for pair in (
+        (f"{s}_UpLeg", "M_Pelvis"), (f"{s}_Leg", f"{s}_UpLeg"),
+        (f"{s}_Tarsal", f"{s}_Leg"), (f"{s}_Foot", f"{s}_Tarsal"),
+        (f"{s}_PelvicfinA01", "M_Pelvis"), (f"{s}_PelvicfinC01", "M_Pelvis"),
+    )
+] + [
+    pair for s in "LR" for w in "ul" for pair in (
+        ((f"{s}u_Shoulder", "M_Spine01"), (f"{s}u_Arm", f"{s}u_Shoulder")) if w == "u"
+        else ((f"{s}l_Arm", "M_Spine01"),)
+    ) + (
+        (f"{s}{w}_ForeArm", f"{s}{w}_Arm"), (f"{s}{w}_Hand", f"{s}{w}_ForeArm"),
+        (f"{s}{w}_WingFingerA01", f"{s}{w}_Hand"), (f"{s}{w}_WingFingerA02", f"{s}{w}_WingFingerA01"),
+        (f"{s}{w}_WingFingerB01", f"{s}{w}_Hand"), (f"{s}{w}_WingFingerB02", f"{s}{w}_WingFingerB01"),
+        (f"{s}{w}_WingFingerC01", f"{s}{w}_Hand"), (f"{s}{w}_WingFingerC02", f"{s}{w}_WingFingerC01"),
+        (f"{s}{w}_WingFingerD01", f"{s}{w}_Hand"), (f"{s}{w}_WingFingerD02", f"{s}{w}_WingFingerD01"),
+        (f"{s}{w}_WingFingerFlapB01", f"{s}{w}_Hand"), (f"{s}{w}_WingFingerFlapC01", f"{s}{w}_Hand"),
+    )
+]
+
+
+def build_storm():
+    import json
+    import struct
+    import numpy as np
+
+    data = open(os.path.join(SRC, "stormcutter.glb"), "rb").read()
+    jlen = struct.unpack("<I", data[12:16])[0]
+    J = json.loads(data[20:20 + jlen])
+    off = 20 + jlen
+    blen = struct.unpack("<I", data[off:off + 4])[0]
+    BIN = bytearray(data[off + 8:off + 8 + blen])
+    nodes = J["nodes"]
+
+    CT = {5126: np.float32, 5123: np.uint16, 5121: np.uint8, 5125: np.uint32}
+    NC = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
+
+    def view(i):
+        a = J["accessors"][i]
+        bv = J["bufferViews"][a["bufferView"]]
+        dt = np.dtype(CT[a["componentType"]])
+        n = NC[a["type"]]
+        st = bv.get("byteStride", dt.itemsize * n)
+        o = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+        return np.ndarray((a["count"], n), dtype=dt, buffer=BIN, offset=o, strides=(st, dt.itemsize))
+
+    def quat_mat(q):
+        x, y, z, w = q
+        return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                         [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                         [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+    def mat_quat(m):
+        # Shepperd; m a proper rotation.
+        t = np.trace(m)
+        if t > 0:
+            s = math.sqrt(t + 1) * 2
+            q = [(m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s, s / 4]
+        elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+            s = math.sqrt(1 + m[0, 0] - m[1, 1] - m[2, 2]) * 2
+            q = [s / 4, (m[0, 1] + m[1, 0]) / s, (m[0, 2] + m[2, 0]) / s, (m[2, 1] - m[1, 2]) / s]
+        elif m[1, 1] > m[2, 2]:
+            s = math.sqrt(1 + m[1, 1] - m[0, 0] - m[2, 2]) * 2
+            q = [(m[0, 1] + m[1, 0]) / s, s / 4, (m[1, 2] + m[2, 1]) / s, (m[0, 2] - m[2, 0]) / s]
+        else:
+            s = math.sqrt(1 + m[2, 2] - m[0, 0] - m[1, 1]) * 2
+            q = [(m[0, 2] + m[2, 0]) / s, (m[1, 2] + m[2, 1]) / s, s / 4, (m[1, 0] - m[0, 1]) / s]
+        q = np.array(q)
+        return q / np.linalg.norm(q)
+
+    def trs(n):
+        if "matrix" in n:
+            return np.array(n["matrix"], dtype=float).reshape(4, 4).T
+        M = np.eye(4)
+        M[:3, :3] = quat_mat(n.get("rotation", [0, 0, 0, 1])) * np.array(n.get("scale", [1, 1, 1]))
+        M[:3, 3] = n.get("translation", [0, 0, 0])
+        return M
+
+    parent = {c: i for i, n in enumerate(nodes) for c in n.get("children", [])}
+    skin = J["skins"][0]
+    base = skin["skeleton"]                      # _rootJoint: the mesh's frame
+
+    def world(i):
+        M = np.eye(4)
+        while i != base:
+            M = trs(nodes[i]) @ M
+            i = parent[i]
+        return M
+
+    by = {}
+    for i, n in enumerate(nodes):
+        name = n.get("name", "")
+        if name.startswith("Bone_"):
+            key = name[5:].rsplit("_", 1)[0]     # "Bone_Lu_Arm_027" -> "Lu_Arm"
+            by[key] = i
+    W = {i: world(i) for i in by.values()}
+
+    # 1. The similarity that puts the skeleton on the body. Fit on chain bones:
+    #    the mid-point of each bone-to-next-bone segment against the weighted
+    #    centroid of the vertices that bone drives.
+    joints = skin["joints"]
+    prim = J["meshes"][0]["primitives"][0]
+    P = view(prim["attributes"]["POSITION"]).astype(float)
+    JI = view(prim["attributes"]["JOINTS_0"]).astype(int)
+    WT = view(prim["attributes"]["WEIGHTS_0"]).astype(float)
+    if J["accessors"][prim["attributes"]["WEIGHTS_0"]].get("normalized"):
+        WT /= np.iinfo(view(prim["attributes"]["WEIGHTS_0"]).dtype).max
+
+    def centroid(node):
+        k = joints.index(node)
+        w = (WT * (JI == k)).sum(1)
+        return (P * w[:, None]).sum(0) / w.sum()
+
+    segs = [(f"M_Tail0{i}", f"M_Tail0{i + 1}") for i in range(1, 6)]
+    segs += [("M_Pelvis", "M_Spine01"), ("M_Spine01", "M_Neck01"), ("M_Neck01", "M_Head")]
+    for s in ("Lu", "Ll", "Ru", "Rl"):
+        segs += [(f"{s}_Arm", f"{s}_ForeArm"), (f"{s}_ForeArm", f"{s}_Hand")]
+        segs += [(f"{s}_WingFinger{f}01", f"{s}_WingFinger{f}02") for f in "ABCD"]
+    rows, rhs = [], []
+    for a, b in segs:
+        mid = (W[by[a]][:3, 3] + W[by[b]][:3, 3]) / 2
+        c = centroid(by[a])
+        for d in range(3):
+            r = [0.0] * 4
+            r[0] = mid[d]
+            r[1 + d] = 1.0
+            rows.append(r)
+            rhs.append(c[d])
+    sol = np.linalg.lstsq(np.array(rows), np.array(rhs), rcond=None)[0]
+    k, t = sol[0], sol[1:]
+    t[0] = 0.0                                   # it is symmetric; keep it so
+    print(f"stormcutter: skeleton onto body, scale {k:.4f}, offset {np.round(t, 4)}")
+
+    # New world rest transforms: moved, orientation kept, scale dropped.
+    N = {}
+    for i in by.values():
+        M = np.eye(4)
+        R = W[i][:3, :3]
+        u, _, vt = np.linalg.svd(R)              # the rotation, without the 1e-7 scale noise
+        M[:3, :3] = u @ vt
+        M[:3, 3] = W[i][:3, 3] * k + t
+        N[i] = M
+
+    # 2. Chains. Re-parent, keeping each bone's (new) world transform.
+    newpar = {by[c]: by[p] for c, p in STORM_PARENTS if c in by and p in by}
+    for c, p in newpar.items():
+        old = parent[c]
+        nodes[old]["children"].remove(c)
+        if not nodes[old]["children"]:
+            del nodes[old]["children"]
+        nodes[p].setdefault("children", []).append(c)
+        parent[c] = p
+    for i in by.values():
+        p = parent[i]
+        PW = N[p] if p in N else world(p)
+        L = np.linalg.inv(PW) @ N[i]
+        n = nodes[i]
+        n.pop("matrix", None)
+        n.pop("scale", None)
+        n["translation"] = [float(x) for x in L[:3, 3]]
+        n["rotation"] = [float(x) for x in mat_quat(L[:3, :3])]
+
+    # Inverse binds to match, so the mesh at rest has not moved a hair.
+    ibm = view(skin["inverseBindMatrices"])
+    for kk, node in enumerate(joints):
+        if node in N:
+            ibm[kk] = np.linalg.inv(N[node]).T.reshape(-1).astype(np.float32)
+
+    # The Sketchfab extras say where it came from; add what was done to it.
+    J["asset"].setdefault("extras", {})["rig"] = "re-chained by tools/dragons/build_dragons.py"
+    js = json.dumps(J, separators=(",", ":")).encode()
+    js += b" " * (-len(js) % 4)
+    BIN += b"\0" * (-len(BIN) % 4)
+    out = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(BIN))
+    out += struct.pack("<II", len(js), 0x4E4F534A) + js
+    out += struct.pack("<II", len(BIN), 0x004E4942) + bytes(BIN)
+    open(os.path.join(OUT, "stormcutter.glb"), "wb").write(out)
+    print(f"rechained stormcutter: {len(newpar)} bones re-parented")
+
+
 def export(name):
     path = os.path.join(OUT, name + ".glb")
     kw = dict(filepath=path, export_format="GLB", export_yup=True, export_apply=False,
@@ -246,6 +460,8 @@ def main():
             continue
         if os.path.exists(os.path.join(SRC, name + ".glb")):
             build_auto(name, cfg)
+    if (not argv or "stormcutter" in argv) and os.path.exists(os.path.join(SRC, "stormcutter.glb")):
+        build_storm()
     for name in PASS:
         if argv and name not in argv:
             continue
