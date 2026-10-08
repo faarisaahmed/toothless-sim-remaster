@@ -49,10 +49,14 @@ const lin = (hex) => new THREE.Color(hex);  // THREE.Color(hex) converts sRGB â†
 // side of sunset, and it earns its place by being the only warm thing in
 // the day. Night is not black but a deep blue-black with the stars in it.
 const KEYS = [
-  { e: -24, zen: 0x02040c, hor: 0x070d1c, glow: 0x080f20, sun: 0x000000, sunI: 0.0,
-    amb: 0x1f3258, ambI: 0.55, gnd: 0x04060b, B: 0.9, exp: 1.6 },
-  { e: -9,  zen: 0x06102a, hor: 0x1a2746, glow: 0x2c3054, sun: 0x000000, sunI: 0.0,
-    amb: 0x2a3a66, ambI: 0.55, gnd: 0x070a12, B: 0.9, exp: 1.3 },
+  // Night is lit the way films and games light it, not the way a camera
+  // would: "day for night". A deep blue sky, but a strong cold key from the
+  // moon and a generous blue fill, so the land, the sea and the dragon all
+  // read. A truly dark night is realistic and unplayable.
+  { e: -24, zen: 0x040a1c, hor: 0x111f3e, glow: 0x0f1a34, sun: 0x000000, sunI: 0.0,
+    amb: 0x34508e, ambI: 1.05, gnd: 0x0c1220, B: 1.0, exp: 1.9 },
+  { e: -9,  zen: 0x08142f, hor: 0x1f2e52, glow: 0x2c3054, sun: 0x000000, sunI: 0.0,
+    amb: 0x364b84, ambI: 0.9, gnd: 0x0c121e, B: 0.95, exp: 1.55 },
   { e: -3,  zen: 0x13264e, hor: 0x5e5670, glow: 0xa85a3c, sun: 0xff5a20, sunI: 0.15,
     amb: 0x434e7a, ambI: 0.5, gnd: 0x121218, B: 1.0, exp: 0.98 },
   { e: 2,   zen: 0x26457f, hor: 0xd08866, glow: 0xff8644, sun: 0xff8a4c, sunI: 1.25,
@@ -595,8 +599,10 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
       sun.intensity = sunI * THREE.MathUtils.smoothstep(sp.elev, -2.5, 3);
     } else {
       lightDir.copy(moonDir);
-      sun.color.setRGB(0.55, 0.66, 0.9);
-      sun.intensity = 0.42 * THREE.MathUtils.smoothstep(moonElev, 0, 12) * (1 - dim * 0.75) * night;
+      sun.color.setRGB(0.66, 0.76, 1.0);
+      // A strong moon: the key light the whole night scene is read by. With
+      // the moon down there is still some, as from a bright sky.
+      sun.intensity = (0.3 + 0.9 * THREE.MathUtils.smoothstep(moonElev, 0, 12)) * (1 - dim * 0.7) * night;
     }
     hemi.color.copy(k.amb).lerp(u.uOverCol.value.clone().multiplyScalar(1 / Math.max(B, 0.01)), over * 0.6);
     hemi.groundColor.copy(k.gnd);
