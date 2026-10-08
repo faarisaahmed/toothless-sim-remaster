@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { prop, fallback, slots, alloyMaterial } from "./props.js";
 import { makeOrb } from "./placeholder.js";
+import { dressHollowStack, CAMP } from "./stackdetail.js";
 
 // ---------------------------------------------------------------------------
 // Two cheats that the compound cannot do without, now that it is 116 x 92 m
@@ -697,35 +698,136 @@ export async function buildSnareCamp(scene, at, { groundAt = null,
 
 // --- Hollow Stack -----------------------------------------------------------
 
-/** The hub. A sea stack with a hollow in it that a dragon moved into. */
-export async function buildHollowStack(scene, at, { ground = 0 } = {}) {
+/**
+ * The hub. A sea stack with a hollow in it that a dragon moved into.
+ *
+ * The props are his: the lean-to, the slab he tests plates on, the rack, the
+ * nest of things he has picked up. The ground they stand on — the rock, the
+ * turf, the bracken bed, the gulls on the cliff — is stackdetail.js.
+ *
+ * @param {number} ground        world Y of the camp centre
+ * @param {(x,z)=>number} groundAt  the height field, so every piece sits on
+ *                               the ground under it rather than on `ground`
+ * @param {number} seaLevel
+ */
+export async function buildHollowStack(scene, at, { ground = 0, groundAt = null, seaLevel = 0 } = {}) {
   const group = new THREE.Group();
   group.position.set(at.x, ground, at.z);
   scene.add(group);
+  // What is not solid — plants, decals, gulls, flames — lives beside the
+  // group rather than in it, so surfaces.js does not make a floor of it.
+  const deco = new THREE.Group();
+  deco.position.copy(group.position);
+  scene.add(deco);
+  const gy = (x, z) => (groundAt ? groundAt(at.x + x, at.z + z) - ground : 0);
+  /** Lowest ground under a footprint, so a prop never stands on air. */
+  const foot = (x, z, rad) => {
+    let m = gy(x, z);
+    for (let k = 0; k < 6; k++) m = Math.min(m, gy(x + Math.cos(k * 1.047) * rad, z + Math.sin(k * 1.047) * rad));
+    return m;
+  };
 
-  const [shelter, shelf, rack] = await Promise.all(
-    ["stack_shelter", "stack_lab_shelf", "stack_fish_rack"].map(prop)
-  );
+  const [shelter, shelf, rack, sampleRack, fish, drift, plateClean, plateDented, plateHoled] =
+    await Promise.all(["stack_shelter", "stack_lab_shelf", "stack_fish_rack", "stack_sample_rack",
+      "fish", "stack_driftwood", "stack_sample_plate_clean", "stack_sample_plate_dented",
+      "stack_sample_plate_holed"].map(prop));
 
-  const sh = shelter.clone(true); sh.position.set(0, 0, 0);
-  group.add(sh);
+  const statics = [];
+  const put = (src, x, z, { ry = 0, rad = 0.5, y = null, rx = 0, rz = 0, s = 1 } = {}) => {
+    const o = src.clone(true);
+    o.position.set(x, y ?? foot(x, z, rad), z);
+    o.rotation.set(rx, ry, rz, "YXZ");       // tilt first, then turn
+    o.scale.setScalar(s);
+    statics.push(o);
+    return o;
+  };
 
-  const sl = shelf.clone(true); sl.position.set(6, 0, -4);
-  group.add(sl);
+  put(shelter, 0, 0, { rad: 2.3 });
+  const shelfY = foot(6, -4, 1.5);
+  put(shelf, 6, -4, { y: shelfY });
+  put(rack, -6, 4, { rad: 1.4, ry: 0.35 });
 
-  const rk = rack.clone(true); rk.position.set(-6, 0, 4);
-  group.add(rk);
+  // On the slab: the plate he is testing, holed through, and a dented one.
+  put(plateHoled, 6.1, -4.05, { y: shelfY + 0.525, ry: 0.4 });
+  put(plateDented, 6.75, -3.5, { y: shelfY + 0.525, ry: -0.7 });
+  // The samples he keeps, standing in the rack behind the slab.
+  const sr = put(sampleRack, 8.4, -6.6, { rad: 0.9, ry: -0.6 });
+  [plateClean, plateDented, plateHoled, plateClean].forEach((pl, i) => {
+    const lx = -0.54 + i * 0.36;
+    const c = Math.cos(-0.6), sn = Math.sin(-0.6);
+    put(pl, 8.4 + lx * c, -6.6 - lx * sn, { y: sr.position.y + 1.08, rx: Math.PI / 2, ry: -0.6 });
+  });
+
+  // Fish drying on the rack's two poles (y 1.05 and 1.95), heads down. The
+  // model wears `hide`, which is right in a crate in the dark and reads as
+  // nothing at all hanging against the sky: give them their own silver.
+  const fishSkin = new THREE.MeshStandardMaterial({ color: 0x9aa3a6, roughness: 0.42, metalness: 0.35 });
+  fish.traverse((o) => { if (o.isMesh) o.material = fishSkin; });
+  const rc = Math.cos(0.35), rs = Math.sin(0.35), rackY = foot(-6, 4, 1.4);
+  for (const [py, n] of [[1.95, 7], [1.05, 6]]) {
+    for (let i = 0; i < n; i++) {
+      const lx = -1.15 + (i / (n - 1)) * 2.3 + (py < 1.5 ? 0.12 : 0);
+      put(fish, -6 + lx * rc, 4 - lx * rs, { y: rackY + py - 0.25, rx: -Math.PI / 2 + 0.05, ry: 0.35 + i * 0.4 });
+    }
+  }
+  // Two lying on the gutting stone.
+  put(fish, -8.5, 5.35, { y: foot(-8.6, 5.4, 0.6) + 0.23, ry: 1.2 });
+  put(fish, -8.75, 5.5, { y: foot(-8.6, 5.4, 0.6) + 0.23, ry: 0.4 });
+
+  // Driftwood: seats by the fire, a woodpile by the shelter, a spar he
+  // dragged up and has not found a use for.
+  // Its own material reads the baked contact shade from a colour attribute,
+  // which mergeStatic does not carry, and without it the wood draws black.
+  drift.traverse((o) => {
+    if (o.isMesh && o.material.vertexColors) { o.material = o.material.clone(); o.material.vertexColors = false; }
+  });
+  const dw = drift.children.length >= 3 ? drift.children : [drift];
+  const piece = (i) => { const g = new THREE.Group(); g.add(dw[i % dw.length].clone(true)); g.children[0].position.set(0, 0, 0); return g; };
+  put(piece(0), -1.9, 6.4, { ry: 1.25 });
+  put(piece(2), 2.0, 6.6, { ry: -1.1 });
+  for (let i = 0; i < 5; i++) {
+    put(piece(i % 2 ? 2 : 0), 3.6 + (i % 2) * 0.2, 1.4 + i * 0.05, { ry: 0.1 + (i % 2) * 0.12, y: foot(3.7, 1.5, 1.4) + Math.floor(i / 2) * 0.2 });
+  }
+  put(piece(2), -9.5, -6.5, { ry: 0.6, s: 1.6 });
+
+  for (const m of mergeStatic(statics.splice(0))) group.add(m);
+
+  // The ground, the rock, the plants and the gulls.
+  const detail = dressHollowStack({ group, deco, gy, seaY: seaLevel - ground });
+
+  // The bolas off the snare, coiled in the nest: a cord and its two weights.
+  {
+    const [nx, nz] = CAMP.nest, ny = foot(nx, nz, 0.9);
+    const pts = [];
+    for (let i = 0; i <= 40; i++) {
+      const a = i * 0.42, rr = 0.22 + i * 0.006;
+      pts.push(new THREE.Vector3(nx + Math.cos(a) * rr, ny + 0.12 + Math.sin(i * 0.9) * 0.015, nz + Math.sin(a) * rr));
+    }
+    const cord = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 80, 0.018, 5), slots().rope);
+    deco.add(cord);
+    for (const [dx, dz] of [[0.48, 0.12], [-0.3, 0.42]]) {
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.09, 9, 7), slots().iron);
+      w.position.set(nx + dx, ny + 0.14, nz + dz);
+      deco.add(w);
+    }
+    put(plateHoled, nx + 0.1, nz - 0.2, { y: ny + 0.15, ry: 2.1, rz: 0.25 });
+    put(plateClean, nx - 0.25, nz + 0.05, { y: ny + 0.13, ry: 0.7, rx: -0.2 });
+    for (const m of mergeStatic(statics.splice(0))) deco.add(m);
+  }
 
   // A fire, so the place reads as somewhere somebody lives.
+  const [fx, fz] = CAMP.fire;
+  const fy = gy(fx, fz);
   const fire = new THREE.PointLight(0xff8a3a, 40, 34, 1.7);
-  fire.position.set(0, 1.1, 5);
+  fire.position.set(fx, fy + 1.1, fz);
   group.add(fire);
   const coals = new THREE.Mesh(
-    new THREE.SphereGeometry(0.45, 10, 8),
+    new THREE.SphereGeometry(0.55, 12, 6),
     slots().ember.clone()
   );
-  coals.position.copy(fire.position);
-  group.add(coals);
+  coals.scale.set(1, 0.32, 1);
+  coals.position.set(fx, fy + 0.04, fz);
+  deco.add(coals);
 
   let t = 0;
   return {
@@ -733,11 +835,12 @@ export async function buildHollowStack(scene, at, { ground = 0 } = {}) {
     centre: new THREE.Vector3(at.x, ground, at.z),
     lab: new THREE.Vector3(at.x + 6, ground, at.z - 4),
     bed: new THREE.Vector3(at.x, ground, at.z),
-    update(dt) {
+    update(dt, camera) {
       t += dt;
       fire.intensity = 40 * (0.85 + Math.sin(t * 6.1) * 0.07 + Math.sin(t * 2.3) * 0.08);
+      detail.update(dt, camera);
     },
-    setVisible(v) { group.visible = v; },
-    dispose() { scene.remove(group); },
+    setVisible(v) { group.visible = v; deco.visible = v; },
+    dispose() { scene.remove(group); scene.remove(deco); },
   };
 }
