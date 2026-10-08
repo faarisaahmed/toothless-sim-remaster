@@ -60,9 +60,10 @@ export function houseMat(slug, w, h, tile, { tint = 0xffffff, rot = 0, rough = 1
     map: rep(load(`${slug}_diff.jpg`, true)),
     normalMap: rep(load(`${slug}_nor_gl.jpg`, false)),
     normalScale: new THREE.Vector2(normal, normal),
-    roughnessMap: rep(load(`${slug}_arm.jpg`, false)),
     aoMap: rep(load(`${slug}_arm.jpg`, false)),
-    color: tint, roughness: rough, metalness: 0,
+    // No roughness map: the photographs' own roughness reads as varnish under
+    // point lights, and old wood and stone in a smoky house are dead matte.
+    color: tint, roughness: 0.97 * rough, metalness: 0,
   });
 }
 

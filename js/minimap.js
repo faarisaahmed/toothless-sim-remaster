@@ -60,7 +60,7 @@ export function setupMinimap({ getPlayer, getObjective, getSites, getHunters, ge
     const p = getPlayer();
     if (!p) return;
     // Zoom out with speed and height, so you see further when you go further.
-    const want = flying ? 600 + Math.min(1600, speed * 4 + Math.max(0, p.agl ?? 0) * 1.2) : 260;
+    const want = flying ? 750 + Math.min(1500, speed * 4 + Math.max(0, p.agl ?? 0) * 1.2) : 420;
     range += (want - range) * Math.min(1, dt * 1.5);
 
     const R = size / 2;

@@ -104,8 +104,8 @@ function pelt(size, heightAt, tint = 0xffffff, rotY = 0) {
  */
 export function buildSaddle() {
   const g = new THREE.Group();
-  const leather = houseMat("brown_leather", 1, 1, 0.5, { tint: 0xffffff });
-  const leatherDark = houseMat("brown_leather", 1, 1, 0.4, { tint: 0xa88a72 });
+  const leather = houseMat("brown_leather", 1, 1, 0.5, { tint: 0xffffff, rough: 0.72 });
+  const leatherDark = houseMat("brown_leather", 1, 1, 0.4, { tint: 0xa88a72, rough: 0.8 });
   const iron = ironMat();
 
   // The saddle-horse: a beam on two A-frames.
