@@ -59,32 +59,61 @@ function migrate(save) {
   };
 }
 
-function readAll() {
-  let raw;
-  try {
-    raw = localStorage.getItem(KEY);
-  } catch {
-    return new Array(SLOT_COUNT).fill(null);   // private mode, storage disabled
-  }
-  if (!raw) return new Array(SLOT_COUNT).fill(null);
+// Each slot is its own entry in localStorage, named like a file — user1.dat to
+// user4.dat — holding the save as indented JSON. Plain text on purpose: open
+// devtools → Application → Local Storage, find user2.dat, edit it, reload.
+// The same text is what Export downloads and Import reads back.
+export const fileName = (i) => `user${i + 1}.dat`;
 
+/** The save as the text that goes in its file. */
+export function toText(save) { return JSON.stringify(save, null, 2); }
+
+/** Text back to a save; null if it is not one. */
+export function fromText(text) {
   try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Array(SLOT_COUNT).fill(null);
-    const out = new Array(SLOT_COUNT).fill(null);
-    for (let i = 0; i < SLOT_COUNT; i++) out[i] = migrate(parsed[i] || null);
-    return out;
-  } catch {
-    // A corrupt blob is worse than no blob — but don't destroy it, in case the
-    // player would rather have it back than have it gone.
-    console.warn("saves: could not parse, starting empty");
-    return new Array(SLOT_COUNT).fill(null);
-  }
+    const o = JSON.parse(text);
+    if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+    return migrate({ ...blank(), ...o });
+  } catch { return null; }
 }
 
-function writeAll(slots) {
+// The old single-blob store, moved into the files once and then removed.
+function migrateBlob() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(slots));
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      for (let i = 0; i < SLOT_COUNT; i++) {
+        if (parsed[i] && localStorage.getItem(fileName(i)) === null) {
+          localStorage.setItem(fileName(i), toText(migrate(parsed[i])));
+        }
+      }
+    }
+    localStorage.removeItem(KEY);
+  } catch { /* leave it be */ }
+}
+
+function readAll() {
+  migrateBlob();
+  const out = new Array(SLOT_COUNT).fill(null);
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    let raw = null;
+    try { raw = localStorage.getItem(fileName(i)); } catch { return out; }
+    if (!raw) continue;
+    const save = fromText(raw);
+    if (save) out[i] = save;
+    // A file that has been hand-edited into something unreadable is left
+    // alone, not overwritten: shown as damaged so it can be fixed.
+    else out[i] = { ...blank(), damaged: true, created: 0, updated: 0 };
+  }
+  return out;
+}
+
+function writeOne(i, save) {
+  try {
+    if (save) localStorage.setItem(fileName(i), toText(save));
+    else localStorage.removeItem(fileName(i));
     return true;
   } catch (e) {
     console.warn("saves: write failed", e);
@@ -101,27 +130,51 @@ export function get(index) {
 }
 
 export function create(index) {
-  const slots = readAll();
   const save = blank();
   save.created = Date.now();
   save.updated = save.created;
-  slots[index] = save;
-  writeAll(slots);
+  writeOne(index, save);
   return save;
 }
 
 export function write(index, save) {
-  const slots = readAll();
   save.updated = Date.now();
-  slots[index] = save;
-  writeAll(slots);
+  writeOne(index, save);
   return save;
 }
 
 export function erase(index) {
-  const slots = readAll();
-  slots[index] = null;
-  writeAll(slots);
+  writeOne(index, null);
+}
+
+/** Download the slot as userN.dat. */
+export function exportSlot(index) {
+  const save = readAll()[index];
+  if (!save) return false;
+  const blob = new Blob([toText(save)], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName(index);
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return true;
+}
+
+/** Pick a .dat file and load it into the slot. Resolves true if it took. */
+export function importSlot(index) {
+  return new Promise((resolve) => {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".dat,.json,.txt,text/plain";
+    inp.onchange = async () => {
+      const f = inp.files?.[0];
+      if (!f) return resolve(false);
+      const save = fromText(await f.text());
+      if (!save) return resolve(false);
+      writeOne(index, save);
+      resolve(true);
+    };
+    inp.click();
+  });
 }
 
 // --- Display helpers --------------------------------------------------------
@@ -154,7 +207,7 @@ export function unlockedChapters(save) {
 export function latest() {
   const all = readAll();
   let best = -1;
-  all.forEach((s, i) => { if (s && (best < 0 || (s.updated || 0) > (all[best].updated || 0))) best = i; });
+  all.forEach((s, i) => { if (s && !s.damaged && (best < 0 || (s.updated || 0) > (all[best].updated || 0))) best = i; });
   return best;
 }
 
