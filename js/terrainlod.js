@@ -21,19 +21,25 @@ import * as THREE from "three";
 // waits on a worker: the worst case is that the detail arrives a moment late.
 // ---------------------------------------------------------------------------
 
-const PER_TILE = 2;
+// Chunks are 625 m whatever the coarse tiles are: 2 x 2 of the old 1250 m
+// tiles, 3 x 3 of the 1875 m ones the thirty-kilometre world is cut into.
+const CHUNK = 625;
 
 /**
  * Detail presets. `refine` is how far from the dragon a coarse tile is
  * replaced; `levels` pick a chunk's resolution by its own distance, first match
  * wins, and the last entry is the fallback for the rest of the ring.
  */
+//
+// A refined tile is 1875 m now and refines all nine of its chunks at once, so
+// the ring reaches further out than `refine` says; the chunks out there are the
+// cheap 48s, which are still twice the coarse sheet's 26 m.
 export const TERRAIN_DETAIL = {
   low:    null,
-  medium: { refine: 1100, levels: [{ res: 96, r: Infinity }] },
-  high:   { refine: 1700, levels: [{ res: 256, r: 650 }, { res: 96, r: Infinity }] },
+  medium: { refine: 1100, levels: [{ res: 96, r: 900 }, { res: 48, r: Infinity }] },
+  high:   { refine: 1700, levels: [{ res: 256, r: 650 }, { res: 96, r: 1500 }, { res: 48, r: Infinity }] },
   ultra:  { refine: 2200, levels: [{ res: 320, r: 550 }, { res: 160, r: 1300 },
-                                   { res: 96, r: Infinity }] },
+                                   { res: 96, r: 2200 }, { res: 48, r: Infinity }] },
 };
 
 const indexCache = new Map();
@@ -75,6 +81,7 @@ function indexFor(res, edgeLoop) {
 export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, edgeLoop }) {
   const half = size / 2;
   const tileSize = size / tilesPerSide;
+  const PER_TILE = Math.max(1, Math.round(tileSize / CHUNK));
   const chunkSize = tileSize / PER_TILE;
   const chunksPerSide = tilesPerSide * PER_TILE;
 
@@ -305,7 +312,9 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
       if (p === preset) return;
       clearAll();
       preset = p;
-      budget = p ? 40 + p.levels.length * 24 : 0;
+      // Enough for every chunk of the ring at once plus some to come back to:
+      // a refined tile is nine chunks now.
+      budget = p ? 120 + p.levels.length * 40 : 0;
       if (p) ensureWorkers();
       dirty = true;
     },

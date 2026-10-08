@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { terrainHeight, fertility, islandAt, fbm, noise2,
-         SEA_LEVEL, TERRAIN_SIZE, WIND_BEARING } from "./terrain.js";
+import { terrainHeight, fbm, TERRAIN_SIZE, WIND_BEARING } from "./terrain.js";
+import { scatterTile, FOREST_TILES, FOREST_TILE, SPOT, BOULDER } from "./forestscatter.js";
 import { buildKinds, buildTextures, bakeImposters, SPECIES_NAMES } from "./trees.js";
 import { addPhotoreal } from "./photoreal.js";
 
@@ -38,15 +38,12 @@ import { addPhotoreal } from "./photoreal.js";
 // once, and hide themselves inside the mid radius in the vertex shader.
 // ---------------------------------------------------------------------------
 
-const TILES = 16;
-const TILE = TERRAIN_SIZE / TILES;
+// Tiles of 625 m, however big the world is: the cards cull by them.
+const TILES = FOREST_TILES;
+const TILE = FOREST_TILE;
 const CELL = 64;                              // lookup grid for the near LODs
 const GN = Math.ceil(TERRAIN_SIZE / CELL);
-// Was 95 when the archipelago had 24 km2 of land. It has 37 now, and a tree
-// per 95 m2 of it came to 133k trees and a 3.1 s scatter; 115 keeps the woods
-// closed and the scatter near what it was.
-const AREA_PER_TREE = 115;
-const TILE_TREE_CAP = 9000;
+// The density and the per-tile cap live with the scatter (forestscatter.js).
 
 // Per-species tint over the leaf texture: r, g, b multipliers and lightness.
 const SPECIES_TINT = {
@@ -243,10 +240,11 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
   const cardGeo = cardGeometry();
 
   // --- Scatter --------------------------------------------------------------
-  // A jittered grid rather than pure random: pure random clumps and leaves
-  // bald patches, and a forest does neither.
-  const spacing = Math.sqrt(AREA_PER_TREE);
-  const nrm = { x: 0, y: 1, z: 0 };
+  // Where each tree stands comes from forestscatter.js, a 625 m tile at a time,
+  // on a small worker pool -- nearest the camera first -- so the archipelago's
+  // quarter of a million trees cost the main thread only what it takes to turn
+  // each tile's spots into matrices and a card mesh as it arrives. Without
+  // workers it all runs here, at load, the way it always did.
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const euler = new THREE.Euler();
@@ -272,71 +270,51 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
   const boulders = [];
   const tiles = [];
   const speciesCount = {};
+  // The near LODs refill round this; a tile landing inside it asks for a refill.
+  const center = new THREE.Vector3(1e9, 0, 1e9);
+  let dirty = true;
+  const TOTAL = TILES * TILES;
+  let tilesDone = 0, scatterMs = 0;
+  let resolveReady;
+  const ready = new Promise((r) => { resolveReady = r; });
+  // ...and when everything within NEAR_READY of the focus is in, which is what
+  // the loading screen waits for: the far side of the archipelago can arrive
+  // while he flies, the hills round where he starts cannot.
+  const NEAR_READY = 6000;
+  let resolveNear, nearDone = false;
+  const nearReady = new Promise((r) => { resolveNear = r; });
+  const tileDist = (j) => Math.hypot(-TERRAIN_SIZE / 2 + (j.tx + 0.5) * TILE - focusAt.x,
+                                     -TERRAIN_SIZE / 2 + (j.tz + 0.5) * TILE - focusAt.z);
+  function checkNear() {
+    if (nearDone) return;
+    for (const j of jobs) if (tileDist(j) < NEAR_READY) return;
+    for (const w of workers) if (w.job && tileDist(w.job) < NEAR_READY) return;
+    nearDone = true;
+    resolveNear();
+  }
+  // Where to scatter first: the camera once there is one, the middle until then.
+  const focusAt = { x: 0, z: 0 };
+  const spot = { x: 0, z: 0, h: 0, f: 0, slope: 0, j: 0 };
+  const workers = [];
 
-  for (let tz = 0; tz < TILES; tz++) {
-    for (let tx = 0; tx < TILES; tx++) {
-      const x0 = -TERRAIN_SIZE / 2 + tx * TILE;
-      const z0 = -TERRAIN_SIZE / 2 + tz * TILE;
-      let anyLand = false;
-      for (let py = 0; py <= 4 && !anyLand; py++) {
-        for (let px = 0; px <= 4; px++) {
-          if (terrainHeight(x0 + px * TILE / 4, z0 + py * TILE / 4) > SEA_LEVEL + 5) { anyLand = true; break; }
-        }
-      }
-      if (!anyLand) continue;
-
-      const spots = [];
-      for (let gz = 0; gz < TILE; gz += spacing) {
-        for (let gx = 0; gx < TILE; gx += spacing) {
-          const jx = (noise2((x0 + gx) * 0.31, (z0 + gz) * 0.29) * 0.5 + 0.5);
-          const jz = (noise2((x0 + gx) * 0.27 + 40, (z0 + gz) * 0.33 - 12) * 0.5 + 0.5);
-          const x = x0 + gx + jx * spacing;
-          const z = z0 + gz + jz * spacing;
-          const h = terrainHeight(x, z);
-          if (h < SEA_LEVEL + 5) continue;
-          // Slope only ever lowers fertility, so a spot that fails on flat
-          // ground fails on any slope too -- and the four height samples a
-          // normal costs are a good part of a candidate. Same trees, same
-          // boulders (those want jx > 0.86 and always take the full path).
-          if (jx <= 0.86) {
-            const f0 = fertility(x, z, h, 0);
-            if (f0 < 0.16 || jx * 0.9 + 0.1 > f0 * 1.15) continue;
-          }
-          // Forward differences off the height already in hand: two samples
-          // instead of four, on a quarter of a million candidates.
-          {
-            const nx = h - terrainHeight(x + 7, z), nz = h - terrainHeight(x, z + 7);
-            const len = Math.hypot(nx, 7, nz);
-            nrm.x = nx / len; nrm.y = 7 / len; nrm.z = nz / len;
-          }
-          const slope = Math.min(1, (1 - nrm.y) * 2.6);
-          const f = fertility(x, z, h, slope);
-          if (f < 0.16) {
-            if (f < 0.05 && slope > 0.10 && slope < 0.5 && jx > 0.86) {
-              boulders.push({ x, z, h, n: { ...nrm }, s: 0.5 + jz * 2.2 });
-            }
-            continue;
-          }
-          if (jx * 0.9 + 0.1 > f * 1.15) continue;
-          spots.push({ x, z, h, f, slope, j: jz });
-        }
-      }
-      if (!spots.length) continue;
-      if (spots.length > TILE_TREE_CAP) {
-        const stride = spots.length / TILE_TREE_CAP;
-        const kept = [];
-        for (let i = 0; kept.length < TILE_TREE_CAP; i += stride) kept.push(spots[Math.floor(i)]);
-        spots.length = 0;
-        spots.push(...kept);
-      }
-
+  function install(tx, tz, spots, bould) {
+    for (let i = 0; i < bould.length; i += BOULDER) {
+      boulders.push({ x: bould[i], z: bould[i + 1], h: bould[i + 2],
+        n: { x: bould[i + 3], y: bould[i + 4], z: bould[i + 5] }, s: bould[i + 6] });
+    }
+    const n = spots.length / SPOT;
+    const x0 = -TERRAIN_SIZE / 2 + tx * TILE;
+    const z0 = -TERRAIN_SIZE / 2 + tz * TILE;
+    if (n > 0) {
       const first = count;
-      for (const s of spots) {
+      for (let k = 0; k < n; k++) {
+        const o = k * SPOT;
+        const s = spot;
+        s.x = spots[o]; s.z = spots[o + 1]; s.h = spots[o + 2]; s.f = spots[o + 3];
+        s.slope = spots[o + 4]; s.j = spots[o + 5];
+        const exposed = spots[o + 6] > 0.5;
         if (count >= cap) grow();
         const r1 = hash(s.x, s.z, 1), r2 = hash(s.x, s.z, 2), r3 = hash(s.x, s.z, 3);
-        // Open water a little upwind and low ground: a headland in the gale.
-        const exposed = s.h < 45 && terrainHeight(s.x - windX * 70, s.z - windZ * 70) < SEA_LEVEL + 1
-          && terrainHeight(s.x - windX * 140, s.z - windZ * 140) < SEA_LEVEL + 1;
         const sp = speciesAt(s, r1, exposed);
         speciesCount[sp] = (speciesCount[sp] || 0) + 1;
         const list = kindsOf[sp];
@@ -374,8 +352,8 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
         let cr = SP[0] * (1 + hue * 1.1), cg = SP[1] * (1 + hue * 0.25 + (r1 - 0.5) * 0.06), cb = SP[2] * (1 - hue * 1.3);
         if ((sp === "birch" || sp === "rowan") && r1 > 0.94) {
           // Turning early: gold on a birch, orange-red on a rowan.
-          const k = 0.5 + r3 * 0.5;
-          cr = lerp(cr, sp === "birch" ? 1.55 : 1.7, k); cg = lerp(cg, sp === "birch" ? 1.25 : 0.75, k); cb = lerp(cb, 0.35, k);
+          const kk = 0.5 + r3 * 0.5;
+          cr = lerp(cr, sp === "birch" ? 1.55 : 1.7, kk); cg = lerp(cg, sp === "birch" ? 1.25 : 0.75, kk); cb = lerp(cb, 0.35, kk);
         }
         col.setRGB(lv * cr, lv * cg, lv * cb);
         TINT[count * 3] = col.r; TINT[count * 3 + 1] = col.g; TINT[count * 3 + 2] = col.b;
@@ -387,7 +365,6 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
       }
 
       // The tile's cards: every tree in it, every species, one draw.
-      const n = count - first;
       const cards = new THREE.InstancedMesh(cardGeo, cardMat, n);
       const aSide = new Float32Array(n * 4), aTop = new Float32Array(n * 4), aCan = new Float32Array(n);
       const cm = new THREE.Matrix4(), sc = new THREE.Matrix4();
@@ -416,11 +393,94 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
       cards.receiveShadow = false;
       cards.visible = false;
       if (atlas) root.add(cards);
-      tiles.push({ cx: x0 + TILE / 2, cz: z0 + TILE / 2, cards, count: n });
+      const t = { cx: x0 + TILE / 2, cz: z0 + TILE / 2, cards, count: n };
+      tiles.push(t);
+      // Close enough to hold hero or mid trees: refill those.
+      if (Math.hypot(t.cx - center.x, t.cz - center.z) < NEAR + TILE) dirty = true;
     }
-    onProgress((tz + 1) / TILES);
+    tilesDone++;
+    onProgress(tilesDone / TOTAL);
+    if (tilesDone === TOTAL) finish();
+    else checkNear();
   }
-  const t3 = performance.now();
+
+  function finish() {
+    console.info(`forest: ${count} trees (${Object.entries(speciesCount).map(([k, v]) => `${k} ${v}`).join(", ")}), `
+      + `${kinds.length} kinds, ${tiles.length} tiles, ${boulders.length} boulders; trees ${Math.round(t1 - t0)}ms, `
+      + `imposters ${Math.round(t2 - t1)}ms, scatter ${Math.round(performance.now() - t2)}ms wall`
+      + (workers.length ? ` on ${workers.length} workers` : " on the main thread")
+      + `, ${Math.round(scatterMs)}ms of it on the main thread`);
+    for (const w of workers) w.terminate();
+    workers.length = 0;
+    nearDone = true;
+    resolveNear();
+    resolveReady();
+  }
+
+  const jobs = [];
+  for (let tz = 0; tz < TILES; tz++) for (let tx = 0; tx < TILES; tx++) jobs.push({ tx, tz });
+  const nearestJob = () => {
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < jobs.length; i++) {
+      const j = jobs[i];
+      const dx = -TERRAIN_SIZE / 2 + (j.tx + 0.5) * TILE - focusAt.x;
+      const dz = -TERRAIN_SIZE / 2 + (j.tz + 0.5) * TILE - focusAt.z;
+      const d = dx * dx + dz * dz;
+      if (d < bd) { bd = d; bi = i; }
+    }
+    const job = jobs[bi];
+    jobs[bi] = jobs[jobs.length - 1];
+    jobs.pop();
+    return job;
+  };
+  const timed = (fn) => { const a = performance.now(); fn(); scatterMs += performance.now() - a; };
+
+  // On the main thread: all at once at load if there were never any workers,
+  // or in slices if one failed halfway, so the rest does not freeze the tab.
+  function runHere(sync) {
+    const slice = () => {
+      const end = performance.now() + (sync ? Infinity : 12);
+      while (jobs.length && performance.now() < end) {
+        const { tx, tz } = nearestJob();
+        timed(() => { const r = scatterTile(tx, tz); install(tx, tz, r.spots, r.boulders); });
+      }
+      if (jobs.length) setTimeout(slice, 0);
+    };
+    slice();
+  }
+
+  function feed(w) {
+    if (!jobs.length) return;
+    w.job = nearestJob();
+    w.postMessage({ id: 0, tx: w.job.tx, tz: w.job.tz });
+  }
+  if (typeof Worker !== "undefined") {
+    const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+    try {
+      for (let i = 0; i < n; i++) {
+        const w = new Worker(new URL("./forestworker.js", import.meta.url), { type: "module" });
+        w.job = null;
+        w.onmessage = ({ data }) => {
+          w.job = null;
+          feed(w);
+          timed(() => install(data.tx, data.tz, data.spots, data.boulders));
+        };
+        w.onerror = (e) => {
+          console.warn("forest: scatter worker failed — finishing on the main thread", e.message);
+          for (const x of workers) { if (x.job) jobs.push(x.job); x.terminate(); }
+          workers.length = 0;
+          runHere(false);
+        };
+        workers.push(w);
+      }
+    } catch (e) {
+      console.warn("forest: no module workers here — scattering on the main thread", e);
+      for (const x of workers) x.terminate();
+      workers.length = 0;
+    }
+  }
+  if (workers.length) for (const w of workers) feed(w);
+  else runHere(true);
 
   // --- Near LODs --------------------------------------------------------------
   // One instanced mesh per kind per level per part. Capacity grows as needed.
@@ -458,8 +518,6 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
     return nim;
   }
 
-  const center = new THREE.Vector3(1e9, 0, 1e9);
-  let dirty = true;
   let heroR = 90;
   const tmpCol = new THREE.Color();
   const bySlot = [];
@@ -520,19 +578,26 @@ export function createForest({ root, renderer, sway, swayShader, near = 420, far
 
   let enabled = true;
 
-  console.info(`forest: ${count} trees (${Object.entries(speciesCount).map(([k, v]) => `${k} ${v}`).join(", ")}), `
-    + `${kinds.length} kinds; trees ${Math.round(t1 - t0)}ms, imposters ${Math.round(t2 - t1)}ms, scatter ${Math.round(t3 - t2)}ms`);
 
   return {
-    treeCount: count,
-    tileCount: tiles.length,
+    /** Trees and tiles scattered so far; final once `ready` resolves. */
+    get treeCount() { return count; },
+    get tileCount() { return tiles.length; },
+    /** Filled in as tiles arrive; complete once `ready` resolves. */
     boulders,
+    /** Resolves when every tile has been scattered. */
+    ready,
+    /** Resolves when every tile near the focus has been (see NEAR_READY). */
+    nearReady,
+    /** Scatter what is round here next (the spawn, before there is a camera). */
+    prioritise(p) { focusAt.x = p.x; focusAt.z = p.z; },
     kinds,
     get heroRadius() { return heroR; },
 
     /** @param {THREE.Vector3} c   the camera, or the dragon if there is none */
     update(c) {
       if (!c || !enabled) return;
+      focusAt.x = c.x; focusAt.z = c.z;
       for (const t of tiles) {
         const d = Math.hypot(c.x - t.cx, c.z - t.cz) - TILE * 0.72;
         const want = d < FAR;

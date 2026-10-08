@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { keyTag } from "./keymap.js";
 import { music } from "./audio.js";
 import { CHAPTER_LIST } from "./storyline.js";
+import { chart } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // MISSION 1 — "The Metal and the Dark"
@@ -30,7 +31,7 @@ const SEARCH_AGL = 150;
 /** The middle of Peaceable Country, straight out of terrain.js's island table.
  *  Both the waypoint the search starts on and the "which side of it" hint are
  *  measured from here, so they cannot end up describing different woods. */
-const WOOD = V(1250, 210, 1500);
+const WOOD = V(chart(1250), 210, chart(1500));
 
 /**
  * Where everything is. Open water south-east of Berk, in the gap between Raven
@@ -43,10 +44,19 @@ const WOOD = V(1250, 210, 1500);
  *
  * Clustered on purpose. The second half of the mission bounces between these
  * three, and a two-kilometre commute between every beat is not tension, it is a
- * walk. Hollow Stack to Dragon Hunter Island is about 1.7 km; the shoal sits
- * between them. The island's own rim is 300-500 m of rock all the way round,
+ * walk. Hollow Stack to Dragon Hunter Island was about 1.7 km and is about 5
+ * since the world went three times wider -- fifteen seconds flat out; the
+ * shoal sits between them. The island's own rim is 300-500 m of rock all the way round,
  * so the last part of that trip is a climb or a run at the channel.
  */
+// The sites are on the old ten-kilometre chart, put into today's metres by
+// terrain.js chart(): the archipelago grew three times wider round them and
+// they moved with it. Hollow Stack itself did not grow (it is a stack), so
+// the camp is its table centre moved, plus the camp's own offset in metres --
+// terrain.js HOLLOW_CAMP is the same point. The distances in the beats that
+// are about the map (how far "away" is, where "out there" is) are scaled with
+// it; the ones that are about the places themselves (arriving at the stack,
+// standing in the pit) are not.
 /** Deck height of Hollow Stack's plateau. Set by world.js's STORY_ISLE. */
 export const STACK_Y = 102;
 
@@ -57,12 +67,12 @@ export const RIG = { y: 50 };
 export const SITES = {
   /** The clearing in the wood on Peaceable Country. Overwritten by main.js
    *  from terrain.js's CLEARING, which sweeps the height field for it. */
-  camp:  V(931, 0, 1545),
-  rig:   V(2450, 0, 2150),
-  stack: V(1650, 0, 2600),
-  fish:  V(2080, 0, 2320),
+  camp:  V(chart(931), 0, chart(1545)),
+  rig:   V(chart(2900), 0, chart(3800)),
+  stack: V(chart(1700) - 50, 0, chart(2550) + 50),
+  fish:  V(chart(2080), 0, chart(2320)),
   /** Sigrún's stack: a lonely rock by the shoal. main.js finds the flat top. */
-  sigrun: V(2200, 0, 2000),
+  sigrun: V(chart(2200), 0, chart(2000)),
 };
 
 /** How close a sleepfire burst has to be to burn a cage's lock. */
@@ -80,9 +90,9 @@ const CAGE_BURN_R = 46;
 // ---------------------------------------------------------------------------
 const PLATE = (p) => p.addSample("alloy", "Hunter's plate");
 const RUNTIME = {
-  peacetime: { start: () => ({ pos: V(0, 300, 900), toward: V(0, 0, -1100) }) },
+  peacetime: { start: () => ({ pos: V(0, 300, chart(900)), toward: V(0, 0, chart(-1100)) }) },
   wood: {
-    start: () => ({ pos: V(SITES.camp.x + 900, 260, SITES.camp.z - 1400), toward: SITES.camp }),
+    start: () => ({ pos: V(SITES.camp.x + chart(900), 260, SITES.camp.z - chart(1400)), toward: SITES.camp }),
   },
   pit: {
     start: () => ({ pos: V(SITES.camp.x, 240, SITES.camp.z), toward: SITES.rig }),
@@ -90,7 +100,7 @@ const RUNTIME = {
     sites: ["The clearing"],
   },
   stack: {
-    start: () => ({ pos: V(SITES.rig.x - 900, 260, SITES.rig.z - 800), toward: SITES.stack }),
+    start: () => ({ pos: V(SITES.rig.x - chart(900), 260, SITES.rig.z - chart(800)), toward: SITES.stack }),
     prepare: (p) => { PLATE(p); p.flag("sawTheRig"); },
     sites: ["The clearing", "Dragon Hunter Island"],
   },
@@ -196,7 +206,7 @@ export function mission1(ctx) {
         g.setWaypoint(SITES.camp.clone().setY(260), "Peaceable Country");
         g.toast("Berk.", 1600);
       },
-      done() { return game.flatDist(V(0, 0, -1100)) > 2100; },
+      done() { return game.flatDist(V(0, 0, chart(-1100))) > chart(2100); },
       hold: 0.2,
     },
 
@@ -254,8 +264,8 @@ export function mission1(ctx) {
         let why;
         if (over && agl >= SEARCH_AGL) why = "Lower. You are over it and above the trees.";
         else if (this._spot > 0) why = "Hold it. Keep the gap under you.";
-        else if (d < 520) why = "Close. Something opened the wood near here.";
-        else if (d < 1100) why = "Somewhere under this wood. Get down among the trees.";
+        else if (d < 600) why = "Close. Something opened the wood near here.";
+        else if (d < 1800) why = "Somewhere under this wood. Get down among the trees.";
         else why = this.sub;
         g.setObjective(this.objective, why);
 
@@ -333,11 +343,11 @@ export function mission1(ctx) {
       enter(g, c) {
         const b = c.camp?.bearing ?? 0.9;
         const t = SITES.camp.clone().add(
-          V(Math.sin(b) * 1500, 0, Math.cos(b) * 1500)).setY(140);
+          V(Math.sin(b) * chart(1500), 0, Math.cos(b) * chart(1500))).setY(140);
         this._t = t;
         g.setWaypoint(t, "Open water");
       },
-      done() { return game.flatDist(this._t) < 700; },
+      done() { return game.flatDist(this._t) < 1400; },
     },
 
     // -----------------------------------------------------------------------
@@ -431,10 +441,12 @@ export function mission1(ctx) {
       },
       update(dt, g, c) {
         const d = game.flatDist(SITES.rig);
-        g.setObjective(this.objective, d < 1200
+        // Out past the island's own coast, which is nearly two kilometres
+        // from the pit now, and a good way on.
+        g.setObjective(this.objective, d < 2000
           ? `${this.sub} · ${Math.round(d)} m` : "Keep going.");
       },
-      done() { return game.flatDist(SITES.rig) > 1900; },
+      done() { return game.flatDist(SITES.rig) > 3000; },
       exit(g, c) { player.flag("sawTheRig"); c.hunters?.calm(); music.play("flight", { fade: 5 }); },
     },
 

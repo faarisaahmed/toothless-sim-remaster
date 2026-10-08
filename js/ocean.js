@@ -376,7 +376,13 @@ export function createOcean({ scene, renderer, seaField, sunDirection, sunColor 
   // Nothing else reads the radius, and the sea field already returns
   // open-ocean defaults for anything sampled outside its extent (see seaAt()
   // above), which is exactly what all of the new area is.
-  const geo = discGeometry(260, 220, 30000, 2.6);
+  //
+  // Then the archipelago went to thirty kilometres and the horizon ring with it
+  // (37-54 km out), and from the far edge of the boundary the land on the
+  // other side is eighty kilometres away. So: eighty kilometres of sea, and
+  // the rings raised by (80/30)^(1/2.6) again for the same reason as before,
+  // so the quads under him are the 3.5 m they were.
+  const geo = discGeometry(380, 220, 80000, 2.6);
 
   const water = new Water(geo, {
     // 768 rather than 512: the reflection is what makes water read as water,

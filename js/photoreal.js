@@ -40,7 +40,12 @@ import * as THREE from "three";
 // take part read the shared uniforms below, and `uPR` decides at run time.
 // ---------------------------------------------------------------------------
 
-const RES = 1024;           // texels across the archipelago, both maps: ~10 m
+// Texels across the archipelago. Over the thirty-kilometre world the sun map
+// is 20 m a texel (it was 10 over ten), which is what the coarse sheet's own
+// 26 m height field can give it anyway; sky occlusion is smooth and baked once,
+// and stays at 1024.
+const SUN_RES = 1536;
+const SKY_RES = 1024;
 
 const QUAD_VERT = /* glsl */`
   varying vec2 vUv;
@@ -365,8 +370,8 @@ export function createPhotoreal(renderer, { heights, verts, size }) {
     wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
     depthBuffer: false, stencilBuffer: false, generateMipmaps: false,
   };
-  const sunRT = new THREE.WebGLRenderTarget(RES, RES, rtOpts);
-  const skyRT = new THREE.WebGLRenderTarget(RES, RES, rtOpts);
+  const sunRT = new THREE.WebGLRenderTarget(SUN_RES, SUN_RES, rtOpts);
+  const skyRT = new THREE.WebGLRenderTarget(SKY_RES, SKY_RES, rtOpts);
 
   const common = {
     tHeight: { value: heightTex },

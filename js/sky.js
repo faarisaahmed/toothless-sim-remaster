@@ -88,7 +88,14 @@ export const WEATHER = {
 };
 export const WEATHER_NAMES = Object.keys(WEATHER);
 
-const BASE_FOG = 0.000036;
+// Clear-day haze, as exp2 density. It was 0.000036 for a ten-kilometre world,
+// which takes a third of the colour out of land fifteen kilometres off: right
+// when fifteen kilometres was the far side of the chart, and a wall of fog
+// across the middle of a thirty-kilometre one. Thinned so the far side of the
+// archipelago is still there on a fair day (a quarter gone at twenty-five
+// kilometres, two thirds at fifty), and the horizon islands are soft shapes
+// rather than nothing.
+const BASE_FOG = 0.00002;
 
 const DOME_VERT = /* glsl */`
   varying vec3 vWorld;

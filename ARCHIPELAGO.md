@@ -38,6 +38,21 @@ toggles, `toggleTrees()` and `toggleSpray()`.
 
 ## 2. The archipelago itself
 
+**Scaled three times.** Everything below describes the table as it is
+authored, on the ten-kilometre chart. Since then `terrain.js` scales it on the
+way in -- `WORLD_SCALE` 3 on positions, radii, parts and skerry spacing,
+`PEAK_SCALE` 1.5 on each summit's height above the water, `cliff` and `shelfW`
+shrunk so coasts stay as steep and shelves as narrow in metres, more headlands
+(`lobeK`), wider fjords that swing on the long ones, extra short sea lochs on
+the big islands, and a kilometres-wide relief scale (MACRO) on top of the old
+half-kilometre one. `TERRAIN_SIZE` is 30 km, about 40% land, peaks to ~1,000 m.
+Exceptions: Hollow Stack (`keepSize`) and the sea stacks move but do not grow;
+Dragon Hunter Island grows 1.8x with its crater measured in its own `crater.R`
+= 1000 m (so `pitLayout()` is unchanged: floor 115, terraces to 385, rim 540)
+and two sea lochs bringing the water to the harbour pad and through the low
+side of the rim; Sigrún's LEDGE is found on her stack's summit at load. Story
+sites use `chart()` (old chart coordinates in today's metres).
+
 33 named islands, labelled on the chart, plus the bodies that make up the big
 ones, six hand-placed sea stacks and a few skerries — 65 entries in `ISLANDS`
 in all. About 37% of the 10 km square is land (it was 24%, as 85 entries).
@@ -247,6 +262,8 @@ once. One draw call, constant vertex count.
 The constraint is that he covers 55 m a second at cruise and 335 flat out, so a
 tree is fifteen frames of your life at sprint.
 
+- (Now ~275,000 trees in 625 m tiles over the 30 km chart, scattered on
+  workers from `forestscatter.js`, only where `woodland()` puts a wood.)
 - ~16,000 trees, scattered once at load, in a 16 × 16 grid of tiles. Two
   instanced meshes per tile: a built conifer for the tile you are over, a crossed
   billboard for the ones you are not. LOD is a distance test **per tile**, which
@@ -284,7 +301,9 @@ python3 tools/render_check.py --seconds 46 --png /tmp/shot.png --cmd "go 4;perf"
 ```
 
 `tools/probe.mjs` runs the same crater sweep `findCraterFloor()` does, asserts
-the three story sites are dry land, asserts the camp patch on Hollow Stack is
+the three story sites are dry land, Sigrún's ledge is a flat shelf,
+the clearing and the pit layout are where they should be, the three gullies into
+the pit start on land and never run steeper than 25%, asserts the camp patch on Hollow Stack is
 walkable, asserts the shoal is water and the spawn is over open water, and
 reports the per-call cost of `terrainHeight` and what that means for load.
 

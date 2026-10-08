@@ -1,5 +1,5 @@
 import {
-  SEA_LEVEL, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R, padWeight,
+  SEA_LEVEL, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R, padWeight, craterR, SNOW_LINE, woodland,
 } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
@@ -100,9 +100,14 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
   } else {
     const isl = islandAt(x, z);
     const bare = isl ? isl.bare : 0.45;
-    const snowLine = 320 - (isl ? isl.snow : 0);
+    const snowLine = SNOW_LINE - (isl ? isl.snow : 0);
 
     veg = fertility(x, z, h, slope);
+    // Open country is turf and heath, not forest floor: the needle litter
+    // (the top of the veg range, see terrainmat's `shade`) and the dark moss
+    // only where there is a wood to drop them (terrain.js woodland()).
+    const wood = woodland(x, z, h);
+    if (veg > 0.45) veg = 0.45 + (veg - 0.45) * wood;
 
     // Beach: the last few metres above the water, and only where it is not
     // standing on end. A wave-cut bench of bare rock is not a beach.
@@ -150,7 +155,7 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
     ];
     mix(gr, grassT);
     mix(MEADOW, dry * grassT * (1 - veg) * 0.45);
-    mix(DARK_MOSS, smoothstep(veg, 0.45, 0.95) * (0.35 + patch * 0.4));
+    mix(DARK_MOSS, smoothstep(veg, 0.45, 0.95) * (0.35 + patch * 0.4) * wood);
     mix(SAND, sand);
     // Steep ground is rock whatever grew near it. "Steep" is about 35 degrees
     // and up: these islands are turf to the cliff edge, and the old 16 degree
@@ -166,7 +171,7 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
     // gravel, and the risers between them are cut rock. Painted here so the
     // spiral reads from the air as rings of pale road on dark stone.
     if (isl && isl.crater && isl.crater.spiral) {
-      const dp = Math.hypot(x - isl.x, z - isl.z) / isl.r;
+      const dp = Math.hypot(x - isl.x, z - isl.z) / craterR(isl);
       const inPit = 1 - smoothstep(dp, isl.crater.inner - 0.05, isl.crater.inner + 0.02);
       if (inPit > 0.001) {
         const tread = 1 - smoothstep(slope, 0.25, 0.55);
