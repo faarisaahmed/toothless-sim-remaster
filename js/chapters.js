@@ -554,7 +554,7 @@ export function mission1(ctx) {
     {
       id: "hunt",
       objective: "Eat.",
-      sub: "Take them out of the water. Low and fast over the shoal.",
+      sub: "Fly to the shoal. He'll dive for them.",
       enter(g, c) {
         g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
       },
@@ -562,32 +562,21 @@ export function mission1(ctx) {
         const p = c.getPosition();
         const d = game.flatDist(SITES.fish);
         if (d < 400) c.findSite?.("Shoal");
-        // Over the fish, under fifteen metres, with his foot in it. The
-        // hysteresis is what makes it a PASS: you have to leave the shoal and
-        // come back round for the second one, rather than hovering in the
-        // trigger and collecting both in the same second.
-        const inRun = d < 190 && p.y < 15 && c.getSpeedT() > 0.22;
-        if (inRun && !this._in) {
-          this._in = true;
-          this._passes = (this._passes || 0) + 1;
-          player.eat(1);
-          g.toast(this._passes >= 2 ? "Fed." : "One.", 1200);
-          g.refreshState();
+        // Over the shoal and low enough to see them: he goes in after them.
+        // A cutscene, not a skill check — the old low-fast pass was a chore.
+        if (!this._diving && !this._fed && d < 220 && p.y < 120) {
+          this._diving = true;
+          (async () => {
+            await c.fishDive?.(SITES.fish);
+            player.eat(2);
+            g.toast("Fed.", 1400);
+            g.refreshState();
+            this._fed = true;
+          })();
         }
-        if (this._in && d > 300) this._in = false;
-        // Say WHY a pass did not count. The same distinction game.js already
-        // draws for landing: "here is the thing to do" and "here is why you
-        // cannot do it yet" are different messages, and a beat that silently
-        // refuses to tick is exactly the kind of thing that reads as broken.
-        let why = this.sub;
-        if (d < 190) {
-          if (p.y >= 15) why = "Lower. You are flying over them, not through them.";
-          else if (c.getSpeedT() <= 0.22) why = "Faster. You cannot pick them up at a glide.";
-        }
-        g.setObjective(this.objective,
-          `${why} &nbsp;·&nbsp; ${this._passes || 0} of 2`);
+        g.setObjective(this.objective, d < 220 && p.y >= 120 ? "Lower. He has to see them." : this.sub);
       },
-      done() { return (this._passes || 0) >= 2 && player.food === "fed"; },
+      done() { return !!this._fed; },
       exit(g, c) { c.setInteract(null); },
     },
 
@@ -653,34 +642,38 @@ export function mission1(ctx) {
     {
       id: "feed",
       objective: "They're starving.",
-      sub: "Bring them fish from the shoal. Low and fast over it to catch one.",
+      sub: "Bring them fish from the shoal.",
       enter(g, c) {
         c.npc?.atStack();
-        this._given = 0; this._carry = false; this._in = false;
+        c.npc?.weary?.(1);
+        this._given = 0; this._carry = false; this._diving = false;
         g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
       },
       update(dt, g, c) {
         const p = c.getPosition();
         const fd = game.flatDist(SITES.fish);
-        const inRun = fd < 190 && p.y < 15 && c.getSpeedT() > 0.22;
-        if (inRun && !this._in && !this._carry) {
-          this._carry = true;
-          g.toast("One in his jaws.", 1100);
-          g.setWaypoint((c.npc?.sigrun?.pos || SITES.sigrun).clone().setY(c.sigrunY + 10), "Her");
+        if (!this._carry && !this._diving && !this._given && fd < 220 && p.y < 120) {
+          this._diving = true;
+          (async () => {
+            await c.fishDive?.(SITES.fish);
+            this._diving = false;
+            this._carry = true;
+            g.toast("A mouthful of fish.", 1400);
+            g.setWaypoint((c.npc?.sigrun?.pos || SITES.sigrun).clone().setY(c.sigrunY + 10), "Her");
+          })();
         }
-        this._in = inRun || (this._in && fd < 300);
         if (this._carry && game.flatDist(c.npc?.sigrun?.pos || SITES.sigrun) < 70
             && p.y < c.sigrunY + 45) {
           this._carry = false;
-          this._given++;
-          g.toast(this._given === 1 ? "She takes it. She doesn't thank him."
-            : this._given === 2 ? "The hatchling eats first." : "Enough. For today.", 1800);
-          if (this._given < 3) g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
-          else g.setWaypoint(null);
+          this._given = 1;
+          g.toast("The hatchling eats first. Then her.", 2200);
+          // They come back to themselves, slowly.
+          c.npc?.weary?.(0.25);
+          g.setWaypoint(null);
         }
-        g.setObjective(this.objective, `${this._carry ? "Take it to her." : this.sub} · ${this._given} of 3`);
+        g.setObjective(this.objective, this._carry ? "Take it to her." : this._given ? "" : this.sub);
       },
-      done() { return this._given >= 3; },
+      done() { return this._given >= 1; },
     },
 
     // -----------------------------------------------------------------------
@@ -862,13 +855,10 @@ export function mission1(ctx) {
         // Out of fire? The shoal is between here and the stack, and a pass
         // over it feeds him the same as it did before nightfall.
         const fd = game.flatDist(SITES.fish);
-        const inRun = fd < 190 && p.y < 15 && c.getSpeedT() > 0.22;
-        if (inRun && !this._fishing && player.food !== "fed") {
-          player.eat(1);
-          g.toast("Fed.", 1000);
-          g.refreshState();
+        if (fd < 220 && p.y < 120 && !this._fishing && player.food !== "fed") {
+          this._fishing = true;
+          (async () => { await c.fishDive?.(SITES.fish); player.eat(2); g.toast("Fed.", 1000); g.refreshState(); this._fishing = false; })();
         }
-        this._fishing = inRun || (this._fishing && fd < 300);
         const hungry = player.food === "empty";
         g.setObjective(
           "Put the lights out. Then open every cage.",
@@ -1058,9 +1048,10 @@ export function mission1(ctx) {
         // Out of fire? The shoal is still there.
         const hungry = player.food === "empty";
         const fd = game.flatDist(SITES.fish);
-        const inRun = fd < 190 && p.y < 15 && c.getSpeedT() > 0.22;
-        if (inRun && !this._fishing && player.food !== "fed") { player.eat(1); g.refreshState(); }
-        this._fishing = inRun || (this._fishing && fd < 300);
+        if (fd < 220 && p.y < 120 && !this._fishing && player.food !== "fed") {
+          this._fishing = true;
+          (async () => { await c.fishDive?.(SITES.fish); player.eat(2); g.refreshState(); this._fishing = false; })();
+        }
         const n = (c.rig?.terraceCages || []).length;
         g.setObjective(this.objective, `${n - this._left(c).length} of ${n} open` +
           (hungry ? " · <b>Empty — fish the shoal, or let her</b>" : ""));
