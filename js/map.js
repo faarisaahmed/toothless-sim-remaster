@@ -12,7 +12,10 @@ import { ISLANDS, terrainHeight, TERRAIN_SIZE, SEA_LEVEL } from "./world.js";
 // and the readout drawn live on top.
 // ---------------------------------------------------------------------------
 
-const CHART_PX = 1500;  // offscreen resolution; scaled to fit whatever's on screen
+const CHART_PX = 1500;  // the chart's drawing units; scaled to fit whatever's on screen
+// The chart is drawn at this multiple of CHART_PX. The minimap shows a few
+// hundred metres of it magnified, and at 1x the ink went soft and stepped.
+const CHART_RES = 2;
 const GRID     = 384;   // height-field samples per side — ~26 world units apart
 const HALF     = TERRAIN_SIZE / 2;
 
@@ -631,8 +634,9 @@ export function setupMap(getPlayer) {
     field = sampleField();
 
     const c = document.createElement("canvas");
-    c.width = c.height = CHART_PX;
+    c.width = c.height = CHART_PX * CHART_RES;
     const c2d = c.getContext("2d");
+    c2d.scale(CHART_RES, CHART_RES);
 
     // Parchment, warmer at the edges than in the middle.
     const base = c2d.createLinearGradient(0, 0, CHART_PX, CHART_PX);
