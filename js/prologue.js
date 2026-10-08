@@ -8,7 +8,7 @@ import { bindDragon, noseSign } from "./dragonrig.js";
 const _floorP = new THREE.Vector3();
 import { music } from "./audio.js";
 import { buildLonghouse, chartTexture } from "./longhouse.js";
-import { buildSaddle, buildBed, buildSlab } from "./houseprops.js";
+import { buildSaddle, buildBed, buildSlab, buildTailFin } from "./houseprops.js";
 import { setupPost } from "./postfx.js";
 
 // ---------------------------------------------------------------------------
@@ -322,27 +322,12 @@ export function runPrologue(pad = null, save = null) {
       benchGrp.add(leg);
     }
 
-    // The fin itself — a red leather half-fin on a hinged frame, lying flat and
-    // dusty. Deliberately not glamorous.
-    const fin = new THREE.Group();
-    fin.position.set(-4.9, 0.05, 2.9);
+    // The fin itself: the prosthetic that flew badly, lying on the floor by
+    // the bench where it was left (houseprops.js).
+    const fin = buildTailFin();
+    fin.position.set(-4.9, 0, 2.9);
     fin.rotation.set(0, 0.5, 0);
     room.add(fin);
-    const finSkin = new THREE.Mesh(
-      new THREE.CircleGeometry(0.62, 3),
-      new THREE.MeshStandardMaterial({ color: 0x8d2c22, roughness: 0.72, side: THREE.DoubleSide })
-    );
-    finSkin.rotation.x = -Math.PI / 2;
-    finSkin.scale.set(1, 1.35, 1);
-    finSkin.castShadow = true;
-    fin.add(finSkin);
-    for (let i = 0; i < 3; i++) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.72),
-        new THREE.MeshStandardMaterial({ color: 0x6a6a70, roughness: 0.4, metalness: 0.7 }));
-      rib.position.set(0.02, 0.03, 0);
-      rib.rotation.y = -0.5 + i * 0.5;
-      fin.add(rib);
-    }
 
     // The chart on the back wall
     const chart = new THREE.Mesh(
@@ -384,6 +369,18 @@ export function runPrologue(pad = null, save = null) {
       });
       // ~3.4m nose to tail, feet on the floor, Y-up regardless of export.
       const rig = normalizeDragon(model, 3.4, path);
+      // Stand him on his feet, not on his bounding box: the box reaches below
+      // his soles (the folded wings, the tail), so grounding on it left him
+      // hovering with his legs hanging. Put the lowest toe bone on the floor.
+      {
+        rig.updateMatrixWorld(true);
+        let toeY = Infinity;
+        const v = new THREE.Vector3();
+        model.traverse((o) => {
+          if (o.isBone && /^(Front_)?Toe[LR]$/.test(o.name)) toeY = Math.min(toeY, o.getWorldPosition(v).y);
+        });
+        if (Number.isFinite(toeY)) rig.position.y -= toeY - 0.05;
+      }
       baseScale = rig.scale.x;
       dragon = rig;
       body.add(rig);
