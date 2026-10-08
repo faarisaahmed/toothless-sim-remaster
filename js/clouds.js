@@ -346,7 +346,7 @@ const MARCH_FRAG = /* glsl */`
     oColor = vec4( light * far, 1.0 - alpha * far );
     if ( uDebug == 1 || uDebug > 3 ) oColor = vec4( vec3( alpha * 3.0 ), 1.0 - alpha );
     // The representative distance, for reprojection; 0 where there was none.
-    oDepth = vec4( ww > 0.0 ? dist : 0.0, 0.0, 0.0, 1.0 );
+    oDepth = vec4( ww > 0.0 ? dist : 0.0, min( sceneT, 6e4 ), 0.0, 1.0 );
   }
 `;
 
@@ -395,13 +395,49 @@ const QUAD_VERT = /* glsl */`
   void main() { vUv = uv; gl_Position = vec4( position.xy, 0.0, 1.0 ); }
 `;
 
+// Depth-aware upsample. The clouds are marched at a fraction of the screen
+// resolution, and plain bilinear upscaling mixes, at every silhouette, the
+// mist in front of the far hills with the mist in front of the dragon — so a
+// dragon in fog wore a blocky halo of the wrong density. Each of the four low
+// resolution samples is weighted by how close the distance it was marched to
+// is to this pixel's own scene distance, so the fog on him comes only from
+// samples that were also on him.
 const COMP_FRAG = /* glsl */`
   varying vec2 vUv;
   uniform sampler2D tScene;
   uniform sampler2D tClouds;
+  uniform sampler2D tDepth;
+  uniform sampler2D tLowDepth;
+  uniform mat4 uProjInv;
+  uniform vec2 uLowSize;
+  float sceneDist( vec2 uv ) {
+    float dz = texture2D( tDepth, uv ).x;
+    if ( dz >= 0.99999 ) return 6e4;
+    vec4 sp = uProjInv * vec4( uv * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0 );
+    return min( length( sp.xyz / sp.w ), 6e4 );
+  }
   void main() {
     vec4 s = texture2D( tScene, vUv );
-    vec4 c = texture2D( tClouds, vUv );
+    float d0 = sceneDist( vUv );
+    vec2 p = vUv * uLowSize - 0.5;
+    vec2 i = floor( p ), f = p - i;
+    vec4 acc = vec4( 0.0 ); float wsum = 0.0;
+    float bestRel = 1e9; vec2 bestUv = vUv;
+    for ( int k = 0; k < 4; k++ ) {
+      vec2 o = vec2( float( k & 1 ), float( k >> 1 ) );
+      vec2 uv = ( i + o + 0.5 ) / uLowSize;
+      float bl = ( o.x > 0.5 ? f.x : 1.0 - f.x ) * ( o.y > 0.5 ? f.y : 1.0 - f.y );
+      float dl = texture2D( tLowDepth, uv ).g;
+      float rel = abs( log( max( dl, 0.1 ) / max( d0, 0.1 ) ) );
+      if ( rel < bestRel ) { bestRel = rel; bestUv = uv; }
+      float w = bl * exp( -rel * 12.0 ) + 1e-5 * bl;
+      acc += texture2D( tClouds, uv ) * w;
+      wsum += w;
+    }
+    vec4 c = acc / wsum;
+    // Nothing nearby was marched at this pixel's distance (a thin wing edge
+    // smaller than a low-res texel): take the closest in depth outright.
+    if ( wsum < 0.02 ) c = texture2D( tClouds, bestUv );
     gl_FragColor = vec4( s.rgb * c.a + c.rgb, s.a );
   }
 `;
@@ -508,7 +544,11 @@ export class CloudPass extends Pass {
     this.compMat = new THREE.ShaderMaterial({
       vertexShader: QUAD_VERT, fragmentShader: COMP_FRAG,
       depthTest: false, depthWrite: false,
-      uniforms: { tScene: { value: null }, tClouds: { value: null } },
+      uniforms: {
+        tScene: { value: null }, tClouds: { value: null }, tDepth: { value: null },
+        tLowDepth: { value: null }, uProjInv: { value: new THREE.Matrix4() },
+        uLowSize: { value: new THREE.Vector2(1, 1) },
+      },
     });
     this.marchQuad = new FullScreenQuad(this.marchMat);
     this.resolveQuad = new FullScreenQuad(this.resolveMat);
@@ -541,6 +581,7 @@ export class CloudPass extends Pass {
     this.marchRT.setSize(cw, ch);
     for (const r of this.hist) r.setSize(cw, ch);
     this.resolveMat.uniforms.uTexel.value.set(1 / cw, 1 / ch);
+    this.compMat.uniforms.uLowSize.value.set(cw, ch);
     this.reset = true;
   }
 
@@ -580,6 +621,9 @@ export class CloudPass extends Pass {
 
     this.compMat.uniforms.tScene.value = readBuffer.texture;
     this.compMat.uniforms.tClouds.value = dst.texture;
+    this.compMat.uniforms.tDepth.value = readBuffer.depthTexture;
+    this.compMat.uniforms.tLowDepth.value = this.marchRT.texture[1];
+    this.compMat.uniforms.uProjInv.value.copy(cam.projectionMatrixInverse);
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.compQuad.render(renderer);
   }
