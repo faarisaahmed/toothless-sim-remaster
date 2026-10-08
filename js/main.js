@@ -46,6 +46,7 @@ import { createSurfaces } from "./surfaces.js";
 import { createGroundBody } from "./groundbody.js";
 import { createBaseDetail } from "./basedetail.js";
 import { createSpeedFx } from "./speedfx.js";
+import { createDownScreen } from "./downscreen.js";
 import { createSplashes } from "./splash.js";
 import { createPitWood } from "./pitwood.js";
 
@@ -537,7 +538,51 @@ let musicBigHold = 0;
 // Declared here rather than up with the input state: this runs at module top
 // level, well before that block, and a `let` read above its own declaration is
 // a ReferenceError rather than an undefined.
-const health = setupHealth();
+const health = setupHealth({ enabled: () => settings.damage() });
+
+// --- Going down, and waking up ----------------------------------------------
+// At zero health he drops out of the player's hands, the screen goes to the
+// "he's down" card, and Continue wakes him over the nearest island, healed,
+// with the story exactly where it was.
+let isDown = false;
+const downScreen = createDownScreen({ onContinue: () => respawn() });
+health.onDeath((cause, reason) => {
+  isDown = true;
+  pad.rumble.pulse(1, 1, 0.6);
+  setTimeout(() => downScreen.show(cause, reason), 900);
+});
+function respawn() {
+  if (!dragon || !controls) { isDown = false; health.refill(); return; }
+  if (grounded) takeOff();
+  // The nearest solid, gentle, dry ground to where he fell: sampled on rings
+  // outward from him, so it is the island he was over or the next one.
+  const p = dragon.position;
+  let best = null;
+  for (let r = 0; r <= 2600 && !best; r += 60) {
+    const n = Math.max(1, Math.round(r / 30));
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+      const h = world.getHeightAt(x, z);
+      if (h < world.seaLevel + 12 || h > 260) continue;
+      const slope = Math.abs(world.getHeightAt(x + 8, z) - world.getHeightAt(x - 8, z))
+                  + Math.abs(world.getHeightAt(x, z + 8) - world.getHeightAt(x, z - 8));
+      if (slope > 7) continue;
+      if (!best || slope < best.slope) best = { x, z, h, slope };
+    }
+  }
+  const at = best || { x: SPAWN.x, z: SPAWN.z, h: 0 };
+  dragon.position.set(at.x, Math.max(at.h, world.seaLevel) + 28, at.z);
+  controls.bleedSpeed?.(1);
+  controls.clearSnare?.();
+  controls.setHeading(Math.atan2(p.x - at.x, p.z - at.z));
+  camPrevDragon.copy(dragon.position);
+  focus.copy(dragon.position);
+  lastFocus.copy(focus);
+  health.refill();
+  isDown = false;
+  game.toast?.("He wakes. Sore, but whole.", 2200);
+}
 const plasma = setupPlasma(scene, {
   getHeightAt: (x, z) => world.getHeightAt(x, z),
   seaLevel: world.seaLevel,
@@ -1503,7 +1548,7 @@ function updateHunters(dt) {
 // purpose: the damage is small and the seconds are the punishment.
 bolas.onHit(() => {
   if (!dragon || !controls) return;
-  health.damage(12, "Bola \u2014 his wings are bound");
+  health.damage(12, "Bola \u2014 his wings are bound", "bola");
   controls.snare();
   pad.rumble.pulse(1.0, 1.0, 0.5);
   game.toast("Snared. Roll out of it.", 1500);
@@ -1919,7 +1964,7 @@ const placesBuilt = (async () => {
       return ray.intersectObjects(walls, false).length > 0;
     });
     rig.onArrowHit = () => {
-      health.damage(7, "Arrow");
+      health.damage(7, "Arrow", "arrow");
       pad.rumble.pulse(0.7, 0.6, 0.18);
     };
   }
@@ -2274,7 +2319,9 @@ function frame() {
 
   // Real dt: being hurt does not run slower because he is aiming, and the
   // regeneration timer is a promise about seconds rather than about frames.
-  health.update(dt);
+  health.update(dt, { hudOn: settings.hud() });
+  document.body.classList.toggle("hud-off", !settings.hud());
+  document.body.classList.toggle("hp-on", settings.damage() && settings.hud());
 
   // --- Music that follows the flying ------------------------------------
   // Flat out, or in a manoeuvre, gets the big half of Test Drive; everything
@@ -2314,7 +2361,7 @@ function frame() {
   // statement about the fiction, not about the machine.
   const sdt = dt * aim.timeScale();
 
-  if (controls && !grounded && !game.cine && !caged) controls.update(sdt);
+  if (controls && !grounded && !game.cine && !caged && !isDown) controls.update(sdt);
   if (dive && dragon) {
     // In over a long shallow arc from wherever he was, down to the water,
     // under for a moment, then out and up the far side.
@@ -2474,6 +2521,7 @@ function frame() {
                 ? Math.min(0.85, into * 1.4)
                 : 1 - Math.exp(-dt * (0.9 + 4 * into));
               controls.scrapeSpeed?.(lose);
+              if (wasGrounded) health.scrape(sp, dt);
             }
           }
         }

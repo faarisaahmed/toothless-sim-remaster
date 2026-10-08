@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { shuffledTips } from "./tips.js";
+import { makeTipDeck, recentDeath } from "./tips.js";
+import { settings } from "./settings.js";
 
 // ---------------------------------------------------------------------------
 // The loading screen.
@@ -47,6 +48,12 @@ const CSS = `
                 letter-spacing:.04em; line-height:1.5; max-width:min(620px,84vw); text-align:center;
                 min-height:3em; transition:opacity .5s ease; }
 .na-load .tip.fade { opacity:0; }
+.na-load .tip { transition:opacity .25s ease; }
+.na-load .tip-nav { position:absolute; bottom:calc(9vh - 2.6rem); display:flex; align-items:center; gap:12px; }
+.na-load .tip-nav button { width:30px; height:30px; border-radius:50%; cursor:pointer; font-size:1.1rem; line-height:1;
+  color:#ece6d8; background:rgba(236,230,216,.06); border:1px solid rgba(236,230,216,.22); }
+.na-load .tip-nav button:hover { background:rgba(255,138,61,.2); border-color:rgba(255,138,61,.6); }
+.na-load .tip-n { font-size:.66rem; letter-spacing:.2em; color:var(--ink-3, #857e71); min-width:4.5em; text-align:center; }
 .na-load .tip-head { position:absolute; bottom:calc(9vh + 3.3rem); font-size:.62rem; font-weight:700; letter-spacing:.4em;
                      text-transform:uppercase; color:var(--ember-2, #ffb47a); opacity:.7; }
 .na-load .tip kbd { font:600 .78rem var(--ui, Rajdhani, sans-serif); padding:1px 6px; border-radius:4px;
@@ -71,7 +78,9 @@ export function showLoading({ title = "Night Alone", sub = "", tip = "" } = {}) 
     `<h1>${title}</h1>` +
     `<div class="bar"><i></i></div>` +
     `<div class="what">Loading</div>` +
-    `<div class="tip-head">Did you know</div><div class="tip"></div>`;
+    `<div class="tip-head">Did you know</div><div class="tip"></div>` +
+    `<div class="tip-nav"><button type="button" data-tip="-1" aria-label="Previous tip">&lsaquo;</button>` +
+    `<span class="tip-n"></span><button type="button" data-tip="1" aria-label="Next tip">&rsaquo;</button></div>`;
   document.body.appendChild(el);
 
   const bar = el.querySelector(".bar i");
@@ -107,15 +116,24 @@ export function showLoading({ title = "Night Alone", sub = "", tip = "" } = {}) 
   }
 
   // --- Tips ------------------------------------------------------------------
+  // One deck for this loading screen: no tip shown twice. If he went down
+  // recently, the first one is about how — dealt like any other.
   const tipEl = el.querySelector(".tip");
-  const tips = shuffledTips();
-  let tipI = 0;
-  const showTip = () => { tipEl.innerHTML = tips[tipI % tips.length]; tipI++; };
-  showTip();
-  const tipTimer = setInterval(() => {
+  const tipN = el.querySelector(".tip-n");
+  const deck = makeTipDeck({ damage: settings.damage(), cause: recentDeath()?.cause });
+  const show = (t) => { tipEl.innerHTML = t; tipN.textContent = `${deck.index + 1} / ${deck.size}`; };
+  show(deck.next());
+  let tipTimer = 0;
+  const flip = (dir) => {
+    clearInterval(tipTimer);
     tipEl.classList.add("fade");
-    setTimeout(() => { showTip(); tipEl.classList.remove("fade"); }, 500);
-  }, 5200);
+    setTimeout(() => { show(dir < 0 ? deck.prev() : deck.next()); tipEl.classList.remove("fade"); }, 260);
+    tipTimer = setInterval(() => flip(1), 6500);
+  };
+  tipTimer = setInterval(() => flip(1), 6500);
+  el.querySelectorAll("[data-tip]").forEach((b) => b.addEventListener("click", () => flip(+b.dataset.tip)));
+  const onKey = (e) => { if (e.code === "ArrowRight") flip(1); else if (e.code === "ArrowLeft") flip(-1); };
+  window.addEventListener("keydown", onKey);
 
   return {
     /** Change the line above the title (main.js knows the chapter; boot does not). */
@@ -130,6 +148,7 @@ export function showLoading({ title = "Night Alone", sub = "", tip = "" } = {}) 
       glide(1);
       what.textContent = "Ready";
       clearInterval(tipTimer);
+      window.removeEventListener("keydown", onKey);
       setTimeout(() => {
         el.classList.add("out");
         setTimeout(() => { el.remove(); style.remove(); }, 800);

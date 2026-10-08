@@ -250,6 +250,35 @@ What it shows:
 
 The full chart is still on Tab.
 
+## Health
+
+Settings → Game → **Damage** is on by default. The health bar sits top left.
+
+**What hurts:**
+- Arrows and bolas.
+- Flying into the ground. Damage scales with how fast he's moving *into* the
+  surface, so skimming along is free.
+  - Diving into flat ground bites harder.
+  - A cliff at speed is usually fatal.
+- Scraping along rock at speed.
+- Hitting the sea, which hurts half as much as rock.
+
+**Healing:** he heals after a few seconds without being hit. The pale strip
+behind the bar shows what the last hit took.
+
+**Going down:** at zero health a card says what brought him down. Continue
+wakes him over the nearest island with full health, and nothing in the story is
+lost.
+
+**Tips:** the card shows tips. The first one happens to be about how he just
+died, and the next loading screen does the same.
+
+**Settings → Game → HUD** hides the instruments, compass, minimap and health bar.
+
+**Loading screen tips:** cycle on their own, or use the ‹ › buttons or the arrow
+keys. They never repeat within one sitting. Damage tips are added only when
+damage is on.
+
 ## Save files
 
 There are four journeys, each its own plain-text file in the browser's local

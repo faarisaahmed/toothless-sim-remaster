@@ -334,3 +334,10 @@ body:has(.na-bars.on) #hunter-marks { display: none; }
                    box-shadow: 0 2px 8px rgba(0, 0, 0, .4); font-variant-numeric: tabular-nums; }
 #minimap .mm-xyz b { color: #9e2c14; font-weight: 700; margin-right: 3px; }
 @media (max-width: 600px) { #minimap canvas { width: 120px !important; height: 120px !important; } }
+
+/* Settings → Game → HUD off: a clean screen. Objectives, prompts and the
+   cutscene text still show. */
+body.hud-off #hud, body.hud-off #hud-compass, body.hud-off #minimap,
+body.hud-off #hud-keys-panel, body.hud-off #hp, body.hud-off .na-state { display: none !important; }
+/* The health bar takes the top-left corner; the controls card sits under it. */
+body.hp-on #hud-keys-panel { top: calc(max(16px, env(safe-area-inset-top)) + 84px); }

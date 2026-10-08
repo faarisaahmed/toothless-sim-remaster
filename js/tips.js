@@ -85,6 +85,64 @@ const TIPS = () => [
   `Too dark? Settings → World lets you pick the time of day.`,
 ];
 
+// Tips that only make sense with damage on, each tagged with the deaths it
+// would have prevented. After he goes down, the first tip shown is one of the
+// ones matching how — presented like any other.
+const DAMAGE_TIPS = () => [
+  { causes: ["arrow"], t: `Archers lead their shots a little. A sudden turn or a barrel roll makes them miss.` },
+  { causes: ["arrow"], t: `An arrow takes a bite, not a lot. It's standing in the open under three of them that does it.` },
+  { causes: ["arrow", "bola"], t: `They can't hit what they can't see. Keep a ridge or the trees between you and the hunters.` },
+  { causes: ["arrow"], t: `Trees stop arrows as well as eyes. In the wood, they can't get a clean shot.` },
+  { causes: ["bola"], t: `A bola wraps his wings. Roll left and right to shake it loose before he hits the water.` },
+  { causes: ["bola"], t: `Double-tap ${k("knifeL")} or ${k("knifeR")} to barrel roll the instant you see a bola coming.` },
+  { causes: ["dive"], t: `A dive builds speed fast. Start pulling up well before the ground does it for you.` },
+  { causes: ["dive"], t: `Diving into the ground hurts far more than brushing it. Level out, then land.` },
+  { causes: ["dive", "water"], t: `Hold ${k("landUse")} to land instead of arriving. He flares and comes down soft.` },
+  { causes: ["wall"], t: `The faster he's going, the worse a cliff is. Flat out, a rock face is the end of him.` },
+  { causes: ["wall"], t: `Skimming along a cliff is free. It's flying INTO it that costs.` },
+  { causes: ["wall"], t: `${k("knifeL")} and ${k("knifeR")} put a wing down to slip through a gap you'd otherwise hit.` },
+  { causes: ["wall", "scrape"], t: `In tight valleys, ease off the speed. He turns much tighter at a cruise.` },
+  { causes: ["scrape"], t: `Dragging along the rock wears him down. Lift off it as soon as you feel it.` },
+  { causes: ["water"], t: `The sea is softer than rock, but not soft. Hitting it at speed still hurts.` },
+  { causes: [], t: `He heals on his own. Stay out of trouble for a few seconds and the bar fills back up.` },
+  { causes: [], t: `Going down costs you nothing but the trip back. He wakes on the nearest island, story intact.` },
+  { causes: [], t: `Don't want to be hurt? Settings → Game → Damage turns it off.` },
+  { causes: [], t: `The pale strip behind the health bar is what you just lost. Watch it to learn what hits hardest.` },
+];
+
+/**
+ * A deck of tips for one sitting: shuffled, never repeating until every one
+ * has been shown, and able to go back.
+ *   damage     include the damage tips
+ *   cause      the last death's cause, if it was recent: the first card is
+ *              one of the tips about it
+ */
+export function makeTipDeck({ damage = true, cause = null } = {}) {
+  const all = TIPS().filter((s) => !s.includes("<kbd></kbd>")).map((t) => ({ t, causes: [] }));
+  if (damage) all.push(...DAMAGE_TIPS());
+  for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+  if (cause) {
+    const i = all.findIndex((x) => x.causes.includes(cause));
+    if (i > 0) all.unshift(...all.splice(i, 1));
+  }
+  let at = -1;
+  return {
+    get size() { return all.length; },
+    get index() { return at; },
+    next() { at = (at + 1) % all.length; return all[at].t; },
+    prev() { at = (at - 1 + all.length) % all.length; return all[at].t; },
+  };
+}
+
+/** The last time he went down, if it was in the last half hour. */
+export function recentDeath() {
+  try {
+    const d = JSON.parse(localStorage.getItem("nightalone.lastDeath") || "null");
+    if (d && Date.now() - d.at < 30 * 60 * 1000) return d;
+  } catch { /* none */ }
+  return null;
+}
+
 /** All tips, with the current keys filled in, shuffled. */
 export function shuffledTips() {
   const t = TIPS().filter((s) => !s.includes("<kbd></kbd>"));
