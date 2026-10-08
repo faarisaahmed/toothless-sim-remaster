@@ -323,3 +323,13 @@ body:has(.na-bars.on) #hud-keys-panel { opacity: 0; }
 #hunter-marks i.alert { color: #ff5a3a; animation: mark-pop .5s var(--ease) both; }
 @keyframes mark-pop { 0% { transform-origin: center; scale: 1.8; } 100% { scale: 1; } }
 body:has(.na-bars.on) #hunter-marks { display: none; }
+
+/* The minimap, top right (js/minimap.js). */
+#minimap { position: fixed; top: max(16px, env(safe-area-inset-top)); right: max(20px, env(safe-area-inset-right));
+           z-index: 30; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#minimap canvas { display: block; border-radius: 50%; box-shadow: 0 4px 18px rgba(0, 0, 0, .45); }
+#minimap .mm-xyz { display: flex; gap: 10px; font: 600 .78rem/1 var(--ui, Rajdhani, system-ui, sans-serif);
+                   letter-spacing: .06em; color: rgba(236, 230, 216, .85); background: rgba(10, 14, 22, .55);
+                   padding: 4px 10px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+#minimap .mm-xyz b { color: #ff9a4a; font-weight: 700; margin-right: 3px; }
+@media (max-width: 600px) { #minimap canvas { width: 120px !important; height: 120px !important; } }

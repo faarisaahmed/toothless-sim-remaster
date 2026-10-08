@@ -19,7 +19,8 @@ import { buildHunterBase } from "./hunterbase.js";
 import { pitLayout } from "./terrain.js";
 import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
 import { chapterOfBeat, chapterById } from "./storyline.js";
-import { setMapSites, setMapObjective } from "./map.js";
+import { setMapSites, setMapObjective, getMapSites } from "./map.js";
+import { setupMinimap } from "./minimap.js";
 import { buildRig, buildHollowStack, buildSnareCamp } from "./places.js";
 import { setupPost, SunShaftShader } from "./postfx.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
@@ -366,6 +367,18 @@ const map = setupMap(() => dragon && controls ? {
   z: dragon.position.z,
   heading: controls.getHeading(),
 } : null);
+
+// The minimap, top right: heading-up, objective, trails, hunters, compass, XYZ.
+const minimap = setupMinimap({
+  getPlayer: () => dragon && controls ? {
+    x: dragon.position.x, y: dragon.position.y, z: dragon.position.z,
+    heading: grounded ? walkYaw : controls.getHeading(),
+    agl: dragon.position.y - Math.max(world.getHeightAt(dragon.position.x, dragon.position.z), world.seaLevel),
+  } : null,
+  getObjective: () => game.waypoint ? { x: game.waypoint.x, z: game.waypoint.z, label: game.waypointLabel } : null,
+  getSites: () => getMapSites(),
+  getHunters: () => rig?.hunters?.men ?? null,
+});
 
 document.addEventListener("click", (e) => {
   // Clicking the HUD, the console or the chart must not grab the pointer.
@@ -2651,6 +2664,8 @@ function frame() {
   updateHud();
   updatePadMon();
   map.update(dt);
+  minimap.setVisible(!game.cine && !document.getElementById("map")?.classList.contains("open"));
+  minimap.update(dt, { speed: grounded ? 0 : (controls?.getSpeed?.() ?? 0), flying: !grounded });
 
   // On foot the camera falls in behind him. Walking with a free-orbit camera
   // means constantly re-aiming it with the other hand, which is fine in the air

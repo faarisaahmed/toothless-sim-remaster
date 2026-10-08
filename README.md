@@ -233,6 +233,23 @@ The prologue's walk uses the same system.
 side-on filmstrip at a fixed time step. Options include `&turn=`, `&slope=`,
 `&view=front|top|q`, and `v=0` to see him standing.
 
+## Minimap
+
+Top right, in flight and on foot (`js/minimap.js`). It's heading-up and zooms
+out with speed and height.
+
+What it shows:
+- The objective: a ring on the map, or an arrow on the rim when it's off the
+  map.
+- Places he has found.
+- The forest trails into the hunters' pit, dotted.
+- Nearby hunters, each with a tick for the way he faces: white when calm, amber
+  when suspicious, red when alerted.
+- N, E, S and W round the rim.
+- His X, Y and Z underneath.
+
+The full chart is still on Tab.
+
 ## Controls
 
 One key, one job. WASD and the arrow keys are the same two axes everywhere —
