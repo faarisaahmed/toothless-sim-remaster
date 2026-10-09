@@ -146,9 +146,11 @@ vite.config.ts.timestamp-*
 # is still on disk it must not reach the GitHub repo or the Pages deploy.
 assets/audio/official_music/
 
-# The soundtrack's build inputs and scratch: the 32 MB soundfont, which
+# The soundtrack's build inputs and scratch: the 32 MB soundfont and the
+# ~1.2 GB of CC0 instrument samples (VSCO 2 CE, VCSL), which
 # tools/music/build.py fetches on first run, and its intermediate renders.
 tools/music/GeneralUser-GS.sf2
+tools/music/samples/
 tools/music/_work/
 # Solo previews of the two themes, for listening; build.py --solo remakes them.
 tools/music/solo/

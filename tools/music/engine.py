@@ -1,20 +1,26 @@
 """
 The sequencer, the performer and the studio behind tools/music/build.py.
 
-Nothing in here is a tune. It turns the notation in score.py into MIDI that
-sounds played rather than typed — timing drift, accents that follow the metre,
-phrases that swell, ornaments the way a whistle or fiddle player would put them
-in — renders it through a General MIDI soundfont with fluidsynth, one stem per
-instrument family, and then does the work a mix engineer would: a convolution
-hall per stem, EQ, glue compression, a little width, loudness to target and a
-limiter, and a seamless loop cut.
+Nothing in here is a tune. It turns the notation in score.py into note lists
+that sound played rather than typed — timing drift, accents that follow the
+metre, phrases that swell, ornaments the way a whistle or fiddle player would
+put them in — and has each part played: on recorded instruments by sampler.py
+(VSCO 2 CE and VCSL, both CC0), or, for the few with no free recording, on
+their General MIDI preset through fluidsynth. Then it does the work a mix
+engineer would: each part EQ'd and seated in the stereo field, sent to a hall
+and a room (convolution with impulse responses modelled here), the returns
+low-cut and darkened, then on the master a clean bottom, presence and air,
+glue compression, loudness to target, a limiter that keeps true peak under
+-1 dBTP, and a seamless loop cut.
 
-The loop cut is the part worth knowing about. Every track is sequenced as one
-loop of length L, rendered three times back to back, and the file is cut from
-the middle copy: [L, 2L + PAD]. So the start of the file already carries the
-reverb tail of its own ending, the end runs PAD seconds on into its own start,
-and js/audio.js jumps from L back to 0 (plus however far it overshot) with the
-same music on both sides of the seam.
+The loop is the part worth knowing about. Every part is rendered into a buffer
+exactly one loop long that wraps around — the tail of the last bar sounds over
+the first — and so does the reverb, so the mix is exactly periodic. It is then
+laid out three times and mastered, and the file is cut from the second copy:
+[L, 2L + PAD]. So the start of the file already carries the reverb tail of its
+own ending, the end runs PAD seconds on into its own start, and js/audio.js
+jumps from L back to 0 (plus however far it overshot) with the same music,
+sample for sample, on both sides of the seam.
 """
 import math
 import os
@@ -87,49 +93,56 @@ def bass_of(sym, lo=36):
 
 
 # ---------------------------------------------------------------------------
-# Instruments: (bank, program) in GeneralUser GS, plus how each is played.
-# stem groups the families that share a reverb send; pan is -1..1.
+# Instruments. `patch` names the recorded instrument in sampler.PATCHES that
+# plays the part; parts without one (the solo voice, choir, pipes, shakuhachi)
+# stay on their GeneralUser GS preset, (bank, program), through fluidsynth.
+# bank/prog are also what each patch is level-matched against (see
+# sampler.calibrate), so the balance the score was written for carries over.
+#
+# Seating (pan, -1..1) follows an orchestra with a folk band in front of it:
+# violins left, violas centre-right, cellos and basses right, horns
+# back-left, trumpets and trombones back-right, harp far left; the whistle
+# and fiddle near the middle, a little apart. `hall` and `room` are the sends
+# to the two reverbs; `eq` is a list of (type, Hz, dB, Q) applied to the part.
+# stem only groups parts for the level report.
 # ---------------------------------------------------------------------------
 INSTR = {
-    "whistle":   dict(bank=24, prog=75, stem="lead", pan=0.05, vol=100),
-    "flute":     dict(bank=0, prog=73, stem="lead", pan=-0.1, vol=100),
-    "fiddle":    dict(bank=0, prog=110, stem="lead", pan=0.12, vol=100),
-    "violin":    dict(bank=0, prog=40, stem="lead", pan=-0.15, vol=100),
-    "voice":     dict(bank=0, prog=85, stem="lead", pan=0.0, vol=90),     # Solo Vox: the kulning call
-    "pipes":     dict(bank=0, prog=109, stem="lead", pan=0.3, vol=80),
-    "shakuhachi": dict(bank=0, prog=77, stem="lead", pan=-0.25, vol=95),
-    "horn":      dict(bank=1, prog=60, stem="brass", pan=-0.2, vol=100),   # Solo French Horn
-    "horns":     dict(bank=0, prog=60, stem="brass", pan=-0.25, vol=100),
-    "brass":     dict(bank=0, prog=61, stem="brass", pan=0.15, vol=95),
-    "trombone":  dict(bank=0, prog=57, stem="brass", pan=0.3, vol=95),
-    "tuba":      dict(bank=0, prog=58, stem="brass", pan=0.1, vol=95),
-    "strings":   dict(bank=0, prog=49, stem="strings", pan=0.0, vol=100),  # Slow Strings
-    "fstrings":  dict(bank=0, prog=48, stem="strings", pan=0.1, vol=100),  # Fast Strings
-    "trem":      dict(bank=0, prog=44, stem="strings", pan=-0.1, vol=90),
-    "cello":     dict(bank=0, prog=42, stem="low", pan=0.2, vol=100),
-    "contrabass": dict(bank=0, prog=43, stem="low", pan=0.0, vol=100),
-    "pizz":      dict(bank=0, prog=45, stem="plucks", pan=0.25, vol=95),
-    "harp":      dict(bank=0, prog=46, stem="plucks", pan=-0.3, vol=100),
-    "dulcimer":  dict(bank=0, prog=15, stem="plucks", pan=0.35, vol=85),
-    "guitar":    dict(bank=0, prog=24, stem="plucks", pan=0.3, vol=90),
-    "choir":     dict(bank=0, prog=52, stem="strings", pan=0.0, vol=95),
-    "oohs":      dict(bank=0, prog=53, stem="strings", pan=0.0, vol=95),
-    "glass":     dict(bank=0, prog=92, stem="strings", pan=0.0, vol=90),
-    "timpani":   dict(bank=0, prog=47, stem="drums", pan=-0.1, vol=110),
-    "taiko":     dict(bank=0, prog=116, stem="drums", pan=0.0, vol=115),
-    "bassdrum":  dict(bank=8, prog=116, stem="drums", pan=0.0, vol=115),
-    "tom":       dict(bank=0, prog=117, stem="drums", pan=0.15, vol=105),
-    "tambourine": dict(bank=12, prog=119, stem="drums", pan=0.35, vol=70),
-}
-
-# How much of each stem goes to the hall, and how long the hall is.
-STEMS = {
-    "lead":    dict(wet=0.30, ir="hall"),
-    "brass":   dict(wet=0.38, ir="hall"),
-    "strings": dict(wet=0.42, ir="hall"),
-    "low":     dict(wet=0.22, ir="hall"),
-    "plucks":  dict(wet=0.32, ir="hall"),
-    "drums":   dict(wet=0.24, ir="room"),
+    "whistle":   dict(bank=24, prog=75, stem="lead", pan=0.06, vol=100, patch="whistle", hall=0.30),
+    "flute":     dict(bank=0, prog=73, stem="lead", pan=-0.1, vol=100, patch="flute", hall=0.30),
+    "fiddle":    dict(bank=0, prog=110, stem="lead", pan=-0.08, vol=100, patch="fiddle", hall=0.26,
+                      eq=[("pk", 3200, -1.5, 1.2)]),                              # a little less bow scratch
+    "violin":    dict(bank=0, prog=40, stem="lead", pan=-0.15, vol=100, patch="violin", hall=0.28,
+                      eq=[("pk", 3200, -2.0, 1.2)]),
+    "voice":     dict(bank=0, prog=85, stem="lead", pan=0.0, vol=90, hall=0.42),     # Solo Vox: the kulning call
+    "pipes":     dict(bank=0, prog=109, stem="lead", pan=0.28, vol=80, hall=0.30),
+    "shakuhachi": dict(bank=0, prog=77, stem="lead", pan=-0.12, vol=95, hall=0.40),
+    "horn":      dict(bank=1, prog=60, stem="brass", pan=-0.22, vol=100, patch="horn", hall=0.40),
+    "horns":     dict(bank=0, prog=60, stem="brass", pan=-0.25, vol=100, patch="horns", hall=0.40),
+    "brass":     dict(bank=0, prog=61, stem="brass", pan=0.12, vol=95, patch="brass", hall=0.36,
+                      eq=[("pk", 2800, -1.5, 1.0)]),
+    "trombone":  dict(bank=0, prog=57, stem="brass", pan=0.3, vol=95, patch="trombone", hall=0.36),
+    "tuba":      dict(bank=0, prog=58, stem="brass", pan=0.36, vol=95, patch="tuba", hall=0.30),
+    "strings":   dict(bank=0, prog=49, stem="strings", pan=0.0, vol=100, patch="strings", hall=0.42,
+                      eq=[("pk", 3500, -1.5, 1.0)]),                              # Slow Strings
+    "fstrings":  dict(bank=0, prog=48, stem="strings", pan=-0.28, vol=100, patch="fstrings", hall=0.36,
+                      eq=[("pk", 3500, -1.5, 1.0)]),                              # Fast Strings
+    "trem":      dict(bank=0, prog=44, stem="strings", pan=0.0, vol=90, patch="trem", hall=0.42),
+    "cello":     dict(bank=0, prog=42, stem="low", pan=0.3, vol=100, patch="cello", hall=0.24),
+    "contrabass": dict(bank=0, prog=43, stem="low", pan=0.4, vol=100, patch="contrabass", hall=0.20),
+    "pizz":      dict(bank=0, prog=45, stem="plucks", pan=0.22, vol=95, patch="pizz", hall=0.32),
+    "harp":      dict(bank=0, prog=46, stem="plucks", pan=-0.3, vol=100, patch="harp", hall=0.32),
+    "dulcimer":  dict(bank=0, prog=15, stem="plucks", pan=0.32, vol=85, patch="dulcimer", hall=0.32),
+    "guitar":    dict(bank=0, prog=24, stem="plucks", pan=0.3, vol=90, patch="guitar", hall=0.20),
+    "choir":     dict(bank=0, prog=52, stem="strings", pan=0.0, vol=95, hall=0.46),
+    "oohs":      dict(bank=0, prog=53, stem="strings", pan=0.0, vol=95, hall=0.46),
+    "glass":     dict(bank=0, prog=92, stem="strings", pan=0.0, vol=90, patch="glass", hall=0.46),
+    "timpani":   dict(bank=0, prog=47, stem="drums", pan=-0.1, vol=110, patch="timpani", hall=0.30, room=0.10),
+    "taiko":     dict(bank=0, prog=116, stem="drums", pan=0.05, vol=115, patch="taiko", hall=0.22, room=0.12,
+                      eq=[("hp", 40, 0, 0), ("hp", 40, 0, 0)]),
+    "bassdrum":  dict(bank=8, prog=116, stem="drums", pan=0.0, vol=115, patch="bassdrum", hall=0.14, room=0.14),
+    "tom":       dict(bank=0, prog=117, stem="drums", pan=0.12, vol=105, patch="tom", hall=0.14, room=0.22),
+    "tambourine": dict(bank=12, prog=119, stem="drums", pan=0.35, vol=70, patch="tambourine", hall=0.16,
+                       room=0.20),
 }
 
 # Ornaments only make sense on folk solo instruments.
@@ -539,39 +552,79 @@ def write_midi(song, parts, path, copies=3):
 
 
 # ---------------------------------------------------------------------------
-# Rooms. Synthetic impulse responses: decorrelated noise per channel, split in
-# three bands that die at different rates (highs first, as in a real hall),
-# a handful of early reflections and a pre-delay.
+# Rooms. Synthetic impulse responses, built the way a hall behaves:
+#  - early reflections from an image-source model of a shoebox hall (walls,
+#    floor and ceiling out to the third order), heard at two ear positions so
+#    left and right differ, each bounce darker than the last;
+#  - a late tail of decorrelated noise in octave bands, each band dying at its
+#    own rate (RT60 from about 2.7 s in the lows to under 1 s at 8 kHz, as in a
+#    real wood-and-stone hall), fading in as the reflections thicken.
 # ---------------------------------------------------------------------------
+ROOMS = {
+    # dims (m), source, listener, RT60 per octave band 63 Hz .. 16 kHz, pre-delay, length
+    "hall": dict(dims=(34.0, 22.0, 14.0), src=(17.0, 6.0, 1.6), lis=(17.0, 15.0, 1.7),
+                 rt=(2.7, 2.7, 2.5, 2.3, 2.1, 1.8, 1.4, 0.95, 0.6), pre=0.018, length=4.2, absorb=0.18),
+    "room": dict(dims=(14.0, 10.0, 6.0), src=(7.0, 3.0, 1.2), lis=(7.0, 7.0, 1.6),
+                 rt=(1.1, 1.1, 1.0, 0.95, 0.9, 0.8, 0.65, 0.5, 0.35), pre=0.006, length=1.8, absorb=0.3),
+}
+OCT = (63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
+
+
 def make_ir(kind, seed=7):
+    cfg = ROOMS[kind]
     rng = np.random.default_rng(seed)
-    if kind == "hall":
-        rt = (3.4, 2.7, 1.5)
-        pre, n_er, er_span = 0.024, 10, 0.085
-        length = 3.6
-    else:
-        rt = (1.6, 1.2, 0.7)
-        pre, n_er, er_span = 0.010, 8, 0.045
-        length = 1.8
-    n = int(length * SR)
+    n = int(cfg["length"] * SR)
     t = np.arange(n) / SR
     out = np.zeros((n, 2))
-    bands = [butter(2, 300, "low", fs=SR, output="sos"),
-             butter(2, [300, 3500], "band", fs=SR, output="sos"),
-             butter(2, 3500, "high", fs=SR, output="sos")]
-    for c in range(2):
-        noise = rng.standard_normal(n)
-        acc = np.zeros(n)
-        for sos, r in zip(bands, rt):
-            acc += sosfilt(sos, noise) * np.exp(-6.91 * t / r)
-        # soft onset so the tail blooms rather than clicks
-        acc *= np.clip(t / 0.06, 0, 1) ** 1.5
+    Lx, Ly, Lz = cfg["dims"]
+    sx, sy, sz = cfg["src"]
+    c = 343.0
+    for ch, ear in enumerate((-0.09, 0.09)):
+        lx, ly, lz = cfg["lis"][0] + ear, cfg["lis"][1], cfg["lis"][2]
+        direct = math.dist((sx, sy, sz), (lx, ly, lz))
         er = np.zeros(n)
-        for _ in range(n_er):
-            k = int((pre + rng.uniform(0, er_span)) * SR)
-            er[k] += rng.uniform(0.3, 0.9) * rng.choice([-1, 1])
-        sig = np.concatenate([np.zeros(int(pre * SR)), acc])[:n] + er * 0.6
-        out[:, c] = sig
+        order = 3
+        for i in range(-order, order + 1):
+            for j in range(-order, order + 1):
+                for k in range(-1, 2):
+                    m = abs(i) + abs(j) + abs(k)
+                    if m == 0 or m > order:
+                        continue
+                    ix = i * Lx + (sx if i % 2 == 0 else Lx - sx)
+                    iy = j * Ly + (sy if j % 2 == 0 else Ly - sy)
+                    iz = k * Lz + (sz if k % 2 == 0 else Lz - sz)
+                    dist = math.dist((ix, iy, iz), (lx, ly, lz))
+                    delay = (dist - direct) / c + cfg["pre"]
+                    idx = int(delay * SR)
+                    if idx >= n:
+                        continue
+                    amp = (direct / dist) * (1 - cfg["absorb"]) ** m
+                    er[idx] += amp * (1 if (i + j + k) % 2 == 0 else -1) * rng.uniform(0.8, 1.0)
+        # each reflection order darker: a gentle low-pass on the whole early part
+        er = sosfilt(butter(1, 7000, "low", fs=SR, output="sos"), er)
+        # the late tail
+        noise = rng.standard_normal(n)
+        tail = np.zeros(n)
+        for b, (fc, rt) in enumerate(zip(OCT, cfg["rt"])):
+            lo, hi = fc / math.sqrt(2), min(fc * math.sqrt(2), SR / 2 * 0.95)
+            if b == 0:
+                sos = butter(2, hi, "low", fs=SR, output="sos")
+            elif b == len(OCT) - 1:
+                sos = butter(2, lo, "high", fs=SR, output="sos")
+            else:
+                sos = butter(2, [lo, hi], "band", fs=SR, output="sos")
+            tail += sosfilt(sos, noise) * np.exp(-6.91 * t / rt)
+        onset = cfg["pre"] + 0.012
+        ramp = np.clip((t - onset) / 0.07, 0, 1) ** 2
+        tail *= ramp
+        # level the tail against the reflections: energy split about 1:3
+        e_er = (er ** 2).sum()
+        e_tl = (tail ** 2).sum()
+        tail *= math.sqrt(3.0 * e_er / max(e_tl, 1e-12))
+        out[:, ch] = er + tail
+    # fade the very end
+    k = int(0.15 * SR)
+    out[-k:] *= np.linspace(1, 0, k)[:, None]
     out /= np.sqrt((out ** 2).sum(axis=0)).max()
     return out
 
@@ -602,90 +655,232 @@ def loudness(path):
     return i, lra, (float(pk[-1]) if pk and pk[-1] != "-inf" else None)
 
 
-def render(song, out_mp3, target_lufs=-16.0, eq=None, width=1.15, bitrate="160k"):
-    """MIDI per stem -> fluidsynth -> hall per stem -> mix -> master -> loop cut -> mp3."""
+# ---------------------------------------------------------------------------
+# Circular DSP: every part is one loop long and wraps, so filters run over two
+# copies and keep the second (the state at its start is the loop's own end).
+# ---------------------------------------------------------------------------
+def circ_sos(sos, x):
+    two = sosfilt(sos, np.concatenate([x, x]), axis=0)
+    return two[len(x):]
+
+
+def biquad(kind, f, g, q):
+    """RBJ cookbook biquads as one-section sos: 'pk' peak, 'ls'/'hs' shelves."""
+    if kind in ("hp", "lp"):
+        return butter(2, f, "high" if kind == "hp" else "low", fs=SR, output="sos")
+    A = 10 ** (g / 40)
+    w = 2 * math.pi * f / SR
+    cw, sw = math.cos(w), math.sin(w)
+    al = sw / (2 * q)
+    if kind == "pk":
+        b = [1 + al * A, -2 * cw, 1 - al * A]
+        a = [1 + al / A, -2 * cw, 1 - al / A]
+    elif kind == "ls":
+        sa = 2 * math.sqrt(A) * al
+        b = [A * ((A + 1) - (A - 1) * cw + sa), 2 * A * ((A - 1) - (A + 1) * cw), A * ((A + 1) - (A - 1) * cw - sa)]
+        a = [(A + 1) + (A - 1) * cw + sa, -2 * ((A - 1) + (A + 1) * cw), (A + 1) + (A - 1) * cw - sa]
+    elif kind == "hs":
+        sa = 2 * math.sqrt(A) * al
+        b = [A * ((A + 1) + (A - 1) * cw + sa), -2 * A * ((A - 1) + (A + 1) * cw), A * ((A + 1) + (A - 1) * cw - sa)]
+        a = [(A + 1) - (A - 1) * cw + sa, 2 * ((A - 1) - (A + 1) * cw), (A + 1) - (A - 1) * cw - sa]
+    else:
+        raise ValueError(kind)
+    return np.array([b[0] / a[0], b[1] / a[0], b[2] / a[0], 1.0, a[1] / a[0], a[2] / a[0]])[None, :]
+
+
+def circ_conv(x, ir):
+    """Circular convolution of a (L, 2) loop with a (n, 2) impulse response."""
+    L = len(x)
+    out = np.zeros((L, 2))
+    # a little cross-feed into the tail so a hard-panned part still fills the room
+    ins = (0.7 * x[:, 0] + 0.3 * x[:, 1], 0.3 * x[:, 0] + 0.7 * x[:, 1])
+    for c in range(2):
+        w = fftconvolve(ins[c], ir[:, c])
+        k = 0
+        while k < len(w):
+            seg = w[k:k + L]
+            out[:len(seg), c] += seg
+            k += L
+    return out
+
+
+def render_gu_part(song, part, Ls, tag):
+    """A part on its GeneralUser preset, through fluidsynth: three copies of
+    the loop, and the middle one kept as the circular loop (its start already
+    carries the first copy's tail)."""
+    mid = os.path.join(WORK, f"{song.name}-{tag}.mid")
+    wav = os.path.join(WORK, f"{song.name}-{tag}.wav")
+    write_midi(song, [part], mid)
+    run(["fluidsynth", "-ni", "-q", "-R", "0", "-C", "0", "-g", "0.6", "-r", str(SR),
+         "-o", "audio.file.format=float", "-o", "synth.polyphony=512", "-o", "audio.period-size=64",
+         "-F", wav, SF2, mid])
+    d = read_wav(wav)
+    s0 = GRID + Ls
+    d = np.pad(d, ((0, max(0, s0 + Ls - len(d))), (0, 0)))
+    return d[s0:s0 + Ls]
+
+
+LEVELLED = {"tension"}
+
+
+def _klevel(x):
+    """K-weighted power of a stereo buffer, in dB."""
+    import sampler
+    e = sum(np.mean(sampler.kweight(x[:, c].astype(np.float64)) ** 2) for c in range(2))
+    return 10 * math.log10(e + 1e-20)
+
+
+def render(song, out_mp3, target_lufs=-16.0, eq=None, bitrate="160k", keep_wav=None):
+    """Parts -> sampler / fluidsynth -> per-part EQ -> hall and room sends ->
+    mix -> master (EQ, glue compression, loudness, limiter) -> loop cut -> mp3."""
+    import sampler
     os.makedirs(WORK, exist_ok=True)
     if not os.path.exists(SF2):
         raise SystemExit(f"missing {SF2} — see the top of tools/music/build.py for how to fetch it")
     Ls = loop_samples(song)
     L = Ls / SR
-    total = 3 * L + GRID / SR + 5.0
-    nsamp = int(total * SR)
-    by_stem = {}
-    for p in song.parts.values():
-        if p.notes:
-            by_stem.setdefault(p.cfg["stem"], []).append(p)
+    k_t = time_scale(song)
+    cal = sampler._calib()
     irs = {k: make_ir(k) for k in ("hall", "room")}
-    mix = np.zeros((nsamp, 2))
-    levels = {}
-    for stem, parts in by_stem.items():
-        mid = os.path.join(WORK, f"{song.name}-{stem}.mid")
-        wav = os.path.join(WORK, f"{song.name}-{stem}.wav")
-        write_midi(song, parts, mid)
-        run(["fluidsynth", "-ni", "-q", "-R", "0", "-C", "0", "-g", "0.6", "-r", str(SR),
-             "-o", "audio.file.format=float", "-o", "synth.polyphony=512", "-o", "audio.period-size=64",
-             "-F", wav, SF2, mid])
-        d = read_wav(wav)[:nsamp]
-        d = np.pad(d, ((0, nsamp - len(d)), (0, 0)))
-        cfg = STEMS[stem]
-        ir = irs[cfg["ir"]]
-        wet = np.stack([fftconvolve(d.mean(1) * 0.5 + d[:, c] * 0.5, ir[:, c])[:nsamp] for c in range(2)], 1)
-        # keep the low end out of the hall — muddy reverb is the GM giveaway
-        wet = sosfilt(butter(2, 180, "high", fs=SR, output="sos"), wet, axis=0)
-        trim = 10 ** (getattr(song, "stem_gain", {}).get(stem, 0.0) / 20)
-        contrib = (d * (1 - cfg["wet"] * 0.5) + wet * cfg["wet"] * 1.6) * trim
-        mix += contrib
-        levels[stem] = contrib
+    dry = np.zeros((Ls, 2))
+    sends = {"hall": np.zeros((Ls, 2)), "room": np.zeros((Ls, 2))}
+    stems = {}
+    audible = {}
+    trims = {}
+    for p in song.parts.values():
+        if not p.notes:
+            continue
+        cfg = p.cfg
+        if cfg.get("patch"):
+            x = sampler.render_part(p, Ls, k_t, song.name, cal).astype(np.float64)
+            # Level-match the part, as written and in place, to the GeneralUser
+            # rendering the arrangement was balanced on (the velocity curves
+            # already match note by note; this catches what they cannot, such
+            # as a preset that decays on a held note where a real bow sustains).
+            ref = render_gu_part(song, p, Ls, p.name + "-gu")
+            layer = sampler.PATCHES[cfg["patch"]].sf2_layer
+            share = 1.0 - (10 ** (layer / 10) if layer is not None else 0.0)
+            want = _klevel(ref) + 10 * math.log10(share)
+            # at most 4 dB: past that the difference is a quirk of the old preset
+            # (the bowed-glass pad all but dies away within seconds of a held
+            # note), not the balance the score asks for
+            t_db = float(np.clip(want - _klevel(x), -4.0, 4.0))
+            trims[p.name] = round(t_db, 1)
+            x *= 10 ** (t_db / 20)
+            if layer is not None:
+                x += ref * 10 ** (layer / 20)
+        else:
+            x = render_gu_part(song, p, Ls, p.name)
+        for kind, f, g, q in cfg.get("eq", []):
+            x = circ_sos(biquad(kind, f, g, q), x)
+        # every part must actually sound: a missing sample or preset renders silence
+        rms = float(np.sqrt((x ** 2).mean()))
+        audible[p.name] = rms
+        if rms < 1e-6:
+            raise RuntimeError(f"{song.name}/{p.name}: rendered silent ({cfg.get('patch') or 'GU preset'})")
+        trim = 10 ** (getattr(song, "stem_gain", {}).get(cfg["stem"], 0.0) / 20)
+        x *= trim
+        hall = cfg.get("hall", 0.3)
+        room = cfg.get("room", 0.0)
+        dry += x * (1 - 0.5 * hall)
+        sends["hall"] += x * hall
+        sends["room"] += x * room
+        stems[cfg["stem"]] = stems.get(cfg["stem"], 0) + x
+        sampler.forget()
+    # The returns: no lows in the reverb (mud), and a darker top (no fizz).
+    ret_eq = [butter(2, 220, "high", fs=SR, output="sos"), biquad("hs", 7000, -2.5, 0.7),
+              biquad("pk", 450, -1.5, 0.9)]
+    wet = np.zeros((Ls, 2))
+    for k, s in sends.items():
+        if not np.any(s):
+            continue
+        w = circ_conv(s, irs[k]) * 1.6
+        for sos in ret_eq:
+            w = circ_sos(sos, w)
+        wet += w
+    mix = dry + wet
     tot = np.sqrt((mix ** 2).mean()) + 1e-12
-    song.stem_db = {k: round(20 * np.log10(np.sqrt((v ** 2).mean()) / tot + 1e-12), 1) for k, v in levels.items()}
-    del levels
-    peak = np.abs(mix).max()
-    mix *= 0.5 / max(peak, 1e-9)
+    song.stem_db = {k: round(20 * np.log10(np.sqrt((v ** 2).mean()) / tot + 1e-12), 1) for k, v in stems.items()}
+    song.part_db = {k: round(20 * np.log10(v / tot + 1e-12), 1) for k, v in audible.items()}
+    del stems, sends, dry, wet
+    # into the master at a fixed loudness-ish level, so the bus compressor
+    # behaves the same on every track: K-weighted RMS of -20 dBFS
+    km = sampler.kweight(mix.mean(1))
+    mix *= 10 ** ((-20 - 20 * np.log10(np.sqrt((km ** 2).mean()) + 1e-12)) / 20)
+    # three copies of the loop; the shipped window is cut from the second
+    tl = np.concatenate([mix, mix, mix]).astype(np.float32)
     raw = os.path.join(WORK, f"{song.name}-mix.wav")
-    wavfile.write(raw, SR, mix.astype(np.float32))
+    wavfile.write(raw, SR, tl)
+    del tl
 
-    # Master: clean the low end, take a little mud out, lift presence and air,
-    # glue with a gentle compressor, open the stereo field a touch.
+    # Master: a clean bottom (nothing under 30 Hz), a little mud out, presence
+    # where the whistle and fiddle speak, a touch of air; glue with a gentle
+    # 2:1 compressor that only works on the loudest moments. The sparse cues
+    # also get a slow leveller first, so their quietest bars are not lost
+    # under the game's own sound.
     eq = eq or []
-    chain = ["highpass=f=32:p=2",
-             "equalizer=f=280:t=q:w=1.0:g=-2.0",
-             "equalizer=f=3000:t=q:w=1.0:g=1.2",
-             "highshelf=f=9500:g=2.0",
-             *eq,
-             "acompressor=threshold=0.1:ratio=2.2:attack=30:release=350:knee=4",
-             f"extrastereo=m={width}:c=false"]
+    chain = ["highpass=f=30:p=2", "highpass=f=30:p=2",
+             "equalizer=f=250:t=q:w=1.0:g=-1.0",
+             "equalizer=f=2200:t=q:w=0.8:g=1.5",
+             "highshelf=f=9000:g=1.5",
+             *eq]
+    if song.name in LEVELLED:
+        chain.append("acompressor=threshold=0.05:ratio=1.8:attack=80:release=1200:knee=8:makeup=1")
+    chain.append("acompressor=threshold=0.18:ratio=2:attack=25:release=300:knee=6:makeup=1")
     pre = os.path.join(WORK, f"{song.name}-pre.wav")
     run(["ffmpeg", "-y", "-hide_banner", "-i", raw, "-af", ",".join(chain), "-c:a", "pcm_f32le", pre])
-    fin = os.path.join(WORK, f"{song.name}-final.wav")
-    s0 = Ls + GRID
-    # Measure exactly the window that will ship.
+    s0 = Ls
     win = os.path.join(WORK, f"{song.name}-win.wav")
     run(["ffmpeg", "-y", "-hide_banner", "-i", pre, "-af",
          f"atrim=start_sample={s0}:end_sample={s0 + Ls}", "-c:a", "pcm_f32le", win])
     measured, _, _ = loudness(win)
     gain = target_lufs - measured
-    run(["ffmpeg", "-y", "-hide_banner", "-i", pre, "-af",
-         f"volume={gain:.2f}dB,alimiter=limit=0.84:attack=4:release=60:level=false,"
-         f"atrim=start_sample={s0}:end_sample={s0 + Ls + int(PAD * SR)},asetpts=PTS-STARTPTS",
-         "-c:a", "pcm_f32le", fin])
-    def encode(trim_db):
-        run(["ffmpeg", "-y", "-hide_banner", "-i", fin, "-af", f"volume={trim_db:.2f}dB",
+    fin = os.path.join(WORK, f"{song.name}-final.wav")
+    ceiling = 10 ** (-1.6 / 20)
+
+    def master(gain_db, ceil):
+        run(["ffmpeg", "-y", "-hide_banner", "-i", pre, "-af",
+             f"volume={gain_db:.3f}dB,alimiter=limit={ceil:.4f}:attack=5:release=80:level=false:latency=true,"
+             f"atrim=start_sample={s0}:end_sample={s0 + Ls + int(PAD * SR)},asetpts=PTS-STARTPTS",
+             "-c:a", "pcm_f32le", fin])
+
+    def encode():
+        run(["ffmpeg", "-y", "-hide_banner", "-i", fin,
              "-c:a", "libmp3lame", "-b:a", bitrate, "-ar", str(SR), "-ac", "2",
              "-metadata", f"title={song.title}", "-metadata", "artist=Night Alone (original score)",
-             "-metadata", "comment=Composed for dragon-flying-sim; rendered with GeneralUser GS",
+             "-metadata", "comment=Composed for dragon-flying-sim; played on VSCO 2 CE and VCSL (CC0) samples",
              out_mp3])
         return loudness(out_mp3)
-    i, lra, pk = encode(0.0)
-    if abs(i - target_lufs) > 0.15:
-        # the encoder shaves a fraction of a dB; put it back
-        i, lra, pk = encode(target_lufs - i)
+
+    # hit the target and keep true peak under -1 dBTP after encoding
+    for _ in range(5):
+        master(gain, ceiling)
+        i, lra, pk = encode()
+        ok_l = abs(i - target_lufs) <= 0.15
+        ok_p = pk is None or pk <= -1.05
+        if ok_l and ok_p:
+            break
+        if not ok_l:
+            gain += target_lufs - i
+        if not ok_p:
+            ceiling *= 10 ** ((-1.05 - pk - 0.1) / 20)
+    if keep_wav:
+        import shutil
+        shutil.copy(fin, keep_wav)
     return dict(file=os.path.basename(out_mp3), loop=round(L, 4), length=round(L + PAD, 3),
-                lufs=i, lra=lra, peak=pk, stems=song.stem_db)
+                lufs=i, lra=lra, peak=pk, stems=song.stem_db, ceiling_db=round(20 * math.log10(ceiling), 2),
+                trims=trims, parts=song.part_db)
 
 
 def solo_preview(song, part, out):
     """Just one part, dry, for checking a melody on its own."""
+    import sampler
     os.makedirs(WORK, exist_ok=True)
-    mid = os.path.join(WORK, f"{song.name}-{part}-solo.mid")
-    write_midi(song, [song.parts[part]], mid, copies=1)
-    run(["fluidsynth", "-ni", "-q", "-R", "0", "-C", "0", "-g", "0.6", "-r", str(SR), "-F", out, SF2, mid])
+    p = song.parts[part]
+    Ls = loop_samples(song)
+    if p.cfg.get("patch"):
+        x = sampler.render_part(p, Ls, time_scale(song), song.name)
+    else:
+        x = render_gu_part(song, p, Ls, part + "-solo")
+    x = x / (np.abs(x).max() + 1e-9) * 0.7
+    wavfile.write(out, SR, x.astype(np.float32))
