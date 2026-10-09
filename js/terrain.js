@@ -1472,6 +1472,11 @@ function berkShape(x, z, h) {
       const f = 1 - smoothstep(md + wob * (1 - md), 0, 0.98);
       h += MOUNTAIN.h * f * (0.75 + 0.35 * ridged(x * 0.0035 + 2.2, z * 0.0035 - 5.1, 3));
     }
+    // ...and the crag the hall's shelf is cut into.
+    const C = HALL.crag;
+    const cx = HALL.x - Math.sin(HALL.rot) * C.back, cz = HALL.z - Math.cos(HALL.rot) * C.back;
+    const cd = Math.hypot(x - cx, z - cz) * (1 + noise2(x * 0.006 - 3.1, z * 0.006 + 8.8) * 0.2);
+    if (cd < C.r) h += C.h * smoothstep(cd, C.r, C.r * 0.25) * (0.7 + 0.5 * ridged(x * 0.009 - 6.6, z * 0.009 + 2.4, 3));
   }
 
   // Only the harbour, its arms and the combe below need the warped shore;

@@ -87,6 +87,9 @@ export const HALL = {
   x: -20, z: -2790, h: 182, rot: 0,
   len: 96, wid: 40, roofH: 44,
   pad: { ax: 54, az: 72, round: 30, edge: 26 },
+  // The crag the shelf is cut into: rock heaved up `back` metres behind the
+  // hall, so the cut face rises straight off the back of its roof.
+  crag: { back: 135, r: 210, h: 210 },
 };
 
 // The Great Stair: from the head of the cove up to the hall's plaza, in
@@ -267,11 +270,9 @@ export function placeVillage(heightAt, noise) {
       let near = false;
       for (const S of STATUES) if (Math.hypot(x - S.x, z - S.z) < S.plinthR + 25) near = true;
       if (near) continue;
-      const gx2 = (heightAt(x + 5, z) - heightAt(x - 5, z)) / 10;
-      const gz2 = (heightAt(x, z + 5) - heightAt(x, z - 5)) / 10;
-      const slope = Math.hypot(gx2, gz2);
-      if (slope > 1.2) continue;
-      // Density: clusters, the water, the height.
+      // Density: clusters, the water, the height; then the slope, which
+      // only ever thins it, so most spots are turned away before it is
+      // measured (four more heights each).
       const hs = harbourSpine(x, z);
       const shore = Math.max(0, hs.d - hs.hw);
       const cl = noise(x * 0.0065 + 11.2, z * 0.0065 - 4.7) * 0.7 + noise(x * 0.019 - 2.2, z * 0.019 + 8.1) * 0.3;
@@ -279,10 +280,18 @@ export function placeVillage(heightAt, noise) {
       p *= 1.5 - Math.min(1, shore / 420) * 0.95;
       if (!onRock) p *= 1 - Math.max(0, (h - 110) / (V.maxH - 110)) * 0.8;
       p *= 1 - Math.max(0, e - 0.75) * 2.6;
+      let core = 0;
+      for (const C of V.cores) { const dc = Math.hypot(x - C.x, z - C.z); if (dc < C.r) core += 0.9 * (1 - dc / C.r); }
+      const roll = rnd();
+      if ((bench ? Math.max(p + core, 0.5) : p + core) < roll) continue;
+      const gx2 = (heightAt(x + 5, z) - heightAt(x - 5, z)) / 10;
+      const gz2 = (heightAt(x, z + 5) - heightAt(x, z - 5)) / 10;
+      const slope = Math.hypot(gx2, gz2);
+      if (slope > 1.2) continue;
       if (slope > 0.75) p *= 0.6;
-      for (const C of V.cores) { const dc = Math.hypot(x - C.x, z - C.z); if (dc < C.r) p += 0.9 * (1 - dc / C.r); }
+      p += core;
       if (bench) p = Math.max(p, 0.5);
-      if (p <= 0 || rnd() > p) continue;
+      if (p <= 0 || roll > p) continue;
       let wx = 0, wz = 0;
       if (bench) {
         // Which way is the water: the lowest ground a little way off.
