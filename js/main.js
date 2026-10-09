@@ -525,9 +525,9 @@ world.flora.forest?.prioritise?.(SPAWN);
 // sense the rest of that file means: nothing samples it, nothing collides with
 // it, and the height field does not know it exists.
 const horizon = setupHorizon(scene);
-// Berk's arch, waterfalls, rivers and pools (berkland.js): the parts of the
+// Berk's burn and its waterfall into the harbour (berkland.js): the parts of the
 // island a height field cannot be.
-const berkLand = createBerkLand(scene, { material: world.groundTiles[0]?.material });
+const berkLand = createBerkLand(scene);
 // Kept out of the mirror pass, and it is not an optimisation. A nine-kilometre
 // island reflected in water that is itself nine kilometres away is a shape the
 // reflection has no resolution to place: it renders as a second, inverted

@@ -14,6 +14,8 @@ import { Builder, TILE, gablePrism, taperTube, lathe } from "./berkkit.js";
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const WOOD = 0xd6bc98, DARKW = 0x9a8068, STONEC = 0xb0aba2, WIN = 0x2a1a10;
+// The footings are the hill's own dark stone, so a house reads as sitting on it.
+const FOOTC = 0x777168;
 
 export const ARCHETYPES = [
   // L, W, wall height, roof rise, roof kind, extras
@@ -110,7 +112,9 @@ export function buildArchetype(A) {
     for (const s of [-1, 1]) b.box(0.2, stilt + 0.6, 0.2, L / 2 + 2.4 + s * 0.5, stilt / 2, W / 2 + 2.3, { tile: TILE.TIMBER, colour: DARKW }, 0, 0.12);
     for (let y = 1; y < stilt; y += 0.9) b.box(1.0, 0.12, 0.12, L / 2 + 2.4, y, W / 2 + 2.3 - (stilt / 2 - y) * 0.12, { tile: TILE.TIMBER, colour: DARKW });
   } else {
-    b.box(L + 0.8, fh + 0.6, W + 0.8, 0, (fh - 0.6) / 2, 0, { tile: TILE.STONE, colour: STONEC });
+    // Drystone footing, carried well down: on a hillside the ground under
+    // the far side of the house is lower than under its middle.
+    b.box(L + 0.8, fh + 3.6, W + 0.8, 0, (fh - 3.6) / 2, 0, { tile: TILE.STONE, colour: FOOTC });
   }
   const jet = A.jetty ? 0.9 : 0;
   if (A.jetty) {
@@ -185,6 +189,7 @@ export function buildArchetype(A) {
     f.box(L + 4, 0.6, W + 4, 0, stilt + 0.3, 0, { tile: TILE.OLD, colour: WOOD });
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) f.box(0.9, stilt + 6, 0.9, sx * (L / 2 + 1.4), stilt / 2 - 3, sz * (W / 2 + 1.4), { tile: TILE.TIMBER, colour: DARKW });
   }
+  if (!stilt) f.box(L + 0.8, 3.6, W + 0.8, 0, -1.6, 0, { tile: TILE.STONE, colour: FOOTC });
   f.box(2 * ex, wallH + base, 2 * ez, 0, (wallH + base) / 2, 0, { tile: TILE.PLANK, colour: WOOD });
   // Windows as single quads on the wall: two triangles, not twelve.
   for (const [x, sz] of wins) {

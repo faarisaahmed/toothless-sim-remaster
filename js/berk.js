@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { HARBOUR, STATUES, SPIRE, TERRACES, segDist } from "./berklayout.js";
+import { HARBOUR, STATUES, HALL, STAIR, HEADLANDS, ROCK, VILLAGE } from "./berklayout.js";
+import { terrainHeight, berkVillage } from "./terrain.js";
 import {
   Builder, TILE, berkMaterial, berkUniforms, MAX_FIRES, mulberry, lathe, taperTube,
   makeFlames, makeGlows, makeSmoke,
@@ -8,58 +9,49 @@ import { ARCHETYPES, buildArchetype, gableRoof } from "./berkhouses.js";
 import { buildStatue } from "./berkstatue.js";
 
 // ---------------------------------------------------------------------------
-// Berk, built: the village of the films on the ground terrain.js levels for it.
+// Berk, built: the village of the films on the ground terrain.js shapes for it.
 //
-// Every position comes from berklayout.js — nothing here is a world
-// coordinate of its own, so moving the island moves all of this with it:
+// Every position comes from berklayout.js — the statues, the hall and its
+// stair — or from the plots and paths its placeVillage() found on the ground
+// (terrain.js berkVillage). Nothing here is a world coordinate of its own, so
+// moving the island moves all of this with it:
 //
 //   - the two stone Vikings at the harbour mouth on their plinths, braziers lit
 //     (berkstatue.js);
-//   - the Great Hall on the spire's summit, with its portico, giant braziers
-//     and the switchback Great Stair down the spire's south face to the head
-//     of the harbour;
-//   - the harbour: a timber wharf along both quays, piers on pilings, moored
-//     longships and boathouses;
-//   - the terraces, lined with houses facing the harbour (berkhouses.js), cut
-//     by plazas with braziers, totems, feeding stations and banners; stairs up
-//     between levels, stilted walkways along the edges, watchtowers and
-//     catapults on the ends, dragon stables in the upper town.
+//   - the Great Hall on its shelf in the mountainside, with its portico, giant
+//     braziers and the Great Stair down to the head of the cove;
+//   - the harbour: timber wharves wherever the shore has a shelf at quay
+//     height, piers on pilings out into the cove, moored longships;
+//   - the houses, one on each levelled plot, along the contour with the door
+//     downhill (berkhouses.js); stilt houses out over the steep places;
+//   - the paths between them, as wooden steps where the hill is steep and as
+//     walkways on posts where the ground falls away under them;
+//   - watchtowers and beacons on the headlands and the great rock, catapults
+//     at the mouth, a feeding station and braziers at the foot of the stair.
 //
 // Draw calls stay low because nearly everything is either one merged mesh per
 // district or one InstancedMesh per house archetype. Houses near the camera
 // are drawn detailed (dragon-head finials, frames, shutters, shields) and the
 // rest as block-and-roof (berkhouses.js `far`); the split is redone as the
 // camera moves. Firelight is the berkkit.js fake: no new THREE lights.
-//
-// Assumptions about terrain.js (what the merge must satisfy):
-//   - terraces are level at TERRACES[i].h for |offset| <= w/2 from a–b;
-//   - the quay shelf at HARBOUR.quayH runs |x - mouth.x| in [hw(z), hw(z)+quayW]
-//     with hw(z) = inletHalfWidth() below; water below it;
-//   - the spire's radius at height y is at most the straight line from baseR
-//     at sea level to topR at topH (the Great Stair keeps 6 m outside that);
-//   - statue plinth tops are level at plinthH within plinthR.
 // ---------------------------------------------------------------------------
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const WOOD = 0xd6bc98, DARKW = 0x9a8068, STONEC = 0xb0aba2;
 
-/** Half-width of the inlet's water at z (berk.js's reading of HARBOUR). */
-export function inletHalfWidth(z) {
-  const m = HARBOUR.mouth.z, hd = HARBOUR.head.z;
-  const t = (m - z) / (m - hd);
-  if (t < 0 || t > 1) return -1;
-  let hw = HARBOUR.mouthHalfWidth + (HARBOUR.halfWidth - HARBOUR.mouthHalfWidth) * Math.sin(Math.min(1, t * 2) * Math.PI / 2);
-  if (t > 0.8) hw *= Math.sqrt(Math.max(0, 1 - ((t - 0.8) / 0.25) ** 2));
-  return hw;
-}
-
+// Roofs: weathered shingle in browns and greys, most of them, and a painted
+// one here and there -- the films' village is colourful in its trim, not a
+// paintbox of roofs. [colour, weight]
 const ROOF_COLOURS = [
-  0x9a3424, 0xb2492c, 0x7e2a20,          // reds
-  0x3e5f80, 0x2f4d6c, 0x4f7896,          // blues
-  0x4f6f3c, 0x60803f,                    // greens
-  0x6e4c30, 0x5a4636, 0x80603a,          // browns
-  0xa58032, 0x707274, 0x3f6e6a,          // ochre, slate, teal
+  [0x5a4636, 5], [0x6e5a48, 5], [0x4e4844, 4], [0x625e58, 3], [0x5f6a48, 3],
+  [0x7a5a3e, 3], [0x7e4e3c, 1.4], [0x8e3a2a, 0.45], [0x4a6078, 0.3], [0x56683e, 0.4], [0x93763a, 0.25],
 ];
+const ROOF_SUM = ROOF_COLOURS.reduce((s, c) => s + c[1], 0);
+function roofColour(rnd) {
+  let t = rnd() * ROOF_SUM;
+  for (const [c, w] of ROOF_COLOURS) { t -= w; if (t <= 0) return c; }
+  return ROOF_COLOURS[0][0];
+}
 
 // --- small structures ---------------------------------------------------------------
 
@@ -179,7 +171,7 @@ function feedingStation(b, x, y, z, rnd) {
 function stable(b, x, y, z, yaw, colour) {
   const m = new THREE.Matrix4().makeRotationY(yaw).setPosition(x, y, z);
   const L = 42, W = 13, H = 8;
-  b.box(L + 1, 1, W + 1, 0, 0.1, 0, { tile: TILE.STONE, colour: STONEC, matrix: m });
+  b.box(L + 1, 5, W + 1, 0, -1.9, 0, { tile: TILE.STONE, colour: STONEC, matrix: m });
   b.box(L, H, 0.8, 0, H / 2, -W / 2, { tile: TILE.PLANK, colour: WOOD, matrix: m });
   for (const s of [-1, 1]) b.box(0.8, H, W, s * L / 2, H / 2, 0, { tile: TILE.PLANK, colour: WOOD, matrix: m });
   const stalls = 6;
@@ -305,30 +297,52 @@ function longship(b, x, y, z, yaw, rnd, { len = 28, sailUp = false } = {}) {
   for (let i = -3; i <= 3; i++) b.box(W * 0.8, 0.2, 0.5, 0, 0.4, i * len / 9, { tile: TILE.OLD, colour: WOOD, matrix: m });
 }
 
-function pier(b, fires, x0, z0, dir, len, y, rnd) {
-  // From the quay out over the water along x by `dir`.
+function pier(b, fires, x0, z0, ux, uz, len, y, rnd) {
+  // From the wharf out over the water along (ux, uz).
   const w = 7;
-  const cx = x0 + dir * len / 2;
-  b.box(len, 0.5, w, cx, y, z0, { tile: TILE.OLD, colour: WOOD });
+  const yaw = Math.atan2(ux, uz);
+  const px = Math.cos(yaw), pz = -Math.sin(yaw);       // across the pier
+  const cx = x0 + ux * len / 2, cz = z0 + uz * len / 2;
+  b.box(w, 0.5, len, cx, y, cz, { tile: TILE.OLD, colour: WOOD }, yaw);
   const n = Math.round(len / 5);
   for (let i = 0; i <= n; i++) {
-    const px = x0 + dir * (i * len / n);
-    for (const s of [-1, 1]) b.limb(V(px, HARBOUR.floor - 2, z0 + s * (w / 2 - 0.3)), V(px, y + (i % 3 === 0 ? 1.2 : 0), z0 + s * (w / 2 - 0.3)), 0.4, 0.35, { seg: 5, tile: TILE.TIMBER, colour: 0x6a5a48 });
+    const x = x0 + ux * (i * len / n), z = z0 + uz * (i * len / n);
+    for (const s of [-1, 1]) b.limb(V(x + px * s * (w / 2 - 0.3), HARBOUR.floor * 0.6, z + pz * s * (w / 2 - 0.3)), V(x + px * s * (w / 2 - 0.3), y + (i % 3 === 0 ? 1.2 : 0), z + pz * s * (w / 2 - 0.3)), 0.4, 0.35, { seg: 5, tile: TILE.TIMBER, colour: 0x6a5a48 });
   }
-  for (const s of [-1, 1]) b.box(len, 0.4, 0.4, cx, y - 0.6, z0 + s * (w / 2), { tile: TILE.TIMBER, colour: DARKW });
-  // Barrels, crates, a coil of rope, a lamp at the end.
+  for (const s of [-1, 1]) b.box(0.4, 0.4, len, cx + px * s * (w / 2), y - 0.6, cz + pz * s * (w / 2), { tile: TILE.TIMBER, colour: DARKW }, yaw);
+  // Barrels, crates, a lamp at the end.
   for (let i = 0; i < 3; i++) {
-    const px = x0 + dir * (6 + rnd() * (len - 12)), pz = z0 + (rnd() - 0.5) * 4;
-    if (rnd() < 0.5) b.box(1.3, 1.3, 1.3, px, y + 0.9, pz, { tile: TILE.OLD, colour: 0x9a8060 }, rnd() * 2);
-    else b.add(lathe([[0.5, 0], [0.62, 0.65], [0.5, 1.3], [0.01, 1.3]], { seg: 8 }), new THREE.Matrix4().makeTranslation(px, y + 0.25, pz), { tile: TILE.OLD, colour: 0x9a7a5a });
+    const t = 6 + rnd() * (len - 12), o = (rnd() - 0.5) * 4;
+    const x = x0 + ux * t + px * o, z = z0 + uz * t + pz * o;
+    if (rnd() < 0.5) b.box(1.3, 1.3, 1.3, x, y + 0.9, z, { tile: TILE.OLD, colour: 0x9a8060 }, rnd() * 2);
+    else b.add(lathe([[0.5, 0], [0.62, 0.65], [0.5, 1.3], [0.01, 1.3]], { seg: 8 }), new THREE.Matrix4().makeTranslation(x, y + 0.25, z), { tile: TILE.OLD, colour: 0x9a7a5a });
   }
-  torch(b, fires, x0 + dir * (len - 1), y + 0.25, z0 + w / 2 - 0.5);
+  torch(b, fires, x0 + ux * (len - 1) + px * (w / 2 - 0.5), y + 0.25, z0 + uz * (len - 1) + pz * (w / 2 - 0.5));
+}
+
+/** A flight of dressed-stone steps from p0 up to p1 on the graded ground, with low walls. */
+function stoneStair(b, p0, p1, width) {
+  const dx = p1.x - p0.x, dz = p1.z - p0.z, run = Math.hypot(dx, dz), rise = p1.y - p0.y;
+  const yaw = Math.atan2(dx, dz);
+  const n = Math.max(2, Math.ceil(Math.abs(rise) / 0.6));
+  const tread = run / n;
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const top = p0.y + rise * ((i + 1) / n);
+    b.box(width, 2.2, tread + 0.08, p0.x + dx * t, top - 1.1, p0.z + dz * t, { tile: TILE.STONE, colour: i % 2 ? 0xa8a298 : 0x9e988e }, yaw);
+  }
+  const ang = Math.atan2(rise, run), len = Math.hypot(run, rise);
+  const ux = Math.cos(yaw), uz = -Math.sin(yaw);
+  for (const s of [-1, 1]) {
+    const ox = ux * s * (width / 2 + 0.7), oz = uz * s * (width / 2 + 0.7);
+    b.box(1.4, 2.4, len, (p0.x + p1.x) / 2 + ox, (p0.y + p1.y) / 2 + 0.3, (p0.z + p1.z) / 2 + oz, { tile: TILE.STONE, colour: 0x8e897f }, yaw, -ang);
+  }
 }
 
 // --- the Great Hall -------------------------------------------------------------------
 
 function greatHall(b, fires, smoke, cx, cy, cz, rot) {
-  const H = SPIRE.hall;
+  const H = { len: HALL.len, wid: HALL.wid, h: HALL.roofH };
   const m = new THREE.Matrix4().makeRotationY(rot).setPosition(cx, cy, cz);
   const o = (tile, colour, extra = {}) => ({ tile, colour, matrix: m, ...extra });
   const W = H.wid, Ln = H.len;
@@ -447,7 +461,7 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
   const U = berkUniforms();
   const fires = [];
   const smoke = [];
-  const mouthX = HARBOUR.mouth.x;
+  const mouthX = HARBOUR.spine[1].x;
 
   // District builders: one merged mesh each, so each can be culled whole.
   const districts = new Map();
@@ -465,278 +479,249 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
     fires.push({ x: r.fire.x, y: r.fire.y, z: r.fire.z, s: r.fireSize, r: S.h * 1.1, big: true });
   });
 
-  // ---- the Great Hall on the spire --------------------------------------------------
+  // ---- the Great Hall on its shelf in the mountainside --------------------------------
+  const rot = HALL.rot ?? 0;
+  const fX = Math.sin(rot), fZ = Math.cos(rot);          // out of the doors
+  const aX = Math.cos(rot), aZ = -Math.sin(rot);         // across the front
+  const stairTop = STAIR.pts[STAIR.pts.length - 1];
   {
     const b = D("hall");
-    const rot = SPIRE.hall.rot ?? 0;
-    // Set back from the summit's south lip so the plaza and stair fit in front.
-    const back = Math.min(SPIRE.topR - SPIRE.hall.len / 2 - 4, 22);
-    const hx = SPIRE.x - Math.sin(rot) * back, hz = SPIRE.z - Math.cos(rot) * back;
-    const front = greatHall(b, fires, smoke, hx, SPIRE.topH, hz, rot);
-    // Summit plaza paving out to the lip.
-    const lip = V(SPIRE.x + Math.sin(rot) * (SPIRE.topR - 6), SPIRE.topH, SPIRE.z + Math.cos(rot) * (SPIRE.topR - 6));
-    const mid = front.clone().lerp(lip, 0.5);
-    b.box(46, 0.8, Math.max(4, front.distanceTo(lip)), mid.x, SPIRE.topH + 0.1, mid.z, { tile: TILE.STONE, colour: 0x9a958c }, rot);
-    for (const s of [-1, 1]) {
-      totem(b, lip.x + Math.cos(rot) * s * 20, SPIRE.topH, lip.z - Math.sin(rot) * s * 20, rnd);
+    // Back on the shelf, so the portico and its steps end at the head of the stair.
+    const reach = HALL.len / 2 + 9 + 6 * 2.2;
+    const toTop = (stairTop.x - HALL.x) * fX + (stairTop.z - HALL.z) * fZ;
+    const back = Math.max(0, reach - toTop + 10);
+    const front = greatHall(b, fires, smoke, HALL.x - fX * back, HALL.h, HALL.z - fZ * back, rot);
+    // Paving from the foot of the hall's steps to the head of the stair.
+    const tp = V(stairTop.x, HALL.h, stairTop.z);
+    const run = Math.hypot(tp.x - front.x, tp.z - front.z);
+    if (run > 1) {
+      const mid = front.clone().lerp(tp, 0.5);
+      b.box(STAIR.width + 10, 1.4, run + 8, mid.x, HALL.h - 0.5, mid.z, { tile: TILE.STONE, colour: 0x9a958c }, Math.atan2(tp.x - front.x, tp.z - front.z));
     }
-    // The Great Stair: switchbacks down the south face, each flight held 6 m
-    // off a cone from baseR at the sea to topR at the summit.
-    const rAt = (y) => SPIRE.baseR - (SPIRE.baseR - SPIRE.topR) * Math.max(0, Math.min(1, y / SPIRE.topH)) + 7;
-    const fl = 12, span = 46;
-    const sx = Math.cos(rot), sz = -Math.sin(rot);       // across the face
-    const fx = Math.sin(rot), fzz = Math.cos(rot);         // out of the face
-    let prev = null;
-    for (let i = 0; i <= fl; i++) {
-      const y = SPIRE.topH - (i / fl) * (SPIRE.topH - HARBOUR.quayH - 1);
-      const side = i % 2 ? 1 : -1;
-      const r = rAt(y);
-      const p = V(SPIRE.x + fx * r + sx * side * span / 2, y, SPIRE.z + fzz * r + sz * side * span / 2);
-      // Landing.
-      b.box(9, 0.6, 9, p.x, y - 0.3, p.z, { tile: TILE.OLD, colour: WOOD }, rot);
-      b.box(0.6, 18, 0.6, p.x + fx * 4, y - 9.3, p.z + fzz * 4, { tile: TILE.TIMBER, colour: DARKW });
-      b.box(0.6, 18, 0.6, p.x - fx * 2, y - 9.3, p.z - fzz * 2, { tile: TILE.TIMBER, colour: DARKW });
-      if (i % 2 === 0) torch(b, fires, p.x + fx * 4, y, p.z + fzz * 4);
-      if (prev) stairFlight(b, fires, p, prev, 6, { posts: 10 });
-      prev = p;
-      if (i === 0) {
-        // Join the top landing to the plaza.
-        const q = V(SPIRE.x + fx * (SPIRE.topR - 2), SPIRE.topH, SPIRE.z + fzz * (SPIRE.topR - 2));
-        const mid2 = q.clone().lerp(p, 0.5);
-        b.box(6, 0.5, q.distanceTo(V(p.x, q.y, p.z)) + 4, mid2.x, SPIRE.topH - 0.2, mid2.z, { tile: TILE.OLD, colour: WOOD }, Math.atan2(p.x - q.x, p.z - q.z));
+    for (const s of [-1, 1]) totem(b, tp.x + aX * s * (STAIR.width / 2 + 5), HALL.h, tp.z + aZ * s * (STAIR.width / 2 + 5), rnd);
+  }
+
+  // ---- the Great Stair, stone, from the cove up to the hall -----------------------
+  {
+    const b = D("stair");
+    const P = STAIR.pts;
+    for (let i = 0; i < P.length - 1; i++) {
+      stoneStair(b, V(P[i].x, P[i].y, P[i].z), V(P[i + 1].x, P[i + 1].y, P[i + 1].z), STAIR.width);
+    }
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i];
+      const a = P[Math.max(0, i - 1)], c = P[Math.min(P.length - 1, i + 1)];
+      const yaw = Math.atan2(c.x - a.x, c.z - a.z);
+      // A landing, and a brazier either side of it.
+      b.box(STAIR.width + 3, 2.4, STAIR.width + 3, p.x, p.y - 1.1, p.z, { tile: TILE.STONE, colour: 0xa49e94 }, yaw);
+      const ux = Math.cos(yaw), uz = -Math.sin(yaw);
+      for (const s of [-1, 1]) {
+        const bx = p.x + ux * s * (STAIR.width / 2 + 3), bz = p.z + uz * s * (STAIR.width / 2 + 3);
+        b.add(lathe([[1.8, 0], [1.8, 0.8], [1.2, 1.2], [1.0, 3.2], [1.4, 3.6]], { seg: 10 }), new THREE.Matrix4().makeTranslation(bx, p.y, bz), { tile: TILE.STONE, colour: 0x9a958c });
+        brazier(b, fires, bx, p.y + 3.6, bz, 0.9);
       }
     }
-    // The foot of the stair: a jetty platform at the head of the harbour.
-    const foot = prev;
-    b.box(30, 0.6, 16, foot.x, HARBOUR.quayH + 0.6, foot.z + fzz * 4, { tile: TILE.OLD, colour: WOOD }, rot);
-    for (let i = -3; i <= 3; i++) for (const s of [-1, 1]) b.limb(V(foot.x + sx * i * 4.6, HARBOUR.floor, foot.z + fzz * (4 + s * 7)), V(foot.x + sx * i * 4.6, HARBOUR.quayH + 0.4, foot.z + fzz * (4 + s * 7)), 0.45, 0.4, { seg: 6, tile: TILE.TIMBER, colour: 0x6a5a48 });
   }
 
-  // ---- the citadel: houses round the summit behind and beside the hall -------------------
-  const summitHouses = [];
-  {
-    const rot = SPIRE.hall.rot ?? 0;
-    for (let i = 0; i < 26; i++) {
-      const a = rot + Math.PI * (0.32 + (i / 25) * 1.36);     // round the back, not the front
-      const r = SPIRE.topR - 14 - (i % 3) * 3;
-      summitHouses.push({ x: SPIRE.x + Math.sin(a) * r, z: SPIRE.z + Math.cos(a) * r, yaw: a + Math.PI });
-    }
-  }
-
-  // ---- the harbour ---------------------------------------------------------------------
+  // ---- the harbour: wharves where the shore has a shelf, piers, ships ----------------
   const qy = HARBOUR.quayH;
   {
-    const zs = [];
-    for (let z = HARBOUR.mouth.z - 40; z > HARBOUR.head.z + 40; z -= 6) zs.push(z);
-    for (const side of [-1, 1]) {
-      const b = D(side < 0 ? "harbourW" : "harbourE");
-      // The wharf: a boardwalk along the water's edge on pilings.
-      for (let i = 0; i < zs.length - 1; i++) {
-        const z0 = zs[i], z1 = zs[i + 1];
-        const x0 = mouthX + side * (inletHalfWidth(z0) + 4), x1 = mouthX + side * (inletHalfWidth(z1) + 4);
-        const len = Math.hypot(x1 - x0, z1 - z0);
-        const yaw = Math.atan2(x1 - x0, z1 - z0);
-        b.box(10, 0.5, len + 0.3, (x0 + x1) / 2, qy + 0.8, (z0 + z1) / 2, { tile: TILE.OLD, colour: WOOD }, yaw);
-        if (i % 2 === 0) b.limb(V(x0 - side * 4.6, HARBOUR.floor, z0), V(x0 - side * 4.6, qy + 0.6, z0), 0.45, 0.4, { seg: 5, tile: TILE.TIMBER, colour: 0x6a5a48 });
-        if (i % 7 === 3) torch(b, fires, x0 - side * 4.2, qy + 1.05, z0);
-      }
-      // Piers and ships.
-      let k = 0;
-      for (let z = HARBOUR.mouth.z - 90; z > HARBOUR.head.z + 120; z -= 85 + rnd() * 30, k++) {
-        const hw = inletHalfWidth(z);
-        const len = 34 + rnd() * 26;
-        const x0 = mouthX + side * (hw + 2);
-        pier(b, fires, x0, z, -side, len, qy + 0.8, rnd);
-        if (rnd() < 0.8) {
-          const sl = 24 + rnd() * 8;
-          const along = x0 - side * (len * 0.5 + rnd() * 6);
-          longship(b, along, -0.3, z + (rnd() < 0.5 ? -1 : 1) * 8.5, side > 0 ? -Math.PI / 2 : Math.PI / 2, rnd, { len: sl, sailUp: rnd() < 0.25 });
+    const S = HARBOUR.spine;
+    const shores = { "-1": [], "1": [] };
+    for (let i = 1; i < S.length - 1; i++) {
+      const A = S[i], B = S[i + 1];
+      const L = Math.hypot(B.x - A.x, B.z - A.z);
+      const tx = (B.x - A.x) / L, tz = (B.z - A.z) / L;
+      for (let u = 0; u < L; u += 7) {
+        const px = A.x + tx * u, pz = A.z + tz * u, hw = A.hw + (B.hw - A.hw) * (u / L);
+        for (const side of [-1, 1]) {
+          // Out from the spine (side -1 is west of it when the cove runs north).
+          const nx = -tz * side, nz = tx * side;
+          for (let r = hw * 0.2; r < hw * 2.2; r += 2.5) {
+            const x = px + nx * r, z = pz + nz * r;
+            if (terrainHeight(x, z) > 0.4) {
+              shores[side].push({ x, z, nx, nz, quay: Math.abs(terrainHeight(x + nx * 7, z + nz * 7) - qy) < 1.4 && Math.abs(terrainHeight(x + nx * 12, z + nz * 12) - qy) < 2.5 });
+              break;
+            }
+          }
         }
-        if (rnd() < 0.5) longship(b, x0 - side * (len + 14), -0.3, z + 18, (rnd() - 0.5) * 0.6, rnd, { len: 20, sailUp: false });
       }
     }
-    // Two ships under sail coming in through the mouth.
+    for (const side of [-1, 1]) {
+      const pts = shores[side];
+      const b = D(side < 0 ? "harbourW" : "harbourE");
+      let sincePier = 40;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p = pts[i], q = pts[i + 1];
+        const gap = Math.hypot(q.x - p.x, q.z - p.z);
+        if (!p.quay || !q.quay || gap > 18) { sincePier += gap; continue; }
+        // The wharf: a boardwalk along the water's edge on pilings.
+        const x0 = p.x - p.nx * 3, z0 = p.z - p.nz * 3, x1 = q.x - q.nx * 3, z1 = q.z - q.nz * 3;
+        const len = Math.hypot(x1 - x0, z1 - z0);
+        const yaw = Math.atan2(x1 - x0, z1 - z0);
+        b.box(9, 0.5, len + 0.6, (x0 + x1) / 2, qy + 0.8, (z0 + z1) / 2, { tile: TILE.OLD, colour: WOOD }, yaw);
+        b.limb(V(x0 - p.nx * 4, HARBOUR.floor * 0.5, z0 - p.nz * 4), V(x0 - p.nx * 4, qy + 0.6, z0 - p.nz * 4), 0.45, 0.4, { seg: 5, tile: TILE.TIMBER, colour: 0x6a5a48 });
+        if (i % 6 === 3) torch(b, fires, x0 + p.nx * 3.5, qy + 0.5, z0 + p.nz * 3.5);
+        sincePier += gap;
+        if (sincePier > 75 + rnd() * 40) {
+          sincePier = 0;
+          const plen = 28 + rnd() * 22;
+          pier(b, fires, x0, z0, -p.nx, -p.nz, plen, qy + 0.8, rnd);
+          if (rnd() < 0.85) {
+            const along = 0.45 + rnd() * 0.2, off = (rnd() < 0.5 ? -1 : 1) * 8.5;
+            longship(b, x0 - p.nx * plen * along - p.nz * off, -0.3, z0 - p.nz * plen * along + p.nx * off,
+              Math.atan2(-p.nx, -p.nz), rnd, { len: 22 + rnd() * 8, sailUp: rnd() < 0.2 });
+          }
+        }
+      }
+    }
+    // Ships under sail coming in through the mouth.
     const b = D("harbourE");
-    longship(b, mouthX - 40, -0.3, HARBOUR.mouth.z - 120, Math.PI + 0.1, rnd, { len: 30, sailUp: true });
-    longship(b, mouthX + 55, -0.3, HARBOUR.mouth.z + 60, Math.PI - 0.08, rnd, { len: 26, sailUp: true });
+    const m = S[1], o = S[0];
+    longship(b, m.x - 30, -0.3, (m.z + o.z) / 2, Math.atan2(m.x - o.x, m.z - o.z) + 0.08, rnd, { len: 30, sailUp: true });
+    longship(b, o.x + 40, -0.3, o.z + 80, Math.atan2(m.x - o.x, m.z - o.z) - 0.1, rnd, { len: 26, sailUp: true });
   }
 
   // ---- houses -----------------------------------------------------------------------------
   const arch = ARCHETYPES.map(buildArchetype);
   const byName = Object.fromEntries(ARCHETYPES.map((a, i) => [a.name, i]));
-  const houses = [];               // { a, x, y, z, yaw, s, colour, chimney }
+  const houses = [];               // { a, x, y, z, yaw, s, colour }
   const footprints = [];           // [x, z, r] to keep clutter apart
   const free = (x, z, r) => {
     for (const f of footprints) { const dx = x - f[0], dz = z - f[1]; if (dx * dx + dz * dz < (r + f[2]) ** 2) return false; }
     return true;
   };
-  const addHouse = (a, x, y, z, yaw, s) => {
+  const village = berkVillage();
+  for (const p of village.plots) {
+    if (p.kind === "square") continue;
+    const a = byName[p.kind] ?? byName.cottage;
     const A = ARCHETYPES[a];
-    const colour = new THREE.Color(ROOF_COLOURS[Math.floor(rnd() * ROOF_COLOURS.length)]);
-    colour.multiplyScalar(0.85 + rnd() * 0.3);
-    houses.push({ a, x, y, z, yaw, s, colour });
-    footprints.push([x, z, Math.hypot(A.L, A.W) * 0.5 * s]);
+    let y = p.h;
+    if (A.stilts) {
+      // The deck level with the ground at its uphill side, the legs down the drop.
+      let gmax = -1e9;
+      const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
+      for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1]]) {
+        const ox = lx * (A.L / 2 + 1.4) * p.s, oz = lz * (A.W / 2 + 1.4) * p.s;
+        gmax = Math.max(gmax, terrainHeight(p.x + ox * c + oz * s, p.z - ox * s + oz * c));
+      }
+      y = gmax + 0.4 - (A.stilts + 0.6) * p.s;
+    }
+    const colour = new THREE.Color(roofColour(rnd)).multiplyScalar(0.85 + rnd() * 0.3);
+    houses.push({ a, x: p.x, y, z: p.z, yaw: p.yaw, s: p.s, colour });
+    footprints.push([p.x, p.z, Math.hypot(A.L, A.W) * 0.5 * p.s]);
+  }
+  // Keep clutter off the hall, the stair and the statues.
+  footprints.push([HALL.x, HALL.z, Math.hypot(HALL.pad.ax, HALL.pad.az)]);
+  for (const S of STATUES) footprints.push([S.x, S.z, S.plinthR]);
+  for (let i = 0; i < STAIR.pts.length - 1; i++) {
+    const a = STAIR.pts[i], c = STAIR.pts[i + 1];
+    for (let t = 0; t <= 1; t += 0.1) footprints.push([a.x + (c.x - a.x) * t, a.z + (c.z - a.z) * t, STAIR.width / 2 + 3]);
+  }
+
+  // ---- paths: steps up the steep bits, walkways over the drops --------------------------
+  const cellName = (x, z) => "v" + Math.floor(x / 320) + "_" + Math.floor(z / 320);
+  // Each path is walked in short pieces, so the steps follow the hill rather
+  // than ruling a line across it: a flight where a piece is steep, a walkway
+  // on posts where the ground drops away under it, trodden earth otherwise.
+  for (const P of village.paths) {
+    const run = Math.hypot(P.b.x - P.a.x, P.b.z - P.a.z);
+    if (run < 5) continue;
+    const n = Math.max(1, Math.ceil(run / 15));
+    const b = D(cellName(P.a.x, P.a.z));
+    for (let k = 0; k < n; k++) {
+      const t0 = k / n, t1 = (k + 1) / n;
+      const x0 = P.a.x + (P.b.x - P.a.x) * t0, z0 = P.a.z + (P.b.z - P.a.z) * t0;
+      const x1 = P.a.x + (P.b.x - P.a.x) * t1, z1 = P.a.z + (P.b.z - P.a.z) * t1;
+      const y0 = terrainHeight(x0, z0), y1 = terrainHeight(x1, z1);
+      const len = run / n;
+      const mid = terrainHeight((x0 + x1) / 2, (z0 + z1) / 2);
+      const dip = (y0 + y1) / 2 - mid, bump = -dip;
+      if (y0 < 0.5 || y1 < 0.5) continue;
+      if (dip > 3 && Math.abs(y1 - y0) < 3) {
+        walkway(b, fires, V(x0, 0, z0), V(x1, 0, z1), Math.max(y0, y1) + 0.3, 2.6, dip + 3, 0);
+      } else if (Math.abs(y1 - y0) / len > 0.3 && bump < 2.5) {
+        const lo = y0 < y1 ? V(x0, y0, z0) : V(x1, y1, z1), hi = y0 < y1 ? V(x1, y1, z1) : V(x0, y0, z0);
+        stairFlight(b, fires, lo, hi, P.shore ? 2.6 : 2.2, { posts: 2.5, rail: hi.y - lo.y > 5 });
+      }
+    }
+  }
+  // Torches at some doors; braziers on the bigger houses' porches.
+  houses.forEach((h, i) => {
+    if (i % 4) return;
+    const A = ARCHETYPES[h.a];
+    const o = (A.W / 2 + 2.2) * h.s;
+    const x = h.x + Math.sin(h.yaw) * o + Math.cos(h.yaw) * (A.L / 2 - 1) * h.s, z = h.z + Math.cos(h.yaw) * o - Math.sin(h.yaw) * (A.L / 2 - 1) * h.s;
+    if (A.stilts) return;
+    torch(D(cellName(h.x, h.z)), fires, x, terrainHeight(x, z) - 0.1, z);
+  });
+
+  // ---- watchtowers, beacons and catapults on the heights round the mouth ------------------
+  const highest = (cx, cz, r) => {
+    let best = { x: cx, z: cz, y: terrainHeight(cx, cz) };
+    for (let dz = -r; dz <= r; dz += 4) for (let dx = -r; dx <= r; dx += 4) {
+      const y = terrainHeight(cx + dx, cz + dz);
+      if (y > best.y && free(cx + dx, cz + dz, 6)) best = { x: cx + dx, z: cz + dz, y };
+    }
+    return best;
   };
-  const harbourC = V(mouthX, 0, (HARBOUR.mouth.z + HARBOUR.head.z) / 2);
+  const harbourC = HARBOUR.spine[Math.floor(HARBOUR.spine.length / 2)];
+  const extras = { feeding: 0, stables: 0 };
+  HEADLANDS.forEach((Hd, i) => {
+    const b = D("headland" + i);
+    const t = highest(Hd.a.x + (Hd.b.x - Hd.a.x) * 0.7, Hd.a.z + (Hd.b.z - Hd.a.z) * 0.7, 40);
+    tower(b, fires, t.x, t.y - 0.5, t.z, Math.atan2(harbourC.x - t.x, harbourC.z - t.z), { h: 26, roof: 0x7a3022, beacon: true });
+    footprints.push([t.x, t.z, 9]);
+    const c = highest(Hd.b.x + (Hd.a.x - Hd.b.x) * 0.15, Hd.b.z + (Hd.a.z - Hd.b.z) * 0.15, 26);
+    if (free(c.x, c.z, 7)) { catapult(b, c.x, c.y - 0.3, c.z, 0); footprints.push([c.x, c.z, 7]); }
+    const d = highest(Hd.a.x + (Hd.b.x - Hd.a.x) * 0.45, Hd.a.z + (Hd.b.z - Hd.a.z) * 0.45, 30);
+    if (free(d.x, d.z, 4)) { ballista(b, d.x, d.y - 0.2, d.z, Math.PI); footprints.push([d.x, d.z, 4]); }
+  });
   {
-    // Keep the summit houses off the hall and its platform.
-    const rot = SPIRE.hall.rot ?? 0;
-    const back = Math.min(SPIRE.topR - SPIRE.hall.len / 2 - 4, 22);
-    for (let t = -SPIRE.hall.len / 2 - 14; t <= SPIRE.hall.len / 2 + 40; t += 12) {
-      footprints.push([SPIRE.x + Math.sin(rot) * (t - back), SPIRE.z + Math.cos(rot) * (t - back), SPIRE.hall.wid / 2 + 22]);
-    }
-    for (const h of summitHouses) {
-      const a = rnd() < 0.5 ? byName.longhouse : rnd() < 0.5 ? byName.hallhouse : byName.cottage;
-      const A = ARCHETYPES[a];
-      const s = 1.05 + rnd() * 0.2;
-      if (!free(h.x, h.z, Math.hypot(A.L, A.W) * 0.5 * s)) continue;
-      addHouse(a, h.x, SPIRE.topH, h.z, h.yaw + (rnd() - 0.5) * 0.2, s);
-    }
+    const b = D("rock");
+    const t = highest(ROCK.x, ROCK.z, ROCK.topR * 0.8);
+    tower(b, fires, t.x, t.y - 0.5, t.z, 0, { h: 22, roof: 0x7a3022, beacon: true });
+    footprints.push([t.x, t.z, 9]);
   }
-  const plazas = [];
-  const pick = (weights) => {
-    let t = rnd() * weights.reduce((s, w) => s + w[1], 0);
-    for (const [n, w] of weights) { t -= w; if (t <= 0) return byName[n]; }
-    return byName[weights[0][0]];
-  };
-  const MAIN = [["cottage", 4], ["longhouse", 2.2], ["tall", 1.6], ["turf", 1.2], ["hallhouse", 1.2], ["shed", 1]];
 
-  TERRACES.forEach((T, ti) => {
-    const ax = T.b.x - T.a.x, az = T.b.z - T.a.z, len = Math.hypot(ax, az);
-    const dx = ax / len, dz = az / len;
-    // Toward the harbour, across the terrace.
-    let nx = -dz, nz = dx;
-    const mx = (T.a.x + T.b.x) / 2, mz = (T.a.z + T.b.z) / 2;
-    if (nx * (harbourC.x - mx) + nz * (harbourC.z - mz) < 0) { nx = -nx; nz = -nz; }
-    const face = Math.atan2(nx, nz);
-    const district = Math.abs(nx) > Math.abs(nz) ? (mx < mouthX ? "west" : "east") : "north";
-    const b = D(district + ti);
-    const rows = [];
-    for (let o = T.w / 2 - 10; o > -T.w / 2 + 8; o -= 23) rows.push(o);
-    const ends = 14;
-    // Plazas: open squares every so often along the front row.
-    const plazaT = [];
-    for (let t = 90 + rnd() * 60; t < len - 60; t += 170 + rnd() * 90) plazaT.push(t);
-    for (const t of plazaT) plazas.push({ x: T.a.x + dx * t + nx * (T.w / 2 - 22), z: T.a.z + dz * t + nz * (T.w / 2 - 22), y: T.h, face, ti, t, district });
-    const inPlaza = (t, o) => plazaT.some((p) => Math.abs(t - p) < 22 && o > T.w / 2 - 46);
-    rows.forEach((o, ri) => {
-      let t = ends + rnd() * 8;
-      while (t < len - ends) {
-        const a = ri === 0 && rnd() < 0.12 ? byName.stilt : pick(MAIN);
-        const A = ARCHETYPES[a];
-        const s = 1.0 + rnd() * 0.32;
-        const along = rnd() < (ri === 0 ? 0.85 : 0.55);
-        const extentT = (along ? A.L : A.W) * s, extentO = (along ? A.W : A.L) * s;
-        const tc = t + extentT / 2;
-        if (tc + extentT / 2 > len - ends) break;
-        let oc = o;
-        if (a === byName.stilt) oc = T.w / 2 + 1;                // hangs out over the edge
-        else oc = Math.min(o, T.w / 2 - extentO / 2 - 2);
-        if (oc - extentO / 2 < -T.w / 2 + 2) { t += extentT; continue; }
-        if (!inPlaza(tc, oc)) {
-          const x = T.a.x + dx * tc + nx * oc, z = T.a.z + dz * tc + nz * oc;
-          let yaw = along ? face : face + (rnd() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
-          if (ri > 0 && rnd() < 0.3) yaw += Math.PI;
-          yaw += (rnd() - 0.5) * 0.22;
-          const y = a === byName.stilt ? T.h - A.stilts : T.h;
-          addHouse(a, x, y, z, yaw, s);
+  // ---- squares: a feeding station in the thick of each part of the village ---------------
+  // berklayout.js keeps the most level open ground by each of the village's
+  // cores clear of houses ("square" plots, levelled by terrain.js).
+  for (const p of village.plots) {
+    if (p.kind !== "square") continue;
+    const b = D(cellName(p.x, p.z));
+    feedingStation(b, p.x, p.h, p.z, rnd);
+    const cx = Math.cos(p.yaw), cz = -Math.sin(p.yaw);
+    for (const s of [-1, 1]) brazier(b, fires, p.x + cx * s * 10, p.h, p.z + cz * s * 10, 1.0);
+    totem(b, p.x - Math.sin(p.yaw) * 10, p.h, p.z - Math.cos(p.yaw) * 10, rnd);
+    banner(b, p.x + Math.sin(p.yaw) * 11, p.h, p.z + Math.cos(p.yaw) * 11, p.yaw, 0x8e3a2a);
+    footprints.push([p.x, p.z, 15]);
+    extras.feeding++;
+  }
+
+  // ---- dragon stables, wherever the hill gives a long enough level stretch -----------------
+  {
+    const V_ = VILLAGE;
+    const found = [];
+    for (let gz = V_.cz - V_.rz * 0.8; gz < V_.cz + V_.rz * 0.8 && found.length < 3; gz += 23) {
+      for (let gx = V_.cx - V_.rx * 0.8; gx < V_.cx + V_.rx * 0.8 && found.length < 3; gx += 23) {
+        const y = terrainHeight(gx, gz);
+        if (y < 12 || y > 160) continue;
+        // Along the contour: across the slope's fall line.
+        const sx = terrainHeight(gx + 10, gz) - terrainHeight(gx - 10, gz), sz = terrainHeight(gx, gz + 10) - terrainHeight(gx, gz - 10);
+        const yaw = Math.atan2(-sx, -sz);
+        const c = Math.cos(yaw), s = Math.sin(yaw);
+        let lo = 1e9, hi = -1e9;
+        for (const [lx, lz] of [[-21, -7], [21, -7], [-21, 7], [21, 7], [0, 0]]) {
+          const g = terrainHeight(gx + lx * c + lz * s, gz - lx * s + lz * c);
+          lo = Math.min(lo, g); hi = Math.max(hi, g);
         }
-        t += extentT + 3 + rnd() * 7;
+        if (hi - lo > 2.6 || !free(gx, gz, 26) || found.some((f) => Math.hypot(f.x - gx, f.z - gz) < 300)) continue;
+        found.push({ x: gx, z: gz });
+        stable(D(cellName(gx, gz)), gx, hi - 0.4, gz, yaw, roofColour(rnd));
+        footprints.push([gx, gz, 24]);
+        extras.stables++;
       }
-    });
-    // Torches along the front edge, and a stilted walkway over it on the upper levels.
-    for (let t = 30; t < len - 30; t += 46) {
-      const x = T.a.x + dx * t + nx * (T.w / 2 - 3), z = T.a.z + dz * t + nz * (T.w / 2 - 3);
-      if (free(x, z, 2)) torch(b, fires, x, T.h, z);
-    }
-    if (ti % 5 >= 1 && Math.abs(nx) > Math.abs(nz)) {
-      for (let t = 40; t < len - 120; t += 200 + rnd() * 80) {
-        const l = 60 + rnd() * 50;
-        const p0 = V(T.a.x + dx * t + nx * (T.w / 2 + 2), 0, T.a.z + dz * t + nz * (T.w / 2 + 2));
-        const p1 = V(p0.x + dx * l, 0, p0.z + dz * l);
-        walkway(b, fires, p0, p1, T.h + 0.3, 3.2, 14, 4);
-      }
-    }
-    // Watchtowers at the seaward end of every flank terrace, beacons on the top ones.
-    if (district !== "north") {
-      const end = T.a.z > T.b.z ? T.a : T.b;
-      const tx = end.x - nx * (T.w / 2 - 12) + (end === T.a ? dx : -dx) * 6;
-      const tz = end.z - nz * (T.w / 2 - 12) + (end === T.a ? dz : -dz) * 6;
-      tower(b, fires, tx, T.h, tz, face, { h: 24 + (ti % 5) * 3, roof: ROOF_COLOURS[ti % ROOF_COLOURS.length], beacon: ti % 5 === 4 });
-      footprints.push([tx, tz, 9]);
-      // Catapults on the upper levels, looking out to sea.
-      if (ti % 5 >= 2) {
-        const cx = end.x + nx * 8 + (end === T.a ? dx : -dx) * 22, cz = end.z + nz * 8 + (end === T.a ? dz : -dz) * 22;
-        if (free(cx, cz, 7)) { catapult(b, cx, T.h, cz, 0); footprints.push([cx, cz, 7]); }
-        const bx = end.x + nx * (T.w / 2 - 6) + (end === T.a ? dx : -dx) * 30, bz = end.z + nz * (T.w / 2 - 6) + (end === T.a ? dz : -dz) * 30;
-        if (free(bx, bz, 4)) { ballista(b, bx, T.h, bz, Math.atan2(bx - harbourC.x, bz - harbourC.z) + Math.PI); footprints.push([bx, bz, 4]); }
-      }
-    } else {
-      for (const end of [T.a, T.b]) {
-        const sgn = end === T.a ? 1 : -1;
-        const tx = end.x + dx * sgn * 16, tz = end.z + dz * sgn * 16;
-        tower(b, fires, tx, T.h, tz, face, { h: 30, roof: 0x9a3424, beacon: true });
-        footprints.push([tx, tz, 9]);
-      }
-      // The dragon stables of the upper town, along the back of the terrace.
-      for (let t = 120; t < len - 120; t += 260) {
-        const x = T.a.x + dx * t - nx * (T.w / 2 - 12), z = T.a.z + dz * t - nz * (T.w / 2 - 12);
-        stable(b, x, T.h, z, face, ROOF_COLOURS[Math.floor(rnd() * 6)]);
-        footprints.push([x, z, 23]);
-      }
-    }
-  });
-
-  // Plazas: a brazier or two, a totem or a feeding station, banners.
-  plazas.forEach((p, i) => {
-    const b = D(p.district + p.ti);
-    const k = i % 4;
-    if (k === 0 || k === 2) { feedingStation(b, p.x, p.y, p.z, rnd); footprints.push([p.x, p.z, 8]); }
-    else { totem(b, p.x, p.y, p.z, rnd); footprints.push([p.x, p.z, 3]); }
-    const cx = Math.cos(p.face), cz = -Math.sin(p.face);
-    for (const s of [-1, 1]) brazier(b, fires, p.x + cx * s * 12, p.y, p.z + cz * s * 12, 1.1);
-    banner(b, p.x - cx * 16, p.y, p.z - cz * 16, p.face, ROOF_COLOURS[i % ROOF_COLOURS.length]);
-  });
-
-  // Stairs between the levels, each flank and the upper town.
-  for (let i = 0; i < TERRACES.length; i++) {
-    for (let j = 0; j < TERRACES.length; j++) {
-      const L = TERRACES[i], Hh = TERRACES[j];
-      if (Hh.h <= L.h || Hh.h - L.h > 34) continue;
-      // Neighbours only: the closest pair of centrelines no more than ~150 m apart.
-      const mid = (T) => ({ x: (T.a.x + T.b.x) / 2, z: (T.a.z + T.b.z) / 2 });
-      const mL = mid(L), mH = mid(Hh);
-      const gap = segDist(mL.x, mL.z, Hh.a, Hh.b).d;
-      if (gap > (L.w + Hh.w) / 2 + 60) continue;
-      if (Math.sign(mL.x - mouthX) !== Math.sign(mH.x - mouthX) && Math.abs(mL.x - mouthX) > 100) continue;
-      for (const f of [0.22, 0.5, 0.78]) {
-        const px = L.a.x + (L.b.x - L.a.x) * f, pz = L.a.z + (L.b.z - L.a.z) * f;
-        const sd = segDist(px, pz, Hh.a, Hh.b);
-        if (sd.t <= 0.02 || sd.t >= 0.98) continue;
-        const qx = Hh.a.x + (Hh.b.x - Hh.a.x) * sd.t, qz = Hh.a.z + (Hh.b.z - Hh.a.z) * sd.t;
-        const ux = (qx - px) / sd.d, uz = (qz - pz) / sd.d;
-        const p0 = V(px + ux * (L.w / 2 - 4), L.h, pz + uz * (L.w / 2 - 4));
-        const p1 = V(qx - ux * (Hh.w / 2 - 4), Hh.h, qz - uz * (Hh.w / 2 - 4));
-        if (!free(p0.x, p0.z, 3) || !free(p1.x, p1.z, 3)) continue;
-        const b = D((Math.abs(L.a.x - L.b.x) > Math.abs(L.a.z - L.b.z) ? "north" : mL.x < mouthX ? "west" : "east") + i);
-        stairFlight(b, fires, p0, p1, 4.4, { posts: 8, torchAt: true });
-        footprints.push([p0.x, p0.z, 4], [p1.x, p1.z, 4]);
-      }
-    }
-  }
-
-  // Boathouses and sheds along both quays.
-  for (const side of [-1, 1]) {
-    for (let z = HARBOUR.mouth.z - 60; z > HARBOUR.head.z + 100; z -= 22 + rnd() * 16) {
-      const hw = inletHalfWidth(z);
-      const x = mouthX + side * (hw + HARBOUR.quayW * 0.62);
-      const a = rnd() < 0.5 ? byName.shed : rnd() < 0.6 ? byName.cottage : byName.longhouse;
-      const A = ARCHETYPES[a];
-      if (A.L > 18 && rnd() < 0.5) continue;
-      if (!free(x, z, 6)) continue;
-      // Long axis along the quay, door to the water.
-      addHouse(a, x, qy, z, side > 0 ? -Math.PI / 2 : Math.PI / 2, 0.95 + rnd() * 0.15);
-      z -= A.L * 0.5;
     }
   }
 
@@ -762,7 +747,7 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
   }
   // The terraces' clutter is up the hillsides, where the harbour's mirror
   // barely sees it; the statues, the hall and the wharves stay reflected.
-  excludeFromReflection?.(...districtMeshes.filter((d) => /west|east|north/.test(d.mesh.name)).map((d) => d.mesh));
+  excludeFromReflection?.(...districtMeshes.filter((d) => /berk-v|stair|square/.test(d.mesh.name)).map((d) => d.mesh));
 
   // Houses: per archetype one detailed and one far InstancedMesh. Which
   // instance is in which is redone as the camera moves.
@@ -875,7 +860,7 @@ export function buildBerk(scene, { quality = "medium", excludeFromReflection = n
   let time = 0, acc = 1;
   const stats = { houses: houses.length, fires: fires.length, chimneys: smoke.length, tris, ms: 0 };
   stats.ms = Math.round(performance.now() - t0);
-  console.info(`berk: ${houses.length} houses in ${arch.length} kinds, ${districts.size} districts (${(tris / 1000).toFixed(0)}k tris merged), ${fires.length} fires, ${smoke.length} chimneys, ${stats.ms} ms`);
+  console.info(`berk: ${houses.length} houses in ${arch.length} kinds, ${village.paths.length} paths, ${extras.stables} stables, ${extras.feeding} feeding stations, ${districts.size} districts (${(tris / 1000).toFixed(0)}k tris merged), ${fires.length} fires, ${smoke.length} chimneys, ${stats.ms} ms`);
 
   return {
     group, colliders, stats, houses, fires,
