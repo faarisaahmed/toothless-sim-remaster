@@ -1,6 +1,5 @@
 import {
   SEA_LEVEL, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R, padWeight, craterR, SNOW_LINE, woodland,
-  berkAmount, berkVillageMask,
 } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
@@ -64,12 +63,6 @@ const PIT_MUD    = lin(0x2f271f);
 const PIT_GRAVEL = lin(0x8a8478);
 const PIT_MOSS   = lin(0x4b5a33);
 const TRODDEN    = lin(0x5d4f3c);
-// Berk is sandstone, not basalt: warm layered tan and ochre walls, a darker
-// rust band every so often, pale bleached caps.
-const SANDSTONE_LIGHT = lin(0xc79a64);
-const SANDSTONE_DARK  = lin(0x7b4f2e);
-const SANDSTONE_RUST  = lin(0x9a5a34);
-const SANDSTONE_PALE  = lin(0xd8c09a);
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -107,9 +100,7 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
   } else {
     const isl = islandAt(x, z);
     const bare = isl ? isl.bare : 0.45;
-    // How much of this is Berk's sandstone country (terrain.js berkAmount).
-    const bk = berkAmount(x, z);
-    const snowLine = bk > 0 ? 1e9 : SNOW_LINE - (isl ? isl.snow : 0);
+    const snowLine = SNOW_LINE - (isl ? isl.snow : 0);
 
     veg = fertility(x, z, h, slope);
     // Open country is turf and heath, not forest floor: the needle litter
@@ -146,35 +137,13 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
     const rockG = ROCK_DARK[1] + (ROCK_LIGHT[1] - ROCK_DARK[1]) * rt;
     const rockB = ROCK_DARK[2] + (ROCK_LIGHT[2] - ROCK_DARK[2]) * rt;
     const ROCK = [rockR, rockG, rockB];
-    if (bk > 0) {
-      // Sandstone strata: thin beds every few metres, thick ones every forty,
-      // a rust bed now and then and a pale one at the caps. Strong, because
-      // the films' cliffs are striped like a cake.
-      const w2 = fbm(x * 0.0021 + 7.0, z * 0.0021, 2) * 3.0;
-      const thin = Math.sin(h * 0.9 + wob * 0.5) * 0.5 + 0.5;
-      const thick = Math.sin(h * 0.155 + w2) * 0.5 + 0.5;
-      const t = clamp(0.25 + thick * 0.5 + (thin - 0.5) * 0.3 + (patch - 0.5) * 0.2, 0, 1);
-      const sR = SANDSTONE_DARK[0] + (SANDSTONE_LIGHT[0] - SANDSTONE_DARK[0]) * t;
-      const sG = SANDSTONE_DARK[1] + (SANDSTONE_LIGHT[1] - SANDSTONE_DARK[1]) * t;
-      const sB = SANDSTONE_DARK[2] + (SANDSTONE_LIGHT[2] - SANDSTONE_DARK[2]) * t;
-      const rust = smoothstep(Math.sin(h * 0.061 - w2 * 0.7), 0.72, 0.95) * 0.6;
-      const pale = smoothstep(Math.sin(h * 0.043 + 1.3 + w2 * 0.4), 0.8, 0.98) * 0.5;
-      const SR = [
-        sR + (SANDSTONE_RUST[0] - sR) * rust + (SANDSTONE_PALE[0] - sR) * pale,
-        sG + (SANDSTONE_RUST[1] - sG) * rust + (SANDSTONE_PALE[1] - sG) * pale,
-        sB + (SANDSTONE_RUST[2] - sB) * rust + (SANDSTONE_PALE[2] - sB) * pale,
-      ];
-      ROCK[0] += (SR[0] - ROCK[0]) * bk;
-      ROCK[1] += (SR[1] - ROCK[1]) * bk;
-      ROCK[2] += (SR[2] - ROCK[2]) * bk;
-    }
 
     // Open ground that is not forest is heath and short turf, not bare rock —
     // the islands are wet and green to the cliff edge. The old ramp went
     // straight from grass to rock, so every patch the fertility number thinned
     // came out as a brown sheet.
     set(ROCK);
-    const turf = (1 - smoothstep(slope, 0.62, 1.0)) * (1 - smoothstep(h, 260, 360) * (1 - bk))
+    const turf = (1 - smoothstep(slope, 0.62, 1.0)) * (1 - smoothstep(h, 260, 360))
                * smoothstep(h, 3, 9) * (1 - bare * 0.55);
     mix(HEATH, turf * 0.75);
     mix(GRASS_COOL, turf * 0.55);
@@ -239,19 +208,6 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
       const wear = smoothstep(fbm(x * 0.045 + 3.3, z * 0.045 - 1.7, 2) * 0.5 + 0.5, 0.25, 0.75);
       mix(TRODDEN, pw * (0.45 + 0.45 * wear) * (1 - smoothstep(slope, 0.3, 0.6)));
       veg *= 1 - pw * 0.6;
-    }
-
-    // Berk's village: shelves of trodden earth and turf between the houses,
-    // the quays and the spire's summit bare.
-    if (bk > 0) {
-      const vm = berkVillageMask(x, z);
-      if (vm > 0.001) {
-        const wear = smoothstep(fbm(x * 0.045 + 3.3, z * 0.045 - 1.7, 2) * 0.5 + 0.5, 0.2, 0.8);
-        mix(TRODDEN, vm * (0.35 + 0.4 * wear) * (1 - smoothstep(slope, 0.3, 0.6)));
-        // No grass texture and no grass blades (grassfield.js reads veg) on
-        // the shelves: berk.js stands houses there.
-        veg *= 1 - vm;
-      }
     }
 
     if (CLEARING) {

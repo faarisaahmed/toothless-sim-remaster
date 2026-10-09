@@ -1,127 +1,17 @@
 import * as THREE from "three";
-import { terrainHeight, noise2, berkWaters, berkMesas } from "./terrain.js";
-import { INTERIOR } from "./berklayout.js";
+import { terrainHeight, berkStream } from "./terrain.js";
+import { STREAM, streamFall } from "./berklayout.js";
 
 // ---------------------------------------------------------------------------
-// Berk's natural features that a height field cannot be.
+// Berk's natural features that a height field cannot be: water above the sea.
 //
-// terrain.js draws the island -- the mesas, the valleys, the river channels and
-// the plunge pools -- but a height field has one height per point, so it
-// cannot span a gap, and it cannot hold water above the sea. This adds what is
-// left: the natural arch between two mesas (rock, in the ground's own material
-// so its sandstone is the cliffs' sandstone), the waterfalls off the mesa rims
-// with mist where they land, and the water in the rivers and pools.
-//
-// Every position comes from berklayout.js (via terrain.js), so this follows
-// the layout wherever it puts Berk.
+// The burn off the western hills (berklayout.js STREAM): terrain.js finds its
+// bed at load and cuts its channel down the gully; this runs the water along
+// it and the fall off its lip, hugging the rock down into the harbour, with
+// spray where it lands. Positions all come from berklayout.js via terrain.js.
 // ---------------------------------------------------------------------------
 
-const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-
-/** Linear colour from sRGB hex, as plain numbers (the ground's vertex colours are linear). */
-function lin(hex) {
-  const f = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-  return [f((hex >> 16) & 255), f((hex >> 8) & 255), f(hex & 255)];
-}
-const SAND_L = lin(0xc79a64), SAND_D = lin(0x7b4f2e), MOSS = lin(0x3f6232);
-
-/** Where a mesa's rim actually is along a bearing: walk out until the table ends. */
-function rimAlong(m, ux, uz, from = 0) {
-  let last = from;
-  for (let s = from; s < m.r * 1.6; s += 2) {
-    const h = terrainHeight(m.x + ux * s, m.z + uz * s);
-    if (h < m.h - 8) return { s: last, x: m.x + ux * last, z: m.z + uz * last };
-    last = s;
-  }
-  return { s: last, x: m.x + ux * last, z: m.z + uz * last };
-}
-
-function nearestMesa(mesas, p) {
-  let best = null, bd = Infinity;
-  for (const m of mesas) {
-    const d = Math.hypot(m.x - p.x, m.z - p.z) - m.r;
-    if (d < bd) { bd = d; best = m; }
-  }
-  return best;
-}
-
-// --- The arch ---------------------------------------------------------------
-function buildArch(arch, mesas, material) {
-  const A = nearestMesa(mesas, arch.a), B = nearestMesa(mesas, arch.b);
-  const dx = B.x - A.x, dz = B.z - A.z, L = Math.hypot(dx, dz);
-  const ux = dx / L, uz = dz / L;
-  // Start and end buried thirty metres inside each mesa's rim.
-  const ra = rimAlong(A, ux, uz), rb = rimAlong(B, -ux, -uz);
-  const sx = A.x + ux * (ra.s - 30), sz = A.z + uz * (ra.s - 30);
-  const ex = B.x - ux * (rb.s - 30), ez = B.z - uz * (rb.s - 30);
-  const span = Math.hypot(ex - sx, ez - sz);
-  const foot = INTERIOR.valleyH + 10;
-  const NS = 96, NR = 28;
-  const pos = [], col = [], surf = [], uv = [];
-  const px = -uz, pz = ux;            // across the span
-  for (let i = 0; i <= NS; i++) {
-    const t = i / NS;
-    const cx = lerp(sx, ex, t), cz = lerp(sz, ez, t);
-    const sn = Math.sin(Math.PI * t);
-    // The deck: just under the tables at the ends, sagging a little.
-    const top = lerp(A.h - 22, B.h - 22, t) - 26 * sn + noise2(t * 6.1, 3.3) * 6;
-    // The underside: the arch's own curve, at `h` in the middle, down to the
-    // valley at the legs.
-    const leg = Math.pow(1 - sn, 1.8);
-    const under = lerp(arch.h, foot, leg) + noise2(t * 5.3, 9.1) * 5;
-    const hw = arch.w / 2 * (1 + 1.3 * Math.pow(1 - sn, 1.5)) * (1 + noise2(t * 4.7, -2.2) * 0.12);
-    const midY = (top + under) / 2, hh = (top - under) / 2;
-    for (let j = 0; j <= NR; j++) {
-      const th = (j / NR) * Math.PI * 2;
-      const c = Math.cos(th), s = Math.sin(th);
-      // A boxy section with rounded corners: sandstone fins are slab-sided.
-      let ox = Math.sign(c) * Math.pow(Math.abs(c), 0.45) * hw;
-      let oy = Math.sign(s) * Math.pow(Math.abs(s), 0.45) * hh;
-      // Weathering: bulges and hollows, stronger on the sides than the deck.
-      const n = noise2(cx * 0.025 + ox * 0.03, (midY + oy) * 0.03 + cz * 0.01) * 7
-              + noise2(cx * 0.07 - oy * 0.05, cz * 0.07 + ox * 0.04) * 2.5;
-      const side = Math.abs(c);
-      ox += Math.sign(c) * n * side;
-      oy += (s < 0 ? -1 : 1) * n * 0.35 * (1 - side);
-      const x = cx + px * ox, y = midY + oy, z = cz + pz * ox;
-      pos.push(x, y, z);
-      // Sandstone; the deck is turf.
-      const band = 0.5 + 0.3 * Math.sin(y * 0.155 + n * 0.1) + 0.2 * Math.sin(y * 0.9);
-      const k = clamp(band, 0, 1);
-      const deck = s > 0.8 ? 1 : 0;
-      for (let e = 0; e < 3; e++) col.push(lerp(lerp(SAND_D[e], SAND_L[e], k), MOSS[e], deck * 0.8));
-      surf.push(deck * 0.7, 0, 0);
-      uv.push(t * span / 20, j / NR);
-    }
-  }
-  const idx = [];
-  for (let i = 0; i < NS; i++) {
-    for (let j = 0; j < NR; j++) {
-      const a = i * (NR + 1) + j, b = a + NR + 1;
-      idx.push(a, a + 1, b, b, a + 1, b + 1);
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  g.setAttribute("aSurf", new THREE.Float32BufferAttribute(surf, 3));
-  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  // Wound so the normals face out whichever way the span runs.
-  const probe = g.attributes.normal;
-  if (probe.getY(Math.round(NR / 4)) < 0) {
-    for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
-    g.setIndex(idx);
-    g.computeVertexNormals();
-  }
-  const mesh = new THREE.Mesh(g, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.name = "berk-arch";
-  return mesh;
-}
 
 // --- Water -----------------------------------------------------------------
 const FALL_VERT = /* glsl */`
@@ -257,26 +147,23 @@ function softTexture(size = 128) {
   return t;
 }
 
-function buildFall(wf, mesas, pools, fallMat) {
-  const m = nearestMesa(mesas, wf);
-  let ux = wf.x - m.x, uz = wf.z - m.z;
-  const ul = Math.hypot(ux, uz); ux /= ul; uz /= ul;
-  const rim = rimAlong(m, ux, uz, Math.max(0, m.r * 0.7));
-  const pool = pools.reduce((b, p) => (Math.hypot(p.x - wf.pool.x, p.z - wf.pool.z) < Math.hypot(b.x - wf.pool.x, b.z - wf.pool.z) ? p : b), pools[0]);
-  // Walk off the rim toward the pool, hugging the face a few metres out.
+
+/** The fall: from the lip on along the stream's line, hugging the rock down to the cove. */
+function buildFall(bed, fallMat) {
+  const fl = streamFall();
+  const lip = bed[bed.length - 1];
+  const ux = fl.ux, uz = fl.uz;
+  const top = lip.y + 1.0;
   const path = [];
-  const top = terrainHeight(rim.x, rim.z) + 1.0;
-  const toPool = Math.hypot(pool.x - rim.x, pool.z - rim.z);
   let y = top;
-  for (let s = -6; s <= toPool; s += 2) {
-    const x = rim.x + ux * s, z = rim.z + uz * s;
-    const g = Math.max(terrainHeight(x + ux * 5, z + uz * 5), terrainHeight(x, z));
-    // Free fall off each lip: it cannot rise, and it drops no faster than
-    // the face lets it, held a little proud of the rock.
-    const want = s < 0 ? top : Math.max(g + 2.5, pool.y);
-    y = Math.min(y, want);
-    path.push({ x: x + ux * 4, y, z: z + uz * 4 });
-    if (s > 0 && y <= pool.y + 0.5) break;
+  for (let s = -4; s <= 260; s += 2) {
+    const x = lip.x + ux * s, z = lip.z + uz * s;
+    const g = Math.max(terrainHeight(x + ux * 4, z + uz * 4), terrainHeight(x, z));
+    // It cannot rise, and it drops no faster than the rock lets it, held a
+    // little proud of the face.
+    y = Math.min(y, Math.max(g + 1.8, 0));
+    path.push({ x, y, z });
+    if (s > 0 && y <= 0.4) break;
   }
   const pos = [], uv = [], drop = [], idx = [];
   let along = 0;
@@ -284,8 +171,8 @@ function buildFall(wf, mesas, pools, fallMat) {
   for (let i = 0; i < path.length; i++) {
     const p = path[i];
     if (i > 0) along += Math.hypot(p.x - path[i - 1].x, p.y - path[i - 1].y, p.z - path[i - 1].z);
-    const k = clamp((top - p.y) / Math.max(1, top - pool.y), 0, 1);
-    const w = wf.w / 2 * (1 + k * 0.7);
+    const k = clamp((top - p.y) / Math.max(1, top), 0, 1);
+    const w = STREAM.w / 2 * (0.9 + k * 0.9);
     pos.push(p.x - px * w, p.y, p.z - pz * w, p.x + px * w, p.y, p.z + pz * w);
     uv.push(0, along, 1, along);
     drop.push(k, k);
@@ -299,37 +186,24 @@ function buildFall(wf, mesas, pools, fallMat) {
   const mesh = new THREE.Mesh(g, fallMat);
   mesh.name = "berk-waterfall";
   mesh.renderOrder = 2;
-  const foot = path[path.length - 1];
-  return { mesh, foot, top: { x: rim.x, y: top, z: rim.z }, w: wf.w, height: top - pool.y };
+  return { mesh, foot: path[path.length - 1], top: { x: lip.x, y: top, z: lip.z }, height: top };
 }
 
 /**
  * @param {THREE.Scene} scene
- * @param {{ material: THREE.Material }} opts  the ground's material, for the arch
  */
-export function createBerkLand(scene, { material } = {}) {
+export function createBerkLand(scene) {
   const root = new THREE.Group();
   root.name = "berk-land";
   scene.add(root);
-  const mesas = berkMesas();
-  const waters = berkWaters();
+  const bed = berkStream();
+  if (bed.length < 3) return { root, update() {} };
 
-  if (material) for (const a of INTERIOR.arches) root.add(buildArch(a, mesas, material));
+  // The burn, a ribbon on its bed.
+  const riverMat = waterMaterial(0.5);
+  root.add(buildRiver(bed.map((p) => ({ x: p.x, y: p.y + 0.9, z: p.z, w: STREAM.w / 2 - 6 })), riverMat));
 
-  // Rivers and pools.
-  const riverMat = waterMaterial(0.35);
-  const poolMat = waterMaterial(0.04);
-  for (const r of waters.rivers) if (r.length > 2) root.add(buildRiver(r, riverMat));
-  for (const p of waters.pools) {
-    const g = new THREE.CircleGeometry(p.r * 1.12, 48);
-    g.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(g, poolMat);
-    m.position.set(p.x, p.y, p.z);
-    m.name = "berk-pool";
-    root.add(m);
-  }
-
-  // Waterfalls, and the mist where they land.
+  // The fall, and the spray where it lands.
   const fallMat = new THREE.ShaderMaterial({
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uTime: { value: 0 }, uTint: { value: new THREE.Color(0xa9c3cc) },
@@ -337,25 +211,14 @@ export function createBerkLand(scene, { material } = {}) {
     vertexShader: FALL_VERT, fragmentShader: FALL_FRAG,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
   });
+  const f = buildFall(bed, fallMat);
+  root.add(f.mesh);
   const mistTex = softTexture();
   const mists = [];
-  for (const wf of INTERIOR.waterfalls) {
-    const f = buildFall(wf, mesas, waters.pools, fallMat);
-    root.add(f.mesh);
-    // Spray boiling up off the pool, and a little blowing off the lip.
-    const n = 7;
-    for (let k = 0; k < n; k++) {
-      const mat = new THREE.SpriteMaterial({ map: mistTex, color: 0xeef4f6, transparent: true, depthWrite: false, opacity: 0.4, fog: true });
-      const s = new THREE.Sprite(mat);
-      const base = new THREE.Vector3(f.foot.x, f.foot.y, f.foot.z);
-      const size = f.w * (1.3 + k * 0.3) + f.height * 0.05;
-      mists.push({ s, base, size, phase: k / n, rise: f.height * 0.25 + 20, spread: f.w * 1.2 });
-      root.add(s);
-    }
-    const lip = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, color: 0xffffff, transparent: true, depthWrite: false, opacity: 0.18, fog: true }));
-    lip.position.set(f.top.x, f.top.y - 12, f.top.z);
-    lip.scale.setScalar(f.w * 2.5);
-    root.add(lip);
+  for (let k = 0; k < 7; k++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, color: 0xeef4f6, transparent: true, depthWrite: false, opacity: 0.4, fog: true }));
+    mists.push({ s, base: new THREE.Vector3(f.foot.x, f.foot.y, f.foot.z), size: STREAM.w * (1.4 + k * 0.3) + f.height * 0.05, phase: k / 7, rise: f.height * 0.2 + 15, spread: STREAM.w * 1.2 });
+    root.add(s);
   }
 
   let t = 0;
@@ -365,17 +228,16 @@ export function createBerkLand(scene, { material } = {}) {
       t += dt;
       fallMat.uniforms.uTime.value = t;
       riverMat.uniforms.uTime.value = t;
-      poolMat.uniforms.uTime.value = t;
       for (const m of mists) {
-        // Each puff rises from the pool, swells and fades, and starts again.
+        // Each puff rises off the water, swells and fades, and starts again.
         const ph = (t * 0.09 + m.phase) % 1;
         const a = m.phase * 6.283;
         m.s.position.set(
           m.base.x + Math.cos(a + t * 0.05) * m.spread * (0.3 + ph),
-          m.base.y + 4 + ph * m.rise,
+          m.base.y + 3 + ph * m.rise,
           m.base.z + Math.sin(a + t * 0.05) * m.spread * (0.3 + ph));
         m.s.scale.setScalar(m.size * (0.6 + ph * 0.9));
-        m.s.material.opacity = 0.32 * Math.sin(ph * Math.PI);
+        m.s.material.opacity = 0.3 * Math.sin(ph * Math.PI);
       }
     },
   };
