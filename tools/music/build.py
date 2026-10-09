@@ -7,18 +7,28 @@ Build the game's soundtrack from source.
     python3 tools/music/build.py --solo       the two themes alone, dry, into
                                               tools/music/_work/ (for checking
                                               a melody without the band)
+    python3 tools/music/build.py --recalibrate   re-measure every instrument's
+                                              level against GeneralUser first
 
 Writes assets/audio/music/<file>.mp3 and prints each track's loop length and
 loudness; the loop lengths are what js/audio.js's TRACKS `to` values must be.
 
 Needs: python3 with mido, numpy, scipy (pip3 install --user mido numpy scipy),
 fluidsynth and ffmpeg with libmp3lame (brew install fluid-synth ffmpeg), and
-the GeneralUser GS soundfont at tools/music/GeneralUser-GS.sf2 — 32 MB, so it
-is not committed. This script fetches it on first run from S. Christian
-Collins' GeneralUser GS repository (https://github.com/mrbumpy409/GeneralUser-GS,
-GeneralUser GS License v2.0: free to use for any music, no attribution required).
+two sets of instruments, neither committed, both fetched on first run:
 
-The music itself is in score.py; the performance and mixing in engine.py.
+  - the recorded instruments: about 1.3 GB of WAV from VSCO 2 Community
+    Edition and the Versilian Community Sample Library, both CC0 (public
+    domain), into tools/music/samples/ — see libraries.py;
+  - the GeneralUser GS soundfont, 32 MB, at tools/music/GeneralUser-GS.sf2,
+    from S. Christian Collins (https://github.com/mrbumpy409/GeneralUser-GS,
+    GeneralUser GS License v2.0: free to use for any music, no attribution
+    required) — the solo voice, choir, pipes and shakuhachi still play on it,
+    and every recorded instrument is level-matched against the preset it
+    replaced (sampler.calibrate, cached in _work/calibration.json).
+
+The music itself is in score.py; the performance in engine.py and sampler.py;
+the mix in engine.render. check.py measures the result.
 """
 import json
 import os
@@ -31,8 +41,10 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(ROOT, "assets", "audio", "music")
 SF2_URL = "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser-GS.sf2"
 
-import engine  # noqa: E402
-import score   # noqa: E402
+import engine     # noqa: E402
+import libraries  # noqa: E402
+import sampler    # noqa: E402
+import score      # noqa: E402
 
 FILES = {
     "title": "emberwing-title.mp3",
@@ -70,7 +82,10 @@ def solo():
 
 def main(args):
     fetch_soundfont()
+    libraries.fetch()
     os.makedirs(engine.WORK, exist_ok=True)
+    sampler.calibrate([k for k, v in engine.INSTR.items() if v.get("patch")], engine.INSTR, engine.SF2,
+                      force="--recalibrate" in args)
     if "--solo" in args:
         return solo()
     names = [a for a in args if not a.startswith("-")] or list(score.TRACKS)
@@ -80,10 +95,11 @@ def main(args):
         song = score.TRACKS[name]()
         out = os.path.join(OUT, FILES[name])
         print(f"{name}: {len(song.parts)} parts, loop {song.length:.2f}s ...", flush=True)
-        st = engine.render(song, out, target_lufs=song.target)
+        st = engine.render(song, out, target_lufs=song.target,
+                           keep_wav=os.path.join(engine.WORK, f"{name}-final-keep.wav"))
         stats[name] = st
         print(f"  -> {st['file']}  loop {st['loop']}s  file {st['length']}s  "
-              f"{st['lufs']} LUFS  LRA {st['lra']}  peak {st['peak']} dBFS\n     stems {st['stems']}")
+              f"{st['lufs']} LUFS  LRA {st['lra']}  peak {st['peak']} dBFS\n     stems {st['stems']}\n     trims vs GU {st['trims']}\n     parts vs mix {st['parts']}")
     json.dump(stats, open(stats_path, "w"), indent=2)
 
 

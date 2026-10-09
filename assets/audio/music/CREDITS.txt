@@ -16,11 +16,55 @@ They are generated from source: the notes are in tools/music/score.py and
 
 Instruments
 -----------
-Rendered with the GeneralUser GS SoundFont bank by S. Christian Collins,
-https://github.com/mrbumpy409/GeneralUser-GS — GeneralUser GS License v2.0:
-"You may use GeneralUser GS without restriction for your own music creation,
-private or commercial." Attribution is not required by that licence; it is
-given here anyway.
+Most parts are played on recordings of real instruments from two public-domain
+sample libraries by Sam Gossner / Versilian Studios LLC. Both are released
+under Creative Commons CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/):
+"you can do whatever you want with these sounds (even make commercial
+software), no royalties, no credit, no special terms." Credit is given here
+anyway.
+
+  VSCO 2 Community Edition — https://github.com/sgossner/VSCO-2-CE
+  (commit 440300901dfe9275fd84e0b7763af1f8443ae62e), CC0 1.0:
+    fiddle ............ Solo Violin (arco vibrato; spiccato for very short notes)
+    strings, fstrings,  Violin, Viola and Cello Sections (sustain vibrato,
+    trem, pizz ........ spiccato, tremolo, pizzicato), with the Solo Violin
+                        doubling the section melody
+    cello ............. Cello Section
+    contrabass ........ Solo Contrabass (sustain, spiccato)
+    horn, horns ....... F Horn (the section played as two horns)
+    brass ............. Trumpet doubled by F Horn
+    trombone, tuba .... Tenor Trombone (two players), Tuba
+    timpani ........... Timpani
+    bass drum ......... VSCO 1 Percussion bass drum (muted strokes)
+
+  Versilian Community Sample Library (VCSL) — https://github.com/sgossner/VCSL
+  (commit c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e), CC0 1.0:
+    whistle ........... Baroque Tenor, Alto and Soprano Recorders (sustain)
+    harp .............. Folk Harp
+    bodhran ........... Frame Drum (large and small, open and muted strokes)
+    taiko ............. Concert Bass Drum 2, tuned up, with the large Frame Drum
+    guitar ............ Strumstick (fingerpicked)
+    dulcimer .......... Psaltery (plucked)
+    tambourine ........ Tambourine 1
+    glass ............. Wine Glasses (bowed), over the soundfont's bowed glass
+
+The remaining parts — the solo voice (the kulning call), the choir and "oohs",
+the bagpipes, the shakuhachi and the bowed-glass pad under the wine glasses —
+have no freely licensed recording, and are rendered with the GeneralUser GS
+SoundFont bank by S. Christian Collins, https://github.com/mrbumpy409/GeneralUser-GS
+— GeneralUser GS License v2.0: "You may use GeneralUser GS without restriction
+for your own music creation, private or commercial." Attribution is not
+required by that licence; it is given here anyway. Every recorded instrument
+is also level-matched against the GeneralUser preset it replaced, so the
+balance the score was written for carries over.
+
+None of these samples are redistributed in this repository: the build fetches
+them (tools/music/libraries.py). Only the rendered MP3s ship.
+
+Mixing: a sampler and mix chain written for this game (tools/music/sampler.py,
+engine.py): per-instrument articulation choice, velocity crossfades, legato
+and portamento, vibrato, section doubling, orchestral seating, synthetic hall
+and room impulse responses, EQ, bus compression and limiting.
 
 Encoded as 160 kbps CBR MP3 (constant bit rate keeps seeking exact, which the
 seamless loop in js/audio.js relies on).
