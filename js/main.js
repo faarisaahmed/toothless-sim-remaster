@@ -1199,6 +1199,10 @@ const LAND_SPEED = 0.18;
 const WALK_SPEED = 5.5;        // metres per second: a brisk trot
 const RUN_SPEED = 15.0;        // ...and the gallop, holding sprint
 const WALK_TURN = 7.0;         // radians per second he swings round at a trot
+// Wanting to go behind him (more than this off his nose) backs him up rather
+// than turning him round — at this fraction of the trot.
+const REVERSE_CONE = THREE.MathUtils.degToRad(120);
+const REVERSE_FRAC = 0.5;
 const RUN_TURN = 3.6;          // and at a full gallop
 const RUN_ACCEL = 3.6;         // how fast he winds up into it
 const WALK_ACCEL = 7.0;        // and how fast he answers at a trot
@@ -2679,15 +2683,27 @@ function frame() {
       // He turns to face where he is asked to go, at a rate that falls as he
       // speeds up — a gallop swings wide, a trot can about-face.
       let align = 1;
+      let reversing = false;
       if (mag > 0.01 && !groundBody.flaring) {
         const off = angleDelta(walkYaw, Math.atan2(wishX, wishZ));
-        const rate = THREE.MathUtils.lerp(WALK_TURN, RUN_TURN, gearT) * dt;
-        walkYaw += THREE.MathUtils.clamp(off, -rate, rate);
-        // And he goes along his own nose, not sideways: asked to go behind
-        // himself he pulls up and turns rather than moonwalking.
-        align = Math.max(0, Math.cos(angleDelta(walkYaw, Math.atan2(wishX, wishZ))));
+        if (Math.abs(off) > REVERSE_CONE && walkSpeed < 1.5) {
+          // Asked to go more or less straight behind him from a walk or a
+          // stand: he backs up, still facing the way he was, steering his
+          // hindquarters a little toward the ask.
+          reversing = true;
+          const back = angleDelta(walkYaw, Math.atan2(-wishX, -wishZ));
+          walkYaw += THREE.MathUtils.clamp(back, -WALK_TURN * 0.35 * dt, WALK_TURN * 0.35 * dt);
+          align = -Math.max(0, Math.cos(back));
+        } else {
+          const rate = THREE.MathUtils.lerp(WALK_TURN, RUN_TURN, gearT) * dt;
+          walkYaw += THREE.MathUtils.clamp(off, -rate, rate);
+          // And he goes along his own nose, not sideways: asked to go off to
+          // one side he swings round to it rather than crabbing.
+          align = Math.max(0, Math.cos(angleDelta(walkYaw, Math.atan2(wishX, wishZ))));
+        }
       }
-      const gear = (running ? RUN_SPEED : WALK_SPEED) * walkGearDebug;
+      const gear = reversing ? WALK_SPEED * REVERSE_FRAC * walkGearDebug
+        : (running ? RUN_SPEED : WALK_SPEED) * walkGearDebug;
       const nx = Math.sin(walkYaw), nz = Math.cos(walkYaw);
       const go = mag * align * gear;
       const want = { x: nx * go, z: nz * go };

@@ -51,7 +51,10 @@ const MENU = {
 
 const ROOM = {
   forward: { keys: ["KeyW", "ArrowUp"] },
-  back:    { keys: ["KeyS", "ArrowDown"] },
+  // "reverse", not "back": this object also has a menu-style `back` (Escape)
+  // further down, and a duplicate key silently replaced S with Escape, so he
+  // could not back up at all.
+  reverse: { keys: ["KeyS", "ArrowDown"] },
   turnL:   { keys: ["KeyA", "ArrowLeft"] },
   turnR:   { keys: ["KeyD", "ArrowRight"] },
   look:    { keys: ["KeyR"],  pads: [BTN.TRIANGLE] },   // hold to study a thing
