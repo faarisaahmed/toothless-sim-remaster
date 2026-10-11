@@ -410,9 +410,17 @@ export function createPitWood(scene, { groundAt = terrainHeight, sky = null } = 
       c.meshes.push(im);
       pieces += count;
     }
-    c.raw = null;
   }
-  const BUILD_R = 250;
+  // Built chunks are let go again once he is well past them — the plan stays
+  // (compact, below) so coming back rebuilds it. Keeping every chunk he had
+  // ever flown over ran a long flight out of memory.
+  function unbuild(c) {
+    for (const m of c.meshes) { root.remove(m); m.dispose(); }
+    pieces -= c.meshes.reduce((n, m) => n + m.count, 0);
+    c.meshes.length = 0;
+    c.built = false;
+  }
+  const BUILD_R = 250, FREE_R = 420;
 
   // --- Sunbeams ------------------------------------------------------------------
   // Two crossed quads per beam, leaning along the sun, additive. They show in
@@ -470,6 +478,9 @@ export function createPitWood(scene, { groundAt = terrainHeight, sky = null } = 
     lastSun.copy(dir);
   };
 
+  // The plans as plain arrays are doubles; float32 is half that and plenty.
+  for (const c of chunks.values()) c.raw = new Float32Array(c.raw);
+
   console.info(`pit-wood: ${planned} plants planned in ${chunks.size} chunks, ${beams.length} sunbeams, ${Math.round(performance.now() - t0)} ms`);
 
   return {
@@ -482,6 +493,7 @@ export function createPitWood(scene, { groundAt = terrainHeight, sky = null } = 
       for (const c of chunks.values()) {
         const d = Math.hypot(camPos.x - c.cx, camPos.z - c.cz) - CELL * 0.7;
         if (!c.built) { if (d < BUILD_R && budget-- > 0) build(c); else continue; }
+        else if (d > FREE_R) { unbuild(c); continue; }
         for (const m of c.meshes) m.visible = d < m.userData.far;
       }
       // The beams: only with the sun well up and the sky clear enough to cast
