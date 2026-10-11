@@ -525,7 +525,10 @@ export function setupDragonControls(dragon, getCamYaw, pad = null) {
   // the wingtip keys for the barrel roll. See makeTapGate().
   const vertGate = makeTapGate(TAP_MAX, DOUBLE_GAP);
   const rollGate = makeTapGate(ROLL_TAP_MAX, ROLL_GAP);
-  const turboGate = makeTapGate(0.3, 0.35);
+  // Generous windows: a 0.3 s tap and a 0.35 s gap was a timing test most
+  // fingers failed. Sprint held with flat out is the no-timing way in, and the
+  // one the HUD names.
+  const turboGate = makeTapGate(0.5, 0.6);
   let turbo = false;
   let snared      = 0;         // s left with his wings bound — see SNARE_TIME
   let snareDir    = 0;         // which way he last rolled, for the shake

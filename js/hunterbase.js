@@ -408,7 +408,13 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     // Fallen in where a gully comes down to it: a gap a dragon can get through.
     if (gullyEnds.some((e) => Math.abs(Math.atan2(Math.sin(a - e), Math.cos(a - e))) < 0.06)) continue;
     const [x, z] = polar(a, YARD_R);
-    place(clone("dh_palisade"), x, z, -a, -0.2);
+    // Along the ring, not across it: the panel's length is its local x, and a
+    // yaw of -a pointed that at the smelter, so the "wall" was a row of loose
+    // planks sticking out of the ground like a dotted line. A little lean and
+    // height wander so it reads as stakes driven by hand, not a kit fence.
+    const k = Math.sin(a * 97.3) * 0.5 + 0.5;
+    const pal = place(clone("dh_palisade"), x, z, -a + Math.PI / 2, -0.2 - k * 0.35);
+    pal.rotation.z = (k - 0.5) * 0.05;
     take(x, z, 2);
   }
   const yardTowers = [];
@@ -695,7 +701,7 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
       const r = Math.hypot(t.pos.x - cx, t.pos.z - cz);
       const [x, z] = polar(a, r);
       if (groundAt(x, z) < 50 || inGully(x, z, 2)) continue;
-      place(clone("dh_palisade"), x, z, -a, -0.2);
+      place(clone("dh_palisade"), x, z, -a + Math.PI / 2, -0.2);
     }
   }
 
@@ -866,8 +872,11 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
     const c = document.createElement("canvas"); c.width = c.height = 64;
     const g = c.getContext("2d");
     const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gr.addColorStop(0, "rgba(255,220,160,1)"); gr.addColorStop(0.25, "rgba(255,150,60,0.55)");
-    gr.addColorStop(1, "rgba(255,90,20,0)");
+    // A hot core and a quick fall-off. The old gradient held half its
+    // brightness out to a quarter of the radius, so every flame wore a fuzzy
+    // orange ball round it — a halo, not a fire.
+    gr.addColorStop(0, "rgba(255,226,170,1)"); gr.addColorStop(0.12, "rgba(255,170,80,0.6)");
+    gr.addColorStop(0.4, "rgba(255,110,30,0.12)"); gr.addColorStop(1, "rgba(255,90,20,0)");
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
@@ -883,13 +892,18 @@ export async function buildHunterBase(scene, { groundAt, seaLevel = 0 } = {}) {
   const glowMat = new THREE.ShaderMaterial({
     uniforms: { tGlow: { value: glowTex }, uNight: { value: 1 }, uScale: { value: 900 } },
     vertexShader: `attribute float aSize; uniform float uScale; varying float vS;
-      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vS = aSize;
-        // About a two-metre halo up close, never under a few pixels far
-        // off, so the coil still reads from high above the island.
-        gl_PointSize = clamp(uScale * aSize * 1.6 / -mv.z, 2.5, 18.0) * (aSize > 0.0 ? 1.0 : 0.0);
+      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0);
+        // Never under a few pixels far off, so the coil still reads from
+        // high above the island. Up close the flame itself is in view and the
+        // sprite only puts a ball of fog round it, so it fades out inside a
+        // hundred metres and is gone by thirty.
+        vS = smoothstep(30.0, 110.0, -mv.z);
+        gl_PointSize = clamp(uScale * aSize * 1.6 / -mv.z, 2.5, 14.0) * (aSize > 0.0 ? 1.0 : 0.0);
         gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform sampler2D tGlow; uniform float uNight; varying float vS;
-      void main(){ vec4 c = texture2D(tGlow, gl_PointCoord); gl_FragColor = vec4(c.rgb * (0.35 + uNight * 1.4), c.a * (0.35 + uNight * 0.65)); }`,
+      // By day a flame is barely a glow at all from any distance.
+      void main(){ vec4 c = texture2D(tGlow, gl_PointCoord); float k = vS * (0.06 + uNight * 0.94);
+        gl_FragColor = vec4(c.rgb * 1.6 * k, c.a * k); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   const glow = new THREE.Points(glowGeo, glowMat);

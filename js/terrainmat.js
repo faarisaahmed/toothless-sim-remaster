@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { patchShader } from "./photoreal.js";
+import { YARD_GLSL, yardUniforms } from "./pitmat.js";
 
 // ---------------------------------------------------------------------------
 // The ground.
@@ -173,6 +174,7 @@ const FRAG_PARS = /* glsl */`
   // dither in this distance band, each drawing exactly the pixels the other
   // does not (pitmat.js uses the same pattern, complemented).
   uniform vec2 uHoleFade;     // metres from the camera: start, end
+  ${YARD_GLSL}
 
   // The second read of every layer is this much larger and turned by this much,
   // so its repeat never lines up with the first one's.
@@ -513,6 +515,14 @@ const FRAG_MAIN = /* glsl */`
     rough = mix( rough, 0.38, wetK * 0.8 );
   }
 
+  // The hunters' yard on the pit floor, as pitmat.js paints it up close.
+  if ( uYard.z > 1.0 ) {
+    float yardWet;
+    float yard = yardAmount( vWPos.xz, slope * 1.6, yardWet );
+    albedo = pitEarth( albedo, vWPos.xz, slope * 1.6 );
+    albedo = yardGround( albedo, vWPos.xz, yard, yardWet );
+  }
+
   diffuseColor.rgb = albedo;
 `;
 
@@ -542,6 +552,7 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
     uWet: { value: 0 },
     uHole: { value: new THREE.Vector3(0, 0, 0) },
     uHoleFade: { value: new THREE.Vector2(70, 150) },
+    ...yardUniforms(),
   };
 
   const mat = new THREE.MeshStandardMaterial({

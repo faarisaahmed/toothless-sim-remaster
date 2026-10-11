@@ -74,6 +74,18 @@ const FLARE_SINK = 9;               // m/s of sink high up
 const FLARE_TOUCH = 1.8;            // ...easing to this by touchdown
 const FLARE_BRAKE = 2.2;            // horizontal speed shed per second, as a rate
 const STEP_MAX = 1.1;               // the tallest thing he simply steps up onto
+// Running over a brow onto a downslope, a sprung body on 1 g goes ballistic:
+// at a gallop the ground falls away faster than gravity brings him down, his
+// feet leave it, and half a second later the caller decides he has gone off a
+// cliff and opens his wings. Every hill on the island launched him. An animal
+// reaches down for the ground instead, so a leg that has only just lost it,
+// and can still find it within STICK_DROP, keeps hold and PULLS him down —
+// up to a few g, which follows a brow as tight as v²/(3g) at a gallop (about
+// 9 m) and still lets a real ledge drop away from under him.
+const STICK_DROP = 1.4;             // m past his standing leg he still reaches
+const STICK_TIME = 0.3;             // s off the ground before he stops trying
+const STICK_PULL = 3 * 9.81;        // the most the reach can pull him down, m/s^2
+const STICK_SLOPE = 0.55;           // normal.y: ~57°, steeper than that is a drop
 
 /**
  * @param {object} o
@@ -157,7 +169,19 @@ export function createGroundBody({ surfaces, feet, hipY = 0.98 }) {
       c.normal.copy(s.normal);
       // A foot is ON the ground for as long as the leg can reach it — an
       // extending leg keeps its foot planted, it just stops pushing.
-      if (len < LMAX) {
+      const reaching = !flaring && airborne < STICK_TIME && len >= LMAX &&
+        len < hipY + STICK_DROP && s.normal.y > STICK_SLOPE;
+      if (reaching) {
+        // Stretched past where it can push, but the foot is still down: it
+        // pulls, along the normal, as hard as it is stretched.
+        const f = Math.min(STICK_PULL * MASS / 4, K_LEG * 4 * (len - L0) + Math.max(0, D_LEG * lenV));
+        c.on = true;
+        c.force = 0;
+        _f.copy(s.normal).multiplyScalar(-f);
+        _sum.add(_f);
+        nOn++;
+        steep = Math.max(steep, Math.acos(Math.min(1, s.normal.y)));
+      } else if (len < LMAX) {
         const comp = L0 - len;
         const f = comp > 0 ? Math.max(0, K_LEG * comp - D_LEG * lenV) : 0;
         c.on = true;

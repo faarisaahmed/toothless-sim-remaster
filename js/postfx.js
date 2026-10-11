@@ -4,6 +4,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 
 // ---------------------------------------------------------------------------
 // One post stack, shared by every scene in the game.
@@ -20,6 +21,11 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 //             the shadows cool and the highlights warm. This is the single
 //             cheapest thing that stops a room lit by one orange fire looking
 //             like brown soup, because it puts blue in the corners for free.
+//
+//   SMAA      Last, on the finished picture. The composer draws into plain
+//             render targets, so the canvas's own antialias never applies and
+//             there was none at all: every wing edge, ridge line and cloud rim
+//             came out stair-stepped, and crawled when anything moved.
 //
 // Deliberately not here: SSAO (too slow for what it buys on faceted geometry),
 // depth of field (this is a flying game, you need to see), motion blur.
@@ -259,6 +265,10 @@ export function setupPost(renderer, scene, camera, opts = {}) {
   const bloom0 = bloom ? { strength: bloom.strength, radius: bloom.radius } : null;
 
   composer.addPass(new OutputPass());
+  // After tone mapping, so it finds edges in what is actually on screen.
+  const pr = renderer.getPixelRatio();
+  const smaa = opts.aa === false ? null : new SMAAPass(size.width * pr, size.height * pr);
+  if (smaa) composer.addPass(smaa);
 
   let t = 0;
   let scale = 1;
@@ -314,17 +324,21 @@ export function setupPost(renderer, scene, camera, opts = {}) {
       const u = grade.uniforms;
       renderer.toneMapping = on ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
       u.uExposure.value = on ? 1.32 : 1.0;
-      u.uSharpen.value = on ? 1.6 : 0.0;
+      // Gentle: harder than this and the unsharp mask drew a dark line down
+      // the shadow side of every silhouette.
+      u.uSharpen.value = on ? 0.9 : 0.0;
       u.uFringe.value = on ? 0.006 : 0.0;
       u.uVignette.value = on ? 0.42 : vignette0;
       u.uGrain.value = on ? 0.016 : grain0;
       if (bloom) {
-        // Softer, wider and lower: in a lens it is the veil round every bright
-        // thing, not a glow round the fire alone.
+        // Lower, and only a little wider: in a lens it is a veil round every
+        // bright thing, but at 0.75 that veil was a halo round all of them.
         bloom.strength = on ? 0.5 : bloom0.strength;
-        bloom.radius = on ? 0.75 : bloom0.radius;
+        bloom.radius = on ? 0.4 : bloom0.radius;
       }
     },
+    /** Edge smoothing, for anything that wants to switch it off. */
+    setAA(on) { if (smaa) smaa.enabled = !!on; },
     /** Bloom costs a five-target mip chain whether or not anything is bright. */
     setBloom(on) { if (bloom) bloom.enabled = !!on; },
     setSize(w, h) {

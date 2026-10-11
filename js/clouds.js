@@ -125,6 +125,7 @@ const MARCH_FRAG = /* glsl */`
   uniform vec3 uAmbBot;
   uniform vec3 uFogCol;
   uniform float uFogDen;
+  uniform vec2 uClear;        // [start, end] of the clear air round the camera, m
   uniform float uDensity;
   uniform float uCumulus;
   uniform vec3 uWind3;
@@ -278,9 +279,11 @@ const MARCH_FRAG = /* glsl */`
         float dc = density( p, true );
         if ( dc <= 0.0 ) { t += stepLen * 1.7; continue; }
         float d = density( p, false );
-        // Mist right in front of the eye would blind him; it thins out
-        // inside the first few tens of metres.
-        d *= smoothstep( 0.0, 45.0, t );
+        // Clear air from the eye out to just past the dragon. Cloud between
+        // the camera and him put a veil over the one thing you are steering,
+        // and inside a deck he vanished into the white. Beyond him the cloud
+        // is untouched, so he reads dark against it, which is the picture.
+        d *= smoothstep( uClear.x, uClear.y, t );
         if ( d > 0.002 ) {
           // Light march: a short line toward the sun, growing steps.
           float od = 0.0, ls = 30.0;
@@ -441,9 +444,26 @@ const COMP_FRAG = /* glsl */`
       wsum += w;
     }
     vec4 c = acc / wsum;
-    // Nothing nearby was marched at this pixel's distance (a thin wing edge
-    // smaller than a low-res texel): take the closest in depth outright.
-    if ( wsum < 0.02 ) c = d0 < 120.0 ? texture2D( tCurrent, bestUv ) : texture2D( tClouds, bestUv );
+    // Nothing in the 2x2 was marched at this pixel's distance. Either it is a
+    // thin wing edge smaller than a low-res texel, or it is the sky just
+    // outside one, whose four nearest samples all landed on him. Look a texel
+    // further out before settling: taking the nearest-in-depth of four that all
+    // hit the dragon left the sky beside him with no cloud on it at all, a dark
+    // fuzz round every silhouette seen against cloud or mist.
+    if ( wsum < 0.02 ) {
+      vec4 acc2 = vec4( 0.0 ); float w2 = 0.0;
+      for ( int y = -1; y <= 2; y++ ) for ( int x = -1; x <= 2; x++ ) {
+        vec2 uv = ( i + vec2( float( x ), float( y ) ) + 0.5 ) / uLowSize;
+        float dl = texture2D( tLowDepth, uv ).g;
+        float rel = abs( log( max( dl, 0.1 ) / max( d0, 0.1 ) ) );
+        if ( rel < bestRel ) { bestRel = rel; bestUv = uv; }
+        float w = exp( -rel * 12.0 );
+        acc2 += ( d0 < 120.0 ? texture2D( tCurrent, uv ) : texture2D( tClouds, uv ) ) * w;
+        w2 += w;
+      }
+      c = w2 > 0.02 ? acc2 / w2
+        : ( d0 < 120.0 ? texture2D( tCurrent, bestUv ) : texture2D( tClouds, bestUv ) );
+    }
     gl_FragColor = vec4( s.rgb * c.a + c.rgb, s.a );
   }
 `;
@@ -508,6 +528,9 @@ export class CloudPass extends Pass {
     this.reset = true;
     this.prevVP = new THREE.Matrix4();
     this.prevCam = new THREE.Vector3();
+    // What has to stay visible through the clouds — main.js points it at the
+    // dragon. Returns a world position, or null.
+    this.getFocus = null;
 
     this.marchRT = new THREE.WebGLMultipleRenderTargets(1, 1, 2, rtOpts);
     this.hist = [new THREE.WebGLRenderTarget(1, 1, rtOpts), new THREE.WebGLRenderTarget(1, 1, rtOpts)];
@@ -531,6 +554,7 @@ export class CloudPass extends Pass {
         uAmbBot: { value: new THREE.Color(0.2, 0.22, 0.25) },
         uFogCol: { value: new THREE.Color(0.6, 0.7, 0.8) },
         uFogDen: { value: 0.00004 },
+        uClear: { value: new THREE.Vector2(0, 45) },
         uDensity: { value: 1 }, uCumulus: { value: 0.8 },
         uWind3: { value: new THREE.Vector3() },
         uSteps: { value: 80 }, uLight: { value: 5 },
@@ -599,6 +623,15 @@ export class CloudPass extends Pass {
     mu.uProjInv.value.copy(cam.projectionMatrixInverse);
     mu.uViewInv.value.copy(cam.matrixWorld);
     mu.uFrame.value = this.frame++ % 1024;
+    // Nothing marched until a few metres past him, then a short ramp back to
+    // full density. With nothing to keep clear, only the first 45 m thin out —
+    // mist right in front of the eye would blind anyone.
+    // A cutscene or a pinned camera can be a kilometre off him, and a bubble
+    // that size would eat the view, so only a chase-camera distance counts.
+    const focus = this.getFocus?.();
+    const fd = focus ? camPos.distanceTo(focus) : Infinity;
+    if (fd < 150) mu.uClear.value.set(fd + 12, fd + 52);
+    else mu.uClear.value.set(0, 45);
 
     renderer.setRenderTarget(this.marchRT);
     this.marchQuad.render(renderer);

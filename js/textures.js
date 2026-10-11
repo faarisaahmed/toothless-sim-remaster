@@ -238,6 +238,52 @@ export function fur({ size = 512, tint = [92, 74, 58] } = {}) {
   return out;
 }
 
+// --- Wrought iron -------------------------------------------------------------
+// Blackened, hammered, and rusting where the rain sits. Smooth grey metal with
+// a high metalness took the sky's colour off the environment map, so every
+// cage in the pit came out navy blue and read as plastic. Iron that has been
+// out in the weather is mostly a dark, rough, barely-reflective surface with
+// rust bleeding down it, and that is what this paints.
+export function iron({ size = 512 } = {}) {
+  const key = `iron:${size}`;
+  if (cache.has(key)) return cache.get(key);
+
+  const c = canvas(size);
+  const g = c.getContext("2d");
+  const n = noiseCanvas(size, 6, 5);
+
+  g.fillStyle = "#2c2a28";
+  g.fillRect(0, 0, size, size);
+  // Hammer mottling.
+  g.globalAlpha = 0.55;
+  g.globalCompositeOperation = "overlay";
+  g.drawImage(n, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.globalAlpha = 1;
+  // Rust: soft blotches, and streaks running down from them.
+  for (let i = 0; i < 70; i++) {
+    const x = Math.random() * size, y = Math.random() * size, r = 6 + Math.random() * 26;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    const a = 0.18 + Math.random() * 0.3;
+    gr.addColorStop(0, `rgba(118,58,26,${a})`);
+    gr.addColorStop(1, "rgba(118,58,26,0)");
+    g.fillStyle = gr;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+    if (Math.random() < 0.5) {
+      const len = 20 + Math.random() * 80;
+      const sg = g.createLinearGradient(x, y, x, y + len);
+      sg.addColorStop(0, `rgba(100,48,22,${a * 0.7})`);
+      sg.addColorStop(1, "rgba(100,48,22,0)");
+      g.fillStyle = sg;
+      g.fillRect(x - 1.5 - Math.random() * 2, y, 3 + Math.random() * 3, len);
+    }
+  }
+
+  const out = { map: toTexture(c), bumpMap: bumpFrom(n) };
+  cache.set(key, out);
+  return out;
+}
+
 // --- Parchment --------------------------------------------------------------
 // For the chart on the wall. Same visual family as map.js so the two read as
 // the same hand.

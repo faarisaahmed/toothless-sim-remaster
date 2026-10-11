@@ -21,7 +21,7 @@ export const CHAPTER_LIST = [
   { id: "storm",     n: "V",    title: "The Stormcutter", beats: ["hunt", "cry", "approach", "feed", "watch"],
     blurb: "A cry across the water, and somebody else's catastrophe." },
   { id: "plan",      n: "VI",   title: "The Plan",        beats: ["recon"],
-    blurb: "Learn the pit before he goes back into it." },
+    blurb: "One more look at the pit before he goes back into it." },
   { id: "lights",    n: "VII",  title: "Lights Out",      beats: ["dusk", "raid", "choice", "caught"],
     blurb: "Sixteen fires, a ring of cages, and the dark on his side — until it isn't." },
   { id: "wings",     n: "VIII", title: "Four Wings",      beats: ["cage", "rescue", "last-cages", "flee"],

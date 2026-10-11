@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { addPhotoreal } from "./photoreal.js";
+import { pitLayout } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
 // The quarry's own ground.
@@ -25,6 +26,67 @@ import { addPhotoreal } from "./photoreal.js";
 // hollows of the ground and the rock breaks through the scree, rather than
 // fading into each other like paint.
 // ---------------------------------------------------------------------------
+
+// The yard. The pit floor is where the cages are kept and the smelter burns,
+// walked by a crew all day and rolled over by carts, and it should look used
+// rather than like a quarry nobody works: dark packed mud over the stones,
+// standing wet in places, sooty round the smelter. Shared with terrainmat.js,
+// which draws the same floor from further off, so the two meet without a
+// seam. Colours are linear — a mid-brown in sRGB is a very small number here.
+export const YARD_GLSL = /* glsl */`
+  uniform vec3 uYard;            // the pit floor: centre x, z and radius
+  uniform float uYardTop;        // radius of the top of the pit walls
+  float yardHash( vec2 p ) { vec3 p3 = fract( vec3( p.xyx ) * 0.1031 ); p3 += dot( p3, p3.yzx + 33.33 ); return fract( ( p3.x + p3.y ) * p3.z ); }
+  float yardNoise( vec2 p ) {
+    vec2 i = floor( p ), f = fract( p );
+    f = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( yardHash( i ), yardHash( i + vec2( 1, 0 ) ), f.x ),
+                mix( yardHash( i + vec2( 0, 1 ) ), yardHash( i + vec2( 1, 1 ) ), f.x ), f.y );
+  }
+  // How much of this point is yard, 0..1; \`steep\` (rock faces, woodland)
+  // keeps its own surface.
+  float yardAmount( vec2 pw, float steep, out float wet ) {
+    float yd = length( pw - uYard.xy ) / uYard.z;
+    wet = 0.0;
+    // Everywhere else in the archipelago: out before any noise is read.
+    if ( yd > 1.25 ) return 0.0;
+    wet = smoothstep( 0.55, 0.8, yardNoise( pw * 0.06 + 11.0 ) * 0.7 + yardNoise( pw * 0.35 ) * 0.3 );
+    return ( 1.0 - smoothstep( 0.85, 1.1, yd + ( yardNoise( pw * 0.08 ) - 0.5 ) * 0.25 ) ) * clamp( 1.0 - steep, 0.0, 1.0 );
+  }
+  // The rest of the pit, out to the top of the walls: not mud, but a
+  // century of soot, smoke and boots over pale stone. Without it the terraces
+  // were the light grey of the photographs and under the moon read as snow.
+  vec3 pitEarth( vec3 albedo, vec2 pw, float steep ) {
+    float d = length( pw - uYard.xy );
+    if ( d > uYardTop + 60.0 ) return albedo;
+    float k = 1.0 - smoothstep( uYardTop - 40.0, uYardTop + 60.0, d + ( yardNoise( pw * 0.02 ) - 0.5 ) * 60.0 );
+    vec3 earth = albedo * vec3( 0.46, 0.40, 0.34 );
+    return mix( albedo, earth, k * mix( 1.0, 0.55, clamp( steep, 0.0, 1.0 ) ) );
+  }
+  vec3 yardGround( vec3 albedo, vec2 pw, float yard, float wet ) {
+    if ( yard <= 0.0 ) return albedo;
+    float lum = dot( albedo, vec3( 0.333 ) );
+    vec3 mud = mix( vec3( 0.050, 0.036, 0.025 ), vec3( 0.020, 0.015, 0.011 ), wet );
+    // The ground's own light and shade carried over, and the brightest stones
+    // standing out of the mud.
+    float rel = lum / max( 0.06, lum * 0.5 + 0.05 );
+    vec3 c = mud * mix( 0.7, 1.3, clamp( rel - 0.5, 0.0, 1.0 ) );
+    c = mix( c, albedo * 0.6, smoothstep( 1.2, 1.6, rel ) * 0.5 );
+    float yd = length( pw - uYard.xy ) / uYard.z;
+    float soot = 1.0 - smoothstep( 0.1, 0.4, yd + ( yardNoise( pw * 0.15 ) - 0.5 ) * 0.15 );
+    c *= 1.0 - soot * 0.5;
+    return mix( albedo, c, yard * 0.9 );
+  }
+`;
+
+/** The yard uniforms: centre and radius of the pit floor, and of its top. */
+export function yardUniforms() {
+  const L = pitLayout();
+  return {
+    uYard: { value: L ? new THREE.Vector3(L.x, L.z, L.floorR) : new THREE.Vector3(0, 0, 0.001) },
+    uYardTop: { value: L ? L.topR : 0 },
+  };
+}
 
 const BASE = "./assets/textures/pit/";
 const SETS = {
@@ -53,7 +115,7 @@ const VERT_MAIN = /* glsl */`
   vMask = aMask;
 `;
 
-const FRAG_PARS = /* glsl */`
+const FRAG_PARS = YARD_GLSL + /* glsl */`
   varying vec3 vPW;
   varying vec3 vPN;
   varying vec3 vMask;
@@ -143,6 +205,7 @@ const FRAG_MAIN = /* glsl */`
   bG /= bs; bS /= bs; bR /= bs;
 
   vec3 albedo = G.rgb * bG + S.rgb * bS + R.rgb * bR;
+  float rough0 = 1.0;
   // From the rim, individual stones are sub-pixel and their contrast only
   // shimmers; settle toward the surface's average tone.
   albedo = mix( albedo, vec3( dot( albedo, vec3( 0.33 ) ) ) * vec3( 1.02, 1.0, 0.97 ), far * 0.45 );
@@ -169,7 +232,14 @@ const FRAG_MAIN = /* glsl */`
     vec3 litter = mix( vec3( 0.17, 0.11, 0.062 ), vec3( 0.09, 0.13, 0.042 ), mossy );
     albedo = mix( albedo, litter * ( 0.6 + lum * 1.4 ) * vColor.rgb, wood * 0.92 );
   }
+  // The yard (YARD_GLSL): packed mud over the stones, soot round the smelter.
+  float yardWet;
+  float yard = yardAmount( vPW.xz, wR + wood, yardWet );
+  albedo = pitEarth( albedo, vPW.xz, wR );
+  albedo = yardGround( albedo, vPW.xz, yard, yardWet );
+  rough0 = mix( rough0, 0.5, yard * yardWet * 0.8 );
   float rough = clamp( arm.g * ( 1.0 - vMask.y * 0.6 ) + wood * 0.15, 0.25, 1.0 );
+  rough = min( rough, rough0 );
   diffuseColor.rgb = albedo;
 `;
 
@@ -189,6 +259,7 @@ export function makePitMaterial() {
     // Basalt country: the photographs are warm, the island is dark grey.
     uTint: { value: new THREE.Vector3(0.62, 0.64, 0.68) },
     uFade: { value: new THREE.Vector2(70, 150) },
+    ...yardUniforms(),
   };
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   mat.onBeforeCompile = (shader) => {
@@ -203,7 +274,7 @@ export function makePitMaterial() {
       .replace("#include <normal_fragment_maps>", "normal = normalize( ( viewMatrix * vec4( wN, 0.0 ) ).xyz );")
       .replace("#include <roughnessmap_fragment>", "float roughnessFactor = rough;");
   };
-  mat.customProgramCacheKey = () => "pit-ground-v5";
+  mat.customProgramCacheKey = () => "pit-ground-v8";
   // Drawn in front of the terrain it lies on.
   mat.polygonOffset = true;
   mat.polygonOffsetFactor = -2;
