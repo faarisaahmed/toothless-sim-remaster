@@ -105,7 +105,7 @@ Two pacing notes specific to it:
 
 - **`rig-recon` and `raid` are the two spikes.** Everything either side should
   stay slow on purpose. Resist adding action to the lab or the shoal.
-- **Distance is pacing.** The compound is now ~1.7 km from Hollow Stack, which
+- **Distance is pacing.** The compound is now ~1.7 km from Freewing Rock, which
   at cruise is about half a minute of flying. That gap is not dead time — it is
   the decompression between spikes, and it is why the island should not be moved
   closer for convenience.

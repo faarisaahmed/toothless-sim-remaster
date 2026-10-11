@@ -42,6 +42,24 @@ export const TERRAIN_DETAIL = {
                                    { res: 96, r: 2200 }, { res: 48, r: Infinity }] },
 };
 
+/**
+ * Height on a row-major grid of `side` x `side` heights (stride/offset into
+ * `arr`), at grid coordinates (gx, gz), split into triangles the way both the
+ * chunks and PlaneGeometry index them: a-b-d and b-c-d, the diagonal running
+ * from (i, j + 1) to (i + 1, j).
+ */
+export function gridHeight(arr, stride, offset, side, gx, gz) {
+  const n = side - 1;
+  const i = Math.min(n - 1, Math.max(0, Math.floor(gx)));
+  const j = Math.min(n - 1, Math.max(0, Math.floor(gz)));
+  const u = Math.min(1, Math.max(0, gx - i)), v = Math.min(1, Math.max(0, gz - j));
+  const at = (ii, jj) => arr[(jj * side + ii) * stride + offset];
+  const b = at(i, j + 1), d = at(i + 1, j);
+  if (u + v <= 1) { const a = at(i, j); return a + (d - a) * u + (b - a) * v; }
+  const c = at(i + 1, j + 1);
+  return c + (b - c) * (1 - u) + (d - c) * (1 - v);
+}
+
 const indexCache = new Map();
 function indexFor(res, edgeLoop) {
   if (indexCache.has(res)) return indexCache.get(res);
@@ -198,10 +216,14 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
   let dirty = true;
   let since = 1;
   const shown = new Set();
+  // Which cached chunk is on screen at each chunk cell (only in tiles drawn
+  // fine), so the ground under his feet can be read off the mesh he sees.
+  const shownAt = new Map();
 
   function select(focus) {
     const now = performance.now();
     const want = new Set();
+    shownAt.clear();
     for (const job of pending.values()) job.wanted = false;
 
     for (let tj = 0; tj < tilesPerSide; tj++) {
@@ -241,7 +263,7 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
         // it — half a tile fine and half coarse would put the seam in view.
         tiles[t].visible = !complete;
         if (complete) {
-          for (const c of picks) { c.used = now; want.add(c.mesh); }
+          for (const c of picks) { c.used = now; want.add(c.mesh); shownAt.set(c.cz * chunksPerSide + c.cx, c); }
         }
       }
     }
@@ -295,6 +317,7 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
     pending.clear();
     ready.length = 0;
     shown.clear();
+    shownAt.clear();
     refined.fill(0);
     for (const t of tiles) t.visible = true;
   }
@@ -341,6 +364,20 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
     afterReflect() {
       group.visible = true;
       for (const t of hiddenTiles) t.visible = false;
+    },
+
+    /**
+     * The height of the fine chunk drawn at (x, z), across the same triangle
+     * the GPU draws there — or NaN where the tile is still the coarse sheet.
+     */
+    heightAt(x, z) {
+      const fx = (x + half) / chunkSize, fz = (z + half) / chunkSize;
+      const cx = Math.floor(fx), cz = Math.floor(fz);
+      if (cx < 0 || cz < 0 || cx >= chunksPerSide || cz >= chunksPerSide) return NaN;
+      const c = shownAt.get(cz * chunksPerSide + cx);
+      if (!c) return NaN;
+      return gridHeight(c.mesh.geometry.attributes.position.array, 3, 1, c.res + 1,
+        (fx - cx) * c.res, (fz - cz) * c.res);
     },
 
     stats() {

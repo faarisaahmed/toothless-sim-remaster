@@ -52,11 +52,13 @@ const KEYS = [
   // Night is lit the way films and games light it, not the way a camera
   // would: "day for night". A deep blue sky, but a strong cold key from the
   // moon and a generous blue fill, so the land, the sea and the dragon all
-  // read. A truly dark night is realistic and unplayable.
+  // read. A truly dark night is realistic and unplayable — but the first pass
+  // at this was near enough dusk that the raid did not feel like night at
+  // all, so the deep keys are pulled down: less exposure, less fill.
   { e: -24, zen: 0x07112a, hor: 0x1a2c52, glow: 0x0f1a34, sun: 0x000000, sunI: 0.0,
-    amb: 0x4562a0, ambI: 1.6, gnd: 0x141c2c, B: 1.05, exp: 2.7 },
+    amb: 0x4562a0, ambI: 1.05, gnd: 0x141c2c, B: 0.9, exp: 1.65 },
   { e: -9,  zen: 0x08142f, hor: 0x1f2e52, glow: 0x2c3054, sun: 0x000000, sunI: 0.0,
-    amb: 0x42598f, ambI: 1.3, gnd: 0x121a28, B: 1.0, exp: 2.1 },
+    amb: 0x42598f, ambI: 0.95, gnd: 0x121a28, B: 0.92, exp: 1.45 },
   { e: -3,  zen: 0x13264e, hor: 0x5e5670, glow: 0xa85a3c, sun: 0xff5a20, sunI: 0.15,
     amb: 0x56628e, ambI: 0.95, gnd: 0x1a1a22, B: 1.0, exp: 1.45 },
   { e: 2,   zen: 0x26457f, hor: 0xd08866, glow: 0xff8644, sun: 0xff8a4c, sunI: 1.25,
@@ -609,7 +611,7 @@ export function createSky({ scene, renderer, sun, hemi, ocean, lightDir }) {
       sun.color.setRGB(0.66, 0.76, 1.0);
       // A strong moon: the key light the whole night scene is read by. With
       // the moon down there is still some, as from a bright sky.
-      sun.intensity = (0.5 + 1.3 * THREE.MathUtils.smoothstep(moonElev, 0, 12)) * (1 - dim * 0.7) * night;
+      sun.intensity = (0.3 + 0.85 * THREE.MathUtils.smoothstep(moonElev, 0, 12)) * (1 - dim * 0.7) * night;
     }
     hemi.color.copy(k.amb).lerp(u.uOverCol.value.clone().multiplyScalar(1 / Math.max(B, 0.01)), over * 0.6);
     hemi.groundColor.copy(k.gnd);

@@ -344,27 +344,6 @@ canvas { display: block; }
 }
 #aim-reticle .pip { fill: #ff8a3d; stroke: none; }
 
-#aim-bar {
-  width: 128px;
-  height: 3px;
-  background: rgba(232, 226, 212, 0.16);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
-}
-#aim-bar i {
-  display: block;
-  height: 100%;
-  width: 100%;
-  transform-origin: left center;
-  background: #ffcf9a;
-  box-shadow: 0 0 8px rgba(255, 190, 120, 0.8);
-  transition: background 0.2s ease;
-}
-/* Locked out. The bar refills left-to-right as the three seconds run down, so
-   it is a countdown to being allowed back rather than a bar that is just off. */
-#aim-bar.locked i { background: #d97a63; box-shadow: 0 0 8px rgba(217, 122, 99, 0.7); }
-
 /* --- Health (js/health.js) ---------------------------------------------------
    Top left, in the HUD's own dark glass. A shield-scale emblem, the bar with a
    pale "ghost" behind it that drains a moment after each hit so you can see

@@ -280,7 +280,7 @@ safety, and let go — and the purge that follows is twenty years deep and takes
 apart from the inside.
 
 **They survive and they do not recover.** Bellows never smelts again, never flies far, and
-lives out their life on Hollow Stack in the sun, which is more than they have ever had and
+lives out their life on Freewing Rock in the sun, which is more than they have ever had and
 less than they should have got.
 
 ### Dragon Hunter Island — a character
@@ -884,7 +884,7 @@ are the five that arrive later, each because a mission needs it.
 
 #### 4.1.1 The wing — the roster
 
-Dragons freed in one mission live at Hollow Stack in the next. That's the whole
+Dragons freed in one mission live at Freewing Rock in the next. That's the whole
 progression system and it is deliberately not a menu.
 
 Each resident is three things at once:
@@ -920,7 +920,7 @@ She waits for him at every gap. He notices. It's never mentioned.
 
 Nobody plans this and nobody says it. It accumulates:
 
-- **M3:** two dragons at Hollow Stack move out of his way at the fishing ground. Just a
+- **M3:** two dragons at Freewing Rock move out of his way at the fishing ground. Just a
   camera beat. Nothing else happens.
 - **M5:** a new arrival won't eat until he does. He has to be shown eating for the island
   to eat.
@@ -997,7 +997,7 @@ answer is a dragon.
 
 | # | Scene | Kind | Beat |
 |---|---|---|---|
-| 1 | **Hollow Stack, morning** | playable | The island with two dragons on it. Eyvi can't fish and won't stop trying. Sigrún watches Toothless fail to teach her, which is the first funny scene in the game and also the last easy one. |
+| 1 | **Freewing Rock, morning** | playable | The island with two dragons on it. Eyvi can't fish and won't stop trying. Sigrún watches Toothless fail to teach her, which is the first funny scene in the game and also the last easy one. |
 | 2 | **The rig, relit** ★ | cutscene, 30s | Approach at height. Every torch he snuffed is burning. New cages, more of them. Nobody rebuilt it in a panic; somebody rebuilt it *properly*. |
 | 3 | **Two ways in** | playable | First co-op stealth. Sigrún takes the seaward side loudly on purpose while he goes up the middle. The player discovers that a distraction they don't control is worse than no distraction. |
 | 4 | **The smelter tier** | playable | New space: heat, noise, no darkness to make. Wing-gust is useless — these are furnace-fed flames, they don't go out. The stealth toolkit's first hard counter. |
@@ -1015,7 +1015,7 @@ cage from here on is made of somebody. The wall gets a scratch that is not a tes
 
 #### M3 — "Word Travels"
 
-**Premise.** Dragons are arriving at Hollow Stack because word has spread, and he is not
+**Premise.** Dragons are arriving at Freewing Rock because word has spread, and he is not
 remotely equipped for that. A rescue goes wrong because he runs it out of habit — alone,
 at night, without telling her.
 
@@ -1156,7 +1156,7 @@ they've got.
 
 #### M8 — "He Is Already There"
 
-**Premise.** They come home and Halvard is sitting on Hollow Stack among the dragons,
+**Premise.** They come home and Halvard is sitting on Freewing Rock among the dragons,
 having touched none of them, with tea.
 
 **There is no combat and the game will not let you start one.** Bare-teeth does nothing.
@@ -1251,10 +1251,10 @@ only rescue in the game that is entirely of humans.
 He comes home. Hiccup is delighted, and has no idea, and never will. Toothless has no way
 to explain any of it and does not try.
 
-The wing stays out there. Sigrún holds Hollow Stack — an island of dragons that has
+The wing stays out there. Sigrún holds Freewing Rock — an island of dragons that has
 nothing to do with humans — with Bellows asleep in the sun on the high rock, and Eyvi,
 much bigger now, flying badly around them. **He goes back and forth for the rest of his
-life.** Berk is where he sleeps. Hollow Stack is where he works.
+life.** Berk is where he sleeps. Freewing Rock is where he works.
 
 Halvard is not in prison and is not dead. He is in a workshop, retooling, because he is
 sixty and has been made redundant by an animal. The last we see of him he is drawing.
@@ -1309,7 +1309,7 @@ The test for whether a mission earns its place. If the row is empty, cut the mis
 
 | M | Gains | Loses | World state after |
 |---|---|---|---|
-| 1 | Sleepfire; Sigrún; Eyvi | Innocence about what the metal is | Hollow Stack exists |
+| 1 | Sleepfire; Sigrún; Eyvi | Innocence about what the metal is | Freewing Rock exists |
 | 2 | Co-op | Belief that a locked door is the hard kind | The alloy has a face |
 | 3 | Roster; Gronckle key | A dragon, to a cage, on the wall | He can't solo any more |
 | 4 | Thunderdrum key | The idea that keys are fire | Deep water is reachable |
@@ -1374,7 +1374,7 @@ build from. Where a number appears, it's a starting value to tune, not a law.
 
 ```js
 // The hub — far southwest, past the known ring.
-{ name: "Hollow Stack", x: -3900, z: 3800, r: 420, h: 300, cliff: 0.34 },
+{ name: "Freewing Rock", x: -3900, z: 3800, r: 420, h: 300, cliff: 0.34 },
 
 // The rig's three stacks — far northeast. Iron gets strung between them.
 { x: 4200, z: -3800, r: 130, h: 340, cliff: 0.11 },
@@ -1527,9 +1527,9 @@ appears in the corner of the HUD afterwards, which is more interesting than a pi
 
 ---
 
-### B5 — Hollow Stack *(playable, ~5 min, night → day)*
+### B5 — Freewing Rock *(playable, ~5 min, night → day)*
 
-He picks the island. **Offer three** — Hollow Stack plus two of the existing outer sea
+He picks the island. **Offer three** — Freewing Rock plus two of the existing outer sea
 stacks. The choice is real and permanent and there is no wrong answer.
 
 **Shelter:** no build minigame. Four deadfall logs scattered on the island, dragged to the
@@ -1829,7 +1829,7 @@ not destroyed. He never wins a fight in this mission.
 
 ### B13 — After *(playable, ~3 min, dawn, then 4 stills)*
 
-Hollow Stack. Freed dragons on the beach — reuse `flights.js` flocks in a grounded idle
+Freewing Rock. Freed dragons on the beach — reuse `flights.js` flocks in a grounded idle
 state. Sigrún on a rock, wing still bad. Hatchlings asleep in a heap.
 
 The player can walk among them. Nothing is required. Some let him near; some don't.
@@ -1962,7 +1962,7 @@ Recorded here so they don't get relitigated.
 4. **Bellows is sick from never sleeping**, not from chains — decades at smelting heat
    means never dropping deep enough to purge. Halvard is retiring them, kindly, with a
    replacement already chosen. **The finale is convincing them it's allowed to stop.** They
-   survive; they never smelt or fly properly again; they live on Hollow Stack.
+   survive; they never smelt or fly properly again; they live on Freewing Rock.
 5. **Name pass: done now, as a table.** See §0.3. Ships as *Hush*, *Nettle*,
    *Skerryhold*, *the Ledger*, *Nightwake*, *Galeshear*, *Kilnback*, *Bellows*. Prose keeps
    the borrowed names for readability; the table is the single point of change.

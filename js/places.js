@@ -696,7 +696,7 @@ export async function buildSnareCamp(scene, at, { groundAt = null,
   };
 }
 
-// --- Hollow Stack -----------------------------------------------------------
+// --- Freewing Rock -----------------------------------------------------------
 
 /**
  * The hub. A sea stack with a hollow in it that a dragon moved into.

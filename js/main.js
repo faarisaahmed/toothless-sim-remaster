@@ -341,9 +341,8 @@ const pause = setupPause({
   onRestart: () => session.restartChapter(),
 });
 
-// Aiming. Owns his head, the crosshair, the stamina bar and — in scoped mode —
-// the camera and the speed of the world. See js/aim.js for why the two modes
-// are shaped so differently.
+// Aiming. Owns the crosshair and his head; the camera below pulls in over his
+// shoulder while it is held. See js/aim.js.
 const aim = createAim();
 
 // Right stick look, in radians per second at full deflection. The stick is
@@ -507,7 +506,7 @@ let lastLookAt = 0;   // when the player last moved the look stick or mouse
 const world = setupWorld(scene, renderer, QUALITY);
 // Everything he can stand on: the terrain, and every place that registers its
 // geometry (surfaces.js). The ground body and the gait both ask this.
-const surfaces = createSurfaces((x, z) => world.getHeightAt(x, z), world.seaLevel);
+const surfaces = createSurfaces((x, z) => world.drawnHeightAt(x, z), world.seaLevel);
 // Streaks in the air and the vapour cone: speed you can see (speedfx.js).
 const speedFx = createSpeedFx(scene);
 const splashes = createSplashes(scene);
@@ -1214,7 +1213,8 @@ const LAND_SLOPE_MAX = 0.95;   // radians, ~54 degrees
 
 /**
  * The attitude of the ground under him, and how far his origin has to sit
- * above the height field to keep all four feet on it.
+ * above the height field to keep all four feet on it — the ground as drawn,
+ * the same surface surfaces.js stands him on (world.js drawnHeightAt).
  *
  * Shared by the walk loop and by land(), which is the point: the landing used
  * to hold him level through the drop and only start matching the slope on the
@@ -1222,10 +1222,10 @@ const LAND_SLOPE_MAX = 0.95;   // radians, ~54 degrees
  * last hillside he stood on. So he arrived flat, then lurched.
  */
 function groundAttitude(x, z, nx, nz) {
-  const hF = world.getHeightAt(x + nx * FOOT_R, z + nz * FOOT_R);
-  const hB = world.getHeightAt(x - nx * FOOT_R, z - nz * FOOT_R);
-  const hL = world.getHeightAt(x - nz * FOOT_R, z + nx * FOOT_R);
-  const hR = world.getHeightAt(x + nz * FOOT_R, z - nx * FOOT_R);
+  const hF = world.drawnHeightAt(x + nx * FOOT_R, z + nz * FOOT_R);
+  const hB = world.drawnHeightAt(x - nx * FOOT_R, z - nz * FOOT_R);
+  const hL = world.drawnHeightAt(x - nz * FOOT_R, z + nx * FOOT_R);
+  const hR = world.drawnHeightAt(x + nz * FOOT_R, z - nx * FOOT_R);
   const pitch = Math.atan2(hF - hB, FOOT_R * 2);
   const roll = Math.atan2(hR - hL, FOOT_R * 2);
 
@@ -1241,7 +1241,7 @@ function groundAttitude(x, z, nx, nz) {
   // the worst of the four sits above the fit. Zero on anything flat or evenly
   // sloped, a few centimetres on rough ground, and enough on a convex ridge to
   // keep his feet out of the rock.
-  const hC = world.getHeightAt(x, z);
+  const hC = world.drawnHeightAt(x, z);
   const dF = (hF - hB) / 2, dS = (hR - hL) / 2;
   const lift = Math.max(0,
     hF - (hC + dF), hB - (hC - dF),
@@ -1338,8 +1338,8 @@ function land() {
 // Firing.
 //
 // Out of his mouth, down his nose, and available whenever the button is down —
-// standing, walking, mid-carve, halfway through a sleepfire charge, out of aim
-// stamina, upside down at four hundred miles an hour. The only thing that takes
+// standing, walking, mid-carve, halfway through a sleepfire charge,
+// upside down at four hundred miles an hour. The only thing that takes
 // it away is a cutscene, where the player does not have the controls at all.
 //
 // It used to be gated on being airborne, which meant the button was simply dead
@@ -1347,10 +1347,9 @@ function land() {
 // sometimes ignores you is worse than a weapon with a long cooldown, because
 // the player stops trusting it and stops using it.
 //
-// Aiming down his NOSE rather than down the camera is the deliberate part, and
-// it is the same call whether or not aim is held: with no aim it is his heading
-// and his flight path, and with aim held it is wherever the player has swung
-// his head to. On the ground he has no flight path, so it is simply where he is
+// With aim held it goes from his mouth to the crosshair (aim.setTarget, from
+// the camera block). Without it, down his nose — his heading and his flight
+// path, so flying at something is still how you hit it. On the ground he has no flight path, so it is simply where he is
 // facing — `walkYaw` is the ground mode's heading and `controls` is not driving
 // him at all down there.
 //
@@ -1840,6 +1839,7 @@ window.__na = {
   get grounded() { return grounded; },
   get speedT() { return controls?.getSpeedT() ?? -1; },
   getControls: () => controls,
+  get camera() { return camera; },
   aim, health, world, surfaces,
   get groundBody() { return groundBody; },
   get baseDetail() { return baseDetail; },
@@ -2205,14 +2205,24 @@ function noteStall(ms) {
 // against a world that is procedural. So it warns, once per scene, with the
 // numbers — a clamped shot still plays, but it says it was wrong.
 // ---------------------------------------------------------------------------
-// Scratch for the scoped camera, so a first-person view costs no allocations.
+// Scratch for the shot and the over-the-shoulder camera, so aiming costs no
+// allocations.
 const _shotCarry = new THREE.Vector3();
 const _shotDir = new THREE.Vector3();
 const _muzzle = new THREE.Vector3();
-const _aimDir = new THREE.Vector3();
-const _aimEye = new THREE.Vector3();
-const _aimAt = new THREE.Vector3();
+const _aimRight = new THREE.Vector3();
+const _aimFwd = new THREE.Vector3();
 const _aimLook = new THREE.Vector3();
+const _aimHit = new THREE.Vector3();
+// Over the shoulder: how much of the boom is kept, and how far to his right and
+// up the camera sits. Far enough out that the crosshair clears his head and
+// wing root, near enough that he is still most of the bottom-left of the frame.
+// Nowhere near his skull — the old scope sat inside it.
+const AIM_BOOM = 0.55;
+const AIM_SHOULDER = 4.2;
+const AIM_RISE = 1.6;
+const AIM_FOV = 12;          // degrees narrower, for a little reach
+const AIM_RANGE = 1500;      // how far the crosshair looks for something to sit on
 
 const CINE_CLEAR = 1.2;        // metres above whatever is underneath
 let cineWarned = null;
@@ -2383,18 +2393,12 @@ function frame() {
   }
 
   // --- Aiming ---------------------------------------------------------
-  // Fed the REAL dt on purpose. The stamina bar is the cost of slowing time
-  // down, so draining it on the slowed clock would make a full bar last three
-  // times longer the moment you spent it.
+  // The mouse always swings the camera, aiming or not. Aiming used to hand it
+  // to his neck instead, and the same hand doing a different thing the moment
+  // a button went down was the whole complaint.
   aim.update(dt, !grounded && !game.cine);
-
-  // The same mouse delta goes to one place or the other, never both. While he
-  // is aiming it turns his head; otherwise it swings the camera. Splitting it
-  // would give you a head and a camera drifting apart at half speed each.
-  if (!aim.look(dYaw, dPitch)) {
-    camYaw += dYaw;
-    camPitch = THREE.MathUtils.clamp(camPitch + dPitch, -PITCH_LIMIT, PITCH_LIMIT);
-  }
+  camYaw += dYaw;
+  camPitch = THREE.MathUtils.clamp(camPitch + dPitch, -PITCH_LIMIT, PITCH_LIMIT);
 
   // Everything that is part of the WORLD runs on this. Frame timing, input,
   // the governor and the aim meter stay on the real one — a slowed clock is a
@@ -2982,7 +2986,8 @@ function frame() {
 
     const wantFov = fovForAspect(
       tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT
-      + (grounded ? 0 : (controls.getTurboT?.() ?? 0) * 14), camera.aspect);
+      + (grounded ? 0 : (controls.getTurboT?.() ?? 0) * 14)
+      - AIM_FOV * aim.blend, camera.aspect);
     camera.fov += (wantFov - camera.fov) * damp(FOV_LAMBDA, dt);
     camera.updateProjectionMatrix();
 
@@ -3021,13 +3026,23 @@ function frame() {
     // Never so close that the near plane starts eating his tail. Against a
     // sheer face this means the rock wins and you lose the shot — which is the
     // honest outcome, and better than the camera ending up inside his ribs.
-    const armed = Math.max(dist * boomScale, BOOM_HARD_MIN);
+    const aimK = aim.blend;
+    const armed = Math.max(dist * boomScale * (1 - (1 - AIM_BOOM) * aimK), BOOM_HARD_MIN);
 
     desiredCamPos.set(
       focus.x + boomDir.x * armed,
       focus.y + boomDir.y * armed + lift,
       focus.z + boomDir.z * armed
     );
+    // Aiming: the same boom, the same mouse, shortened and slid out over his
+    // right shoulder. The camera's right is boomDir × up (boomDir points from
+    // him back to the camera).
+    _aimRight.set(boomDir.z, 0, -boomDir.x);
+    if (_aimRight.lengthSq() > 1e-6) _aimRight.normalize();
+    if (aimK > 0.001) {
+      desiredCamPos.addScaledVector(_aimRight, AIM_SHOULDER * aimK);
+      desiredCamPos.y += AIM_RISE * aimK;
+    }
 
     // 4. Spring the boom toward it, so hard acceleration lets him pull away
     //    from the camera before it catches up — bounded the same way the focus
@@ -3050,13 +3065,6 @@ function frame() {
     // every cutscene played from the scripted position while still staring at
     // the dragon. The terrain floor is skipped for the same reason — a shot
     // composed low over the water is composed, not a mistake to be corrected.
-    // --- Scoped aim takes the camera to his head -------------------------
-    // Blended rather than cut, so entering and leaving is a move rather than a
-    // teleport, and so the third-person camera is still what you are looking
-    // through for the first few frames of the transition.
-    const scopeBlend = aim.blend;
-    const headPos = scopeBlend > 0.001 ? aim.headPosition() : null;
-
     const cine = game.cine;
     if (cine) {
       const e = cine.t * cine.t * (3 - 2 * cine.t);   // ease, no hard start
@@ -3064,10 +3072,8 @@ function frame() {
       clampCine(camera.position);
       camera.lookAt(cine.look);
     } else {
-      // Keep the boom out of the rock and out of the sea. Skipped once the
-      // scope has taken over: his head is his head, and shoving it up out of a
-      // hillside would be shoving HIM, not the camera.
-      if (scopeBlend < 0.999) {
+      // Keep the boom out of the rock and out of the sea.
+      {
         const minY = Math.max(
           world.getHeightAt(camera.position.x, camera.position.z) + 3,
           world.seaLevel + 4
@@ -3081,28 +3087,46 @@ function frame() {
         }
       }
 
-      camera.lookAt(focus);
-
-      if (headPos) {
-        const dir = aim.direction(controls.getHeading(), controls.getPathAngle(), _aimDir);
-        // A little way down the barrel, so his own skull is behind the near
-        // plane instead of filling the frame.
-        _aimEye.copy(headPos).addScaledVector(dir, 1.15);
-        _aimEye.y += 0.25;
-        camera.position.lerpVectors(camera.position, _aimEye, scopeBlend);
-        // Aim at a point far enough away that the look direction is the aim
-        // direction and not a parallax of it — the crosshair sits on this.
-        _aimAt.copy(_aimEye).addScaledVector(dir, 600);
-        _aimLook.copy(focus).lerp(_aimAt, scopeBlend);
+      // Aiming looks past him rather than at him: the look point slides out
+      // by the same shoulder offset and on down the view line, so the
+      // crosshair sits on the world ahead and not on the back of his head.
+      if (aimK > 0.001) {
+        _aimFwd.copy(focus).sub(camera.position);
+        _aimFwd.y = 0;
+        if (_aimFwd.lengthSq() > 1e-6) _aimFwd.normalize();
+        _aimLook.copy(focus)
+          .addScaledVector(_aimRight, AIM_SHOULDER * aimK)
+          .addScaledVector(_aimFwd, 30 * aimK);
+        _aimLook.y += AIM_RISE * aimK;
         camera.lookAt(_aimLook);
+      } else {
+        camera.lookAt(focus);
       }
+    }
+
+    // What the crosshair is on: march the screen-centre ray over the height
+    // field and the sea, out to AIM_RANGE. Used by the NEXT frame's shot, which
+    // is one frame of camera behind and nothing anyone can see.
+    if (aim.active && !cine) {
+      camera.getWorldDirection(_aimFwd);
+      let hitT = AIM_RANGE;
+      // Start past him so the ray cannot find the ground under his own feet.
+      for (let t = 20; t <= AIM_RANGE; t += t < 200 ? 4 : 12) {
+        const x = camera.position.x + _aimFwd.x * t, z = camera.position.z + _aimFwd.z * t;
+        const y = camera.position.y + _aimFwd.y * t;
+        if (y < Math.max(world.getHeightAt(x, z), world.seaLevel)) { hitT = t; break; }
+      }
+      _aimHit.copy(camera.position).addScaledVector(_aimFwd, hitT);
+      aim.setTarget(_aimHit, dragon.position, controls.getHeading(), controls.getPathAngle());
+    } else {
+      aim.setTarget(null);
     }
 
     // Lean the horizon into a carve. Applied after lookAt, about the camera's
     // own view axis, so it is a roll of the picture and not a change of aim.
-    // Not while scoped: the lean is a flourish applied to a chase camera, and
+    // Not while aiming: the lean is a flourish applied to a chase camera, and
     // rolling the picture around a crosshair just moves the crosshair.
-    if (!cine && scopeBlend < 0.02) {
+    if (!cine && aim.blend < 0.02) {
       const wantLean = grounded ? 0 : -(controls.getTurnT?.() ?? 0) * CAM_LEAN;
       camLean += (wantLean - camLean) * damp(3.4, dt);
       if (Math.abs(camLean) > 1e-4) camera.rotateZ(camLean);

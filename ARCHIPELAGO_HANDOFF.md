@@ -6,7 +6,7 @@ who owns the flight model, the camera, the compound and the mission code.
 
 **The one-line version:** own `ISLANDS` and the *shape* functions inside
 `js/world.js`. Do not change units, do not change the exported API, and do not
-move Berk, Hollow Stack or Dragon Hunter Island without reading §3.
+move Berk, Freewing Rock or Dragon Hunter Island without reading §3.
 
 ---
 
@@ -72,11 +72,11 @@ speed or slower.
 | Site | Why it cannot move much |
 |---|---|
 | **Berk** `(0, -1100)` | Spawn is `(0, 300, 900)`; mission beat 1 is "leave Berk". |
-| **Hollow Stack** `(1750, 2500)`, `flat: true` | The story hub. Needs a walkable plateau — the shelter and the lab are placed on it and `STACK_Y = 102` in `chapters.js` is its deck height. If you change its height, change that constant. |
+| **Freewing Rock** `(1750, 2500)`, `flat: true` | The story hub. Needs a walkable plateau — the shelter and the lab are placed on it and `STACK_Y = 102` in `chapters.js` is its deck height. If you change its height, change that constant. |
 | **Dragon Hunter Island** `(2900, 3800)` | Has a `crater`. See §4. |
 
 Pacing depends on the *distances* between those three as much as their
-positions. Hollow Stack to Dragon Hunter Island is ~1.7 km, which is about
+positions. Freewing Rock to Dragon Hunter Island is ~1.7 km, which is about
 thirty seconds at cruise, and that gap is deliberate decompression between story
 beats. Keep it within a few hundred metres of that.
 
@@ -155,7 +155,7 @@ Then, at minimum, prove these four things:
 2. **The crater floor still exists.** Re-run the sweep from §4 and print the
    spot, its height and its roughness. If it prints nothing, you have broken the
    mission.
-3. **Nothing is stranded in the sea.** For Berk, Hollow Stack and Dragon Hunter
+3. **Nothing is stranded in the sea.** For Berk, Freewing Rock and Dragon Hunter
    Island, assert `terrainHeight(x, z) > SEA_LEVEL + 3` at the site coordinates.
 4. **It renders.** Serve with `python3 tools/serve.py`, then capture the console:
 

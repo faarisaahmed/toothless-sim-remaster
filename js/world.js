@@ -3,7 +3,7 @@ import {
   terrainHeight, ISLANDS, TERRAIN_SIZE, SEA_LEVEL, WIND_BEARING,
 } from "./terrain.js";
 import { paintGround, edgeLoop } from "./groundpaint.js";
-import { createTerrainLod } from "./terrainlod.js";
+import { createTerrainLod, gridHeight } from "./terrainlod.js";
 import { loadGround, makeTerrainMaterial, applyGround, setGroundLowQuality } from "./terrainmat.js";
 import { bakeSeaField } from "./sea_field.js";
 import { createOcean } from "./ocean.js";
@@ -277,6 +277,23 @@ export function setupWorld(scene, renderer, quality = {}) {
   detail.setDetail(q.terrainDetail);
   setGroundLowQuality(groundMat, q.terrainDetail === "low");
 
+  // The ground as it is DRAWN, which is what he has to stand on. The height
+  // field is exact and the meshes are samples of it — every 26 m on the coarse
+  // sheet, every 2.4 to 13 m on the fine chunks — and beside anything steep
+  // the two part company by tens of metres: the sheet draws a crag as a broad
+  // hill, and a dragon landing on that hill stood on the flat ground the field
+  // has under it, inside the hill. So: the fine chunk if one is drawn there,
+  // else the coarse sheet. In the pit the terrain is not drawn at all near the
+  // camera (the hole, basedetail.js) and its own ground lies on the field.
+  const drawnHeightAt = (x, z) => {
+    const hole = groundMat.userData.uniforms?.uHole.value;
+    if (hole && hole.z > 0 && Math.hypot(x - hole.x, z - hole.y) < hole.z) return terrainHeight(x, z);
+    const h = detail.heightAt(x, z);
+    if (!Number.isNaN(h)) return h;
+    const half = TERRAIN_SIZE / 2, k = TERRAIN_SEGMENTS / TERRAIN_SIZE;
+    return gridHeight(heights, 1, 0, verts, (x + half) * k, (z + half) * k);
+  };
+
   // The photographs are the one thing here that has to come off the network, so
   // the terrain is built with flat stand-ins and they are swapped in when they
   // land. Nothing recompiles: the uniforms already point at a 1x1 texture of the
@@ -434,6 +451,7 @@ export function setupWorld(scene, renderer, quality = {}) {
     sky,
     islands: ISLANDS,
     getHeightAt: terrainHeight,
+    drawnHeightAt,
     seaLevel: SEA_LEVEL,
     size: TERRAIN_SIZE,
     /** Resolves when the downloaded ground textures are in. Nothing waits on it. */

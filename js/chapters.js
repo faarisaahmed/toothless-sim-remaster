@@ -44,20 +44,20 @@ const WOOD = V(chart(1250), 210, chart(1500));
  *
  * Clustered on purpose. The second half of the mission bounces between these
  * three, and a two-kilometre commute between every beat is not tension, it is a
- * walk. Hollow Stack to Dragon Hunter Island was about 1.7 km and is about 5
+ * walk. Freewing Rock to Dragon Hunter Island was about 1.7 km and is about 5
  * since the world went three times wider -- fifteen seconds flat out; the
  * shoal sits between them. The island's own rim is 300-500 m of rock all the way round,
  * so the last part of that trip is a climb or a run at the channel.
  */
 // The sites are on the old ten-kilometre chart, put into today's metres by
 // terrain.js chart(): the archipelago grew three times wider round them and
-// they moved with it. Hollow Stack itself did not grow (it is a stack), so
+// they moved with it. Freewing Rock itself did not grow (it is a stack), so
 // the camp is its table centre moved, plus the camp's own offset in metres --
 // terrain.js HOLLOW_CAMP is the same point. The distances in the beats that
 // are about the map (how far "away" is, where "out there" is) are scaled with
 // it; the ones that are about the places themselves (arriving at the stack,
 // standing in the pit) are not.
-/** Deck height of Hollow Stack's plateau. Set by world.js's STORY_ISLE. */
+/** Deck height of Freewing Rock's plateau. Set by world.js's STORY_ISLE. */
 export const STACK_Y = 102;
 
 /** Deck height of the hunters' compound. main.js overwrites this once it has
@@ -110,12 +110,12 @@ const RUNTIME = {
       PLATE(p); p.learnKey("nightfury");
       p.flag("canFire"); p.state.food = "thin"; p.state.rested = false;
     },
-    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack"],
+    sites: ["The clearing", "Dragon Hunter Island", "Freewing Rock"],
   },
   plan: {
     start: () => ({ pos: V(SITES.sigrun.x, 200, SITES.sigrun.z), toward: SITES.rig }),
     prepare: (p) => { PLATE(p); p.learnKey("nightfury"); p.flag("canFire"); p.flag("metSigrun"); },
-    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
+    sites: ["The clearing", "Dragon Hunter Island", "Freewing Rock", "Shoal", "The lonely stack"],
   },
   lights: {
     start: () => ({ pos: V(SITES.fish.x, 160, SITES.fish.z), toward: SITES.stack }),
@@ -123,7 +123,7 @@ const RUNTIME = {
       PLATE(p); p.learnKey("nightfury"); p.flag("canFire"); p.flag("metSigrun");
       p.state.food = "fed";
     },
-    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
+    sites: ["The clearing", "Dragon Hunter Island", "Freewing Rock", "Shoal", "The lonely stack"],
   },
   wings: {
     start: () => ({ pos: V(SITES.rig.x, RIG.y + 60, SITES.rig.z), toward: SITES.stack }),
@@ -131,12 +131,12 @@ const RUNTIME = {
       PLATE(p); p.learnKey("nightfury"); p.flag("canFire"); p.flag("metSigrun");
       p.state.food = "thin";
     },
-    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
+    sites: ["The clearing", "Dragon Hunter Island", "Freewing Rock", "Shoal", "The lonely stack"],
   },
   home: {
     start: () => ({ pos: V(SITES.rig.x, RIG.y + 260, SITES.rig.z), toward: SITES.stack }),
     prepare: (p) => { PLATE(p); p.learnKey("nightfury"); p.flag("raidDone"); p.flag("metSigrun"); },
-    sites: ["The clearing", "Dragon Hunter Island", "Hollow Stack", "Shoal", "The lonely stack"],
+    sites: ["The clearing", "Dragon Hunter Island", "Freewing Rock", "Shoal", "The lonely stack"],
   },
 };
 
@@ -458,8 +458,8 @@ export function mission1(ctx) {
       enter(g) { g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "A stack"); },
       done() { return near(SITES.stack, 260); },
       async exit(g, c) {
-        c.findSite?.("Hollow Stack"); player.flag("home");
-        g.toast("Hollow Stack.", 1800);
+        c.findSite?.("Freewing Rock"); player.flag("home");
+        g.toast("Freewing Rock.", 1800);
         // He sleeps where he lands, and wakes to the plate on the shelf.
         await new Promise((r) => setTimeout(r, 1600));
         await g.fade(true);
@@ -789,10 +789,10 @@ export function mission1(ctx) {
     {
       id: "dusk",
       objective: "Wait for dark.",
-      get sub() { return `Hold ${keyTag("landUse")} at the shelter on Hollow Stack.`; },
+      get sub() { return `Hold ${keyTag("landUse")} at the shelter on Freewing Rock.`; },
       enter(g, c) {
         c.npc?.atStack();
-        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Hollow Stack");
+        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Freewing Rock");
         c.setInteract(SITES.stack.clone(), "Rest until dark", 190);
       },
       update(dt, g, c) { if (c.tookInteract()) this._rested = true; },
@@ -811,9 +811,8 @@ export function mission1(ctx) {
     // -----------------------------------------------------------------------
     {
       id: "raid",
-      objective: "Put the lights out. Then open every cage.",
-      get sub() { return `Fly low over a brazier to snuff it. ` +
-        `Hold ${keyTag("sleepfire")} to burn a lock.`; },
+      objective: "Open every cage.",
+      get sub() { return `Get in among them and hold ${keyTag("sleepfire")} to burn the locks.`; },
       enter(g, c) {
         c.setNight(true);
         c.hunters?.calm();
@@ -827,7 +826,7 @@ export function mission1(ctx) {
         // meets them under fire — so the connection between the light on the
         // deck and the weight in the air gets stated rather than discovered at
         // the bottom of a caldera.
-        g.toast("They can see you. Put the lights out.", 2600);
+        g.toast("Open the cages.", 2200);
         // The fast Viking theme, and it holds for the whole raid — the flying
         // music in main.js is suppressed while a chapter has something to say.
         music.play("raid", { fade: 4 });
@@ -836,19 +835,13 @@ export function mission1(ctx) {
         const rig = c.rig;
         if (!rig) return;
 
-        // Wing-gust: a hard downstroke close over a brazier snuffs it. No
-        // button — it is a thing you do by flying, which is the point.
+        // The braziers used to go out under him whenever he flew fast and
+        // close — a wing-gust snuff — and putting them all out was a step of
+        // its own. It made the deck flicker on and off under every pass, so
+        // they stay lit now unless he shoots one out on purpose.
         const p = c.getPosition();
-        for (const b of rig.braziers) {
-          if (!b.lit) continue;
-          if (p.distanceTo(b.pos) < 62 && c.getSpeedT() > 0.25) {
-            b.snuff();
-            g.toast("Dark.", 700);
-          }
-        }
 
-        // Sleepfire opens a lock, and only in the dark — a lit deck means
-        // somebody is standing next to the cage.
+        // Sleepfire opens a lock.
         // One burst burns every lock close enough to feel it. It used to open
         // the single nearest cage, at a cost of food AND rest per shot, which
         // made eight cages eight shots on a stomach that holds two — the raid
@@ -864,27 +857,8 @@ export function mission1(ctx) {
           }
         }
 
-        // Out of fire? The shoal is between here and the stack, and a pass
-        // over it feeds him the same as it did before nightfall.
-        const fd = game.flatDist(SITES.fish);
-        if (fd < 220 && p.y < 120 && !this._fishing && player.food !== "fed") {
-          this._fishing = true;
-          (async () => { await c.fishDive?.(SITES.fish); player.eat(2); g.toast("Fed.", 1000); g.refreshState(); this._fishing = false; })();
-        }
-        const hungry = player.food === "empty";
-        g.setObjective(
-          "Put the lights out. Then open every cage.",
-          `${rig.braziers.filter((b) => !b.lit).length} of ${rig.braziers.length} dark · ` +
-          `${rig.cages.filter((x) => x.open).length} of ${rig.cages.length} open` +
-          (hungry ? " · <b>Empty — fish the shoal</b>" : "")
-        );
-        if (hungry && !this._pointedAtFish) {
-          this._pointedAtFish = true;
-          g.setWaypoint(SITES.fish.clone().setY(6), "Shoal");
-        } else if (!hungry && this._pointedAtFish) {
-          this._pointedAtFish = false;
-          g.setWaypoint(SITES.rig.clone().setY(RIG.y + 60), "The compound");
-        }
+        g.setObjective(this.objective,
+          `${rig.cages.filter((x) => x.open).length} of ${rig.cages.length} open`);
       },
       done(g, c) {
         const rig = c.rig;
@@ -1057,16 +1031,8 @@ export function mission1(ctx) {
             });
           }
         }
-        // Out of fire? The shoal is still there.
-        const hungry = player.food === "empty";
-        const fd = game.flatDist(SITES.fish);
-        if (fd < 220 && p.y < 120 && !this._fishing && player.food !== "fed") {
-          this._fishing = true;
-          (async () => { await c.fishDive?.(SITES.fish); player.eat(2); g.refreshState(); this._fishing = false; })();
-        }
         const n = (c.rig?.terraceCages || []).length;
-        g.setObjective(this.objective, `${n - this._left(c).length} of ${n} open` +
-          (hungry ? " · <b>Empty — fish the shoal, or let her</b>" : ""));
+        g.setObjective(this.objective, `${n - this._left(c).length} of ${n} open`);
       },
       done(g, c) { return this._left(c).length === 0; },
       exit(g, c) { player.flag("raidDone"); },
@@ -1078,9 +1044,9 @@ export function mission1(ctx) {
     {
       id: "flee",
       objective: "Home.",
-      sub: "Hollow Stack. She's coming too.",
+      sub: "Freewing Rock. She's coming too.",
       enter(g, c) {
-        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Hollow Stack");
+        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Freewing Rock");
         c.npc?.flyIn(SITES.stack.clone().add(V(40, STACK_Y + 30, 30)));
         player.flag("adrenaline", false);
         setTimeout(() => c.hunters?.calm(), 6000);
@@ -1097,7 +1063,7 @@ export function mission1(ctx) {
       enter(g, c) {
         c.setNight(false);
         c.npc?.atHollow();
-        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Hollow Stack");
+        g.setWaypoint(SITES.stack.clone().setY(STACK_Y), "Freewing Rock");
       },
       done() { return near(SITES.stack, 260); },
       async exit(g) {

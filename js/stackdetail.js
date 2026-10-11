@@ -6,7 +6,7 @@ import { slots, alloyMaterial } from "./props.js";
 import { rng, canvas, tex, shrubTexture, woodTexture, bushGeometry } from "./basedetail.js";
 
 // ---------------------------------------------------------------------------
-// Hollow Stack, lived in.
+// Freewing Rock, lived in.
 //
 // The camp was three props on a lawn: a lean-to, a stone slab and a rack,
 // with trees standing round them as though somebody had set a picnic down in

@@ -15,9 +15,8 @@ export const FED = "fed", THIN = "thin", EMPTY = "empty";
 
 // Sleepfire is not a breath. It comes from lower down, it hurts, and it is held
 // rather than pressed (§2.2). These are the two numbers that make it feel that
-// way: a long wind-up you can abort, and a cost you have to have paid already.
+// way: a long wind-up you can abort. (It used to cost food and rest as well.)
 export const CHARGE_TIME = 2.1;    // seconds of held input before it goes
-export const FIRE_COST = 1;        // condition steps spent per shot
 
 const FRESH = () => ({
   day: 1,
@@ -89,9 +88,10 @@ export function makePlayer(state = FRESH(), { onChange = () => {} } = {}) {
      * The reason is shown to the player as a state, never as a tutorial.
      */
     fireBlocked() {
+      // Food and rest used to gate it too. Flying off to fish between every
+      // shot was a chore, not a cost, so the only thing that stops it now is
+      // not having learned it.
       if (!s.keys.nightfury) return "unlearned";
-      if (s.food === EMPTY) return "empty";
-      if (!s.rested) return "spent";
       return null;
     },
 
@@ -104,12 +104,6 @@ export function makePlayer(state = FRESH(), { onChange = () => {} } = {}) {
           charge = 0;
           charging = false;
           lastFired = now;
-          // It costs, and it costs in advance — this is the whole reason the
-          // hunger economy exists.
-          api.spendFood();
-          // Except in the raid, where he is running on nerve: the cost there
-          // is food alone, or eight cages would need eight nights' sleep.
-          if (!s.flags.adrenaline) s.rested = false;
           onChange(s);
           return "fired";
         }
