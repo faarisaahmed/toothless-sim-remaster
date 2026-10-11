@@ -46,7 +46,7 @@ shrunk so coasts stay as steep and shelves as narrow in metres, more headlands
 (`lobeK`), wider fjords that swing on the long ones, extra short sea lochs on
 the big islands, and a kilometres-wide relief scale (MACRO) on top of the old
 half-kilometre one. `TERRAIN_SIZE` is 30 km, about 40% land, peaks to ~1,000 m.
-Exceptions: Hollow Stack (`keepSize`) and the sea stacks move but do not grow;
+Exceptions: Freewing Rock (`keepSize`) and the sea stacks move but do not grow;
 Dragon Hunter Island grows 1.8x with its crater measured in its own `crater.R`
 = 1000 m (so `pitLayout()` is unchanged: floor 115, terraces to 385, rim 540)
 and two sea lochs bringing the water to the harbour pad and through the low
@@ -113,15 +113,15 @@ coastline lobes in and out, how domed the interior is, how stratified the rock
 is, how wide its drowned foot is, how readily it forms beaches, how bare it is.
 The table at the top of `terrain.js` documents every field.
 
-**Three sites cannot move.** Berk `(0, -1100)`, Hollow Stack `(1700, 2550)` and
+**Three sites cannot move.** Berk `(0, -1100)`, Freewing Rock `(1700, 2550)` and
 Dragon Hunter Island `(2900, 3800)`. (Berk's table centre is now `(0, -1300)`,
 which keeps its bigger south cape half a kilometre off the spawn; `(0, -1100)`,
 which "leave Berk" measures from, is still high ground on it. Peaceable Country
 grew round its old centre, `(1250, 1500)`, which chapters.js's `WOOD` reads, and
-its clearing came out within 3 m of where it was.) Hollow Stack moved 50 m and 70 m so that
+its clearing came out within 3 m of where it was.) Freewing Rock moved 50 m and 70 m so that
 its plateau covers `SITES.stack` at `(1650, 2600)`, which is where
 `buildHollowStack` takes its deck height from; the deck now comes out at 104 m
-against `STACK_Y = 102` in `chapters.js`. The Hollow Stack to Dragon Hunter
+against `STACK_Y = 102` in `chapters.js`. The Freewing Rock to Dragon Hunter
 Island run is 1733 m, which is the ~1.7 km of decompression the handoff asks for.
 
 ---
@@ -303,7 +303,7 @@ python3 tools/render_check.py --seconds 46 --png /tmp/shot.png --cmd "go 4;perf"
 `tools/probe.mjs` runs the same crater sweep `findCraterFloor()` does, asserts
 the three story sites are dry land, Sigrún's ledge is a flat shelf,
 the clearing and the pit layout are where they should be, the three gullies into
-the pit start on land and never run steeper than 25%, asserts the camp patch on Hollow Stack is
+the pit start on land and never run steeper than 25%, asserts the camp patch on Freewing Rock is
 walkable, asserts the shoal is water and the spawn is over open water, and
 reports the per-call cost of `terrainHeight` and what that means for load.
 

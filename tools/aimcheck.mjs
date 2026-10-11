@@ -67,45 +67,31 @@ const OFFSET = `(async () => {
   return "WHERE THE SHOT GOES (0\\u00b0 means it leaves along his nose)\\n" + out.join("\\n");
 })()`;
 
-// --- Probe two: which way does the head turn? ------------------------------
+// --- Probe two: does the shot go where the crosshair is? -------------------
+// Aiming used to swing his head on the mouse while the camera sat in his skull.
+// Now the mouse only ever moves the camera; the crosshair is the screen centre
+// traced into the world, and the shot has to leave his mouth toward that
+// point. And the camera has to stay OUTSIDE him while it does.
 const DIRECTION = `(async () => {
-  const { aim, getControls } = window.__na;
+  const { aim, getControls, camera } = window.__na;
   const c = getControls();
   const frame = () => new Promise((r) => requestAnimationFrame(r));
   const settle = async (n) => { for (let i = 0; i < n; i++) await frame(); };
-  const shot = () => { const d = aim.direction(c.getHeading(), c.getPathAngle());
-    return [d.x, d.y, d.z]; };
 
-  aim.setMode("noscope"); aim.setHeld(true);
-  await settle(4);
+  aim.setHeld(true);
+  await settle(60);
   if (!aim.active) return "aim never went active";
-  const out = [];
-  // main.js does pendingYaw -= movementX, so a mouse pushed RIGHT reaches
-  // aim.look() as a NEGATIVE dx. These are the deltas as look() sees them.
-  const cases = [["mouse RIGHT", -0.35, 0, "RIGHT"], ["mouse LEFT", 0.35, 0, "LEFT"],
-                 ["mouse DOWN", 0, -0.35, "DOWN"],   ["mouse UP", 0, 0.35, "UP"]];
-  let bad = 0;
-  for (const [what, dx, dy, want] of cases) {
-    for (let i = 0; i < 400 && Math.abs(aim.yaw) + Math.abs(aim.pitch) > 0.002; i++)
-      aim.look(-aim.yaw * 0.5, aim.pitch * 0.5);
-    await settle(3);
-    const a = shot();
-    aim.look(dx, dy);
-    await settle(3);
-    const b = shot();
-    // Increasing heading turns him toward +x, which is his LEFT, so a positive
-    // cross about world up means he looked left.
-    const cross = a[2] * b[0] - a[0] * b[2];
-    const dP = Math.asin(b[1]) - Math.asin(a[1]);
-    const got = Math.abs(dx) > Math.abs(dy) ? (cross > 0 ? "LEFT" : "RIGHT")
-                                            : (dP > 0 ? "UP" : "DOWN");
-    if (got !== want) bad++;
-    out.push("  " + (got === want ? "ok   " : "WRONG") + " " + what.padEnd(12) +
-             "head goes " + got);
-  }
+  if (!aim.target) { aim.setHeld(false); return "WHERE THE CROSSHAIR GOES\\n  WRONG no crosshair point"; }
+  const head = aim.headPosition().clone();
+  const want = aim.target.clone().sub(head).normalize();
+  const got = aim.direction(c.getHeading(), c.getPathAngle()).clone();
+  const off = Math.acos(Math.min(1, want.dot(got))) * 57.3;
+  const camGap = camera.position.distanceTo(head);
   aim.setHeld(false);
-  return "WHICH WAY THE HEAD TURNS\\n" + out.join("\\n") +
-         (bad ? "\\n  " + bad + " inverted" : "");
+  const out = [];
+  out.push("  " + (off < 1 ? "ok   " : "WRONG") + " shot " + off.toFixed(2) + "\\u00b0 off the crosshair");
+  out.push("  " + (camGap > 2 ? "ok   " : "WRONG") + " camera " + camGap.toFixed(1) + " m from his head");
+  return "WHERE THE CROSSHAIR GOES\\n" + out.join("\\n");
 })()`;
 
 function once(probe) {
@@ -136,7 +122,7 @@ for (const probe of [DIRECTION, OFFSET]) {
   const out = await run(probe);
   // inspect.mjs prints its own snapshot and console; we only want the probe's
   // return value, which is everything from its heading onwards.
-  const i = out.search(/^(WHICH WAY|WHERE THE SHOT|EVAL ERROR|HARNESS ERROR|no head)/m);
+  const i = out.search(/^(WHERE THE CROSSHAIR|WHERE THE SHOT|EVAL ERROR|HARNESS ERROR|no head)/m);
   const body = i >= 0 ? out.slice(i).split("\n--- ")[0].trimEnd() : out.trimEnd();
   console.log("\n" + body);
   if (/WRONG|inverted|ERROR|no head|never went/.test(body)) fail++;

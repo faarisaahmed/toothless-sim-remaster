@@ -39,6 +39,9 @@ const FIXED_HOURS = { dawn: 5.9, morning: 9.0, noon: 13.0, evening: 17.2, sunset
 /** The story's clock: an hour of game time for every eight real minutes. */
 const STORY_FLOW = 1 / 480;
 
+// Chart marks that were renamed, so an old save's found sites still find them.
+const SITE_ALIAS = { "Hollow Stack": "Freewing Rock" };
+
 export function createSession({ handoff, game, player, storyCtx, setMapSites, getDragon, getControls, sky }) {
   const mode = handoff?.mode === "free" ? "free" : "story";
   const slot = Number.isInteger(handoff?.slot) ? handoff.slot : null;
@@ -109,7 +112,7 @@ export function createSession({ handoff, game, player, storyCtx, setMapSites, ge
     mapSites = [
       { x: SITES.camp.x,  z: SITES.camp.z,  label: "The clearing", found: false },
       { x: SITES.rig.x,   z: SITES.rig.z,   label: "Dragon Hunter Island", found: false },
-      { x: SITES.stack.x, z: SITES.stack.z, label: "Hollow Stack", found: false },
+      { x: SITES.stack.x, z: SITES.stack.z, label: "Freewing Rock", found: false },
       { x: SITES.fish.x,  z: SITES.fish.z,  label: "Shoal", found: false },
     ];
     setMapSites(mapSites);
@@ -131,7 +134,7 @@ export function createSession({ handoff, game, player, storyCtx, setMapSites, ge
     } else if (save && save.run && save.beat && !save.finished) {
       const b = BEAT_ALIAS[save.beat] || save.beat;
       startBeat = BEAT_ORDER.includes(b) ? b : BEAT_ORDER[0];
-      for (const label of save.sites || []) storyCtx.findSite(label);
+      for (const label of save.sites || []) storyCtx.findSite(SITE_ALIAS[label] || label);
       const ch = CHAPTERS.find((c) => c.beats.includes(startBeat));
       startPos = save.pos
         ? { pos: new THREE.Vector3(save.pos.x, save.pos.y, save.pos.z), heading: save.pos.heading }
@@ -139,7 +142,7 @@ export function createSession({ handoff, game, player, storyCtx, setMapSites, ge
     } else if (save?.finished) {
       // A finished story's Continue is the epilogue: fly on from the stack.
       startBeat = BEAT_ORDER[BEAT_ORDER.length - 1];
-      for (const label of save.sites || []) storyCtx.findSite(label);
+      for (const label of save.sites || []) storyCtx.findSite(SITE_ALIAS[label] || label);
       const ch = CHAPTERS[CHAPTERS.length - 1];
       startPos = ch.start?.() || null;
     }

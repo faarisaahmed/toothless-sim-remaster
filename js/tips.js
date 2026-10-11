@@ -43,7 +43,7 @@ const TIPS = () => [
   `Night, fog and rain all shorten how far a hunter can see.`,
   `There are three wooded gullies into the hunters' pit. The minimap draws them as dotted trails.`,
   `Hunters who lose you search for a few seconds, then shrug and go back to work.`,
-  `Hold ${k("aim")} to turn his head without turning his body — and to see the hunters' vision cones.`,
+  `Hold ${k("aim")} to bring up a crosshair — the blast goes where it sits. It shows the hunters' vision cones too.`,
   // --- The world
   `The archipelago is about forty-five kilometres across, and most of it is sea. Berk is the biggest island in it.`,
   `Free flight counts every named island you find. There are thirty-three.`,
@@ -51,7 +51,7 @@ const TIPS = () => [
   `The forest isn't one tree: spruce in the valleys, pine on the ridges, birch at the edges, oak in the warm hollows.`,
   `Wind pines grow on the exposed headlands, all bent the same way. That's the prevailing wind.`,
   `Look for the green seams in the rim of Dragon Hunter Island from the air. They aren't natural.`,
-  `Hollow Stack has gulls nesting all down its cliffs.`,
+  `Freewing Rock has gulls nesting all down its cliffs.`,
   `Some birches and rowans are already turning gold and red. Autumn comes early in the north.`,
   `The aurora is out most clear nights, and some nights it's out a lot.`,
   `Weather changes on its own in free flight: fair, overcast, rain, storm, fog.`,

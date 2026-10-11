@@ -34,7 +34,7 @@ export const SEA_FLOOR = -190;
 // height function measured in metres -- the crags, gullies, strata, the
 // drainage, the coastline crinkle -- so a bigger island carries more of them
 // rather than bloated copies of the same few. And the things people built,
-// which are absolute: the hunters' pit, Hollow Stack's camp, the sea stacks.
+// which are absolute: the hunters' pit, Freewing Rock's camp, the sea stacks.
 // ---------------------------------------------------------------------------
 //
 // And then the sea between them. Three times bigger islands three times
@@ -226,7 +226,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 //   beach    0..1 how readily this coast forms a wave-cut bench and a beach.
 //   bare     0..1 how bare of vegetation. 1 is scoured lava, 0 is thick forest.
 //   snow     metres to lower the snow line by. Glacier islands only.
-//   flat     plateau: kills the relief and the crags. Hollow Stack.
+//   flat     plateau: kills the relief and the crags. Freewing Rock.
 //   crater   {inner, floor, gate, mouth} — see Dragon Hunter Island below.
 //   parts    extra bodies run into this one — see "Parts" below the table.
 //   fjords   drowned valleys cut into it — see "Fjords and sounds" below.
@@ -327,12 +327,12 @@ const RAW_ISLANDS = [
     grow: 1.8,
     fjords: [[1.45, 140, 0, 0.41], [2.16, 170, 0, 0.24]] },
 
-  // Hollow Stack. `flat` turns off the relief and the crags so this comes out
+  // Freewing Rock. `flat` turns off the relief and the crags so this comes out
   // as a plateau rather than a spire — the story lives on it, and you have to
   // land on it and walk from the shelter to the lab. STACK_Y = 102 in
   // chapters.js is the deck height; keep the top near it.
   // keepSize: a stack is a stack. Moved with the chart, not grown with it.
-  { name: "Hollow Stack", keepSize: true, x: 1700, z: 2550, r: 340, h: 333, cliff: 0.42,
+  { name: "Freewing Rock", keepSize: true, x: 1700, z: 2550, r: 340, h: 333, cliff: 0.42,
     elong: 0.9, rot: 1.2, lobe: 0.10, lobeK: 1.6, dome: 0,
     terrace: 0.75, shelfW: 0.5, beach: 0.15, bare: 0.6, flat: true },
 
@@ -497,7 +497,7 @@ const RAW_ISLANDS = [
 //   x, z      times WORLD_SCALE, always -- the chart keeps its shape
 //   r, parts  times WORLD_SCALE too, or `grow` for the odd island that should
 //             grow less; `keepSize` moves an island with the chart and leaves
-//             it the size it is (Hollow Stack: the story is built on its top)
+//             it the size it is (Freewing Rock: the story is built on its top)
 //   h         the summit's height above the WATER times PEAK_SCALE. `h` is
 //             measured off the sea floor, hence -SEA_FLOOR either side.
 //             `keepHeight` leaves it (the hunters' pit is set in fractions of
@@ -582,7 +582,7 @@ function makeSkerries(parents) {
   // and the spawn corridor all assume clear ground or clear water.
   const KEEP_CLEAR = [
     { x: 2900, z: 3800, r: 1500 },   // Dragon Hunter Island and its approach
-    { x: 1750, z: 2500, r: 700 },    // Hollow Stack must stand alone
+    { x: 1750, z: 2500, r: 700 },    // Freewing Rock must stand alone
     { x: 2080, z: 2320, r: 420 },    // the shoal — it is a fishing spot, not a reef
   ].map((k) => ({ x: chart(k.x), z: chart(k.z), r: chart(k.r) }));
   KEEP_CLEAR.push({ ...SPAWN_XZ, r: 700 * WORLD_SCALE });       // spawn
@@ -863,7 +863,7 @@ for (let i = 0; i < N; i++) {
   ISHELF[i] = isl.shelfW; IBEACH[i] = isl.beach;
   IFLAT[i] = isl.flat ? 1 : 0;
   // Only an island big enough to hold a mountain range gets one (see MACRO
-  // in terrainHeight): stacks, skerries and Hollow Stack keep the heights
+  // in terrainHeight): stacks, skerries and Freewing Rock keep the heights
   // they were tuned to.
   IMACRO[i] = smoothstep(isl.r, 700, 2200);
   // Unique, stable offsets into noise space, so no two islands share an outline.
@@ -1256,7 +1256,7 @@ export function terrainHeight(x, z) {
     const shape = lerp(
       Math.min(1.15, 0.62 + 0.52 * relief * IRELIEF[i]),
       // A plateau is a plateau. Leaving even a fifth of the relief in put 10 m
-      // of rock across the 24 m of Hollow Stack he has to walk between the
+      // of rock across the 24 m of Freewing Rock he has to walk between the
       // shelter and the lab, and the same term is what the crater floor stands
       // on, so both want this nearly constant.
       0.865 + 0.055 * relief,
@@ -2090,14 +2090,14 @@ const WOOD_BIAS = -0.45;
   const dhi = ISLANDS.find((i) => i.name === "Dragon Hunter Island");
   if (dhi) WOOD_FORCED.push({ x: dhi.x, z: dhi.z, r: 1300, edge: 500 });
   if (CLEARING) WOOD_FORCED.push({ x: CLEARING.x, z: CLEARING.z, r: 1100, edge: 500 });
-  WOOD_FORCED.push({ x: chart(1700), z: chart(2550), r: 380, edge: 100 });   // Hollow Stack
+  WOOD_FORCED.push({ x: chart(1700), z: chart(2550), r: 380, edge: 100 });   // Freewing Rock
 }
 
 /**
  * How readily this spot grows things, 0..1. Trees, grass and the terrain's
  * green all read this one function so a bare crag is bare in all three.
  */
-// Hollow Stack's table centre on the chart, plus the camp's own offset from
+// Freewing Rock's table centre on the chart, plus the camp's own offset from
 // it in metres: the stack moved with the chart and did not grow.
 const HOLLOW_CAMP = { x: chart(1700) - 50, z: chart(2550) + 50 };   // SITES.stack, chapters.js
 export function fertility(x, z, h, slope) {
@@ -2148,7 +2148,7 @@ export function fertility(x, z, h, slope) {
     const d = Math.hypot(x - CLEARING.x, z - CLEARING.z);
     f *= 0.04 + 0.96 * smoothstep(d, CLEARING_R, CLEARING_EDGE);
   }
-  // Hollow Stack's camp: the hideout sits in a hollow of bare rock and turf
+  // Freewing Rock's camp: the hideout sits in a hollow of bare rock and turf
   // that the wind keeps clear, so the wood stops short of it. Must match
   // SITES.stack in chapters.js; stackdetail.js dresses what is left.
   const dh = Math.hypot(x - HOLLOW_CAMP.x, z - HOLLOW_CAMP.z);
@@ -2173,7 +2173,7 @@ export function fertility(x, z, h, slope) {
  *
  * Woods the story walks into are woods whatever the noise says: the hunters'
  * island round the pit (its gullies are the way in under cover), the wood on
- * Peaceable Country the clearing is cut out of, and the top of Hollow Stack.
+ * Peaceable Country the clearing is cut out of, and the top of Freewing Rock.
  */
 export function woodland(x, z, h) {
   let forced = 0;

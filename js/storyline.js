@@ -16,7 +16,7 @@ export const CHAPTER_LIST = [
     blurb: "The last island on the chart, and something that was done to it." },
   { id: "pit",       n: "III",  title: "The Pit",         beats: ["beyond", "rig-find", "rig-look", "strike", "escape"],
     blurb: "Lights past the edge of the chart, and the men who keep them." },
-  { id: "stack",     n: "IV",   title: "Hollow Stack",    beats: ["stack-find", "lab", "sleep", "fire"],
+  { id: "stack",     n: "IV",   title: "Freewing Rock",    beats: ["stack-find", "lab", "sleep", "fire"],
     blurb: "Somewhere to rest, a plate that will not burn, and a night that changes it." },
   { id: "storm",     n: "V",    title: "The Stormcutter", beats: ["hunt", "cry", "approach", "feed", "watch"],
     blurb: "A cry across the water, and somebody else's catastrophe." },

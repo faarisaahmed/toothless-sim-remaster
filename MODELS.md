@@ -105,7 +105,7 @@ that should be legible in how tidy it is.
 | `rig_chain_coil.glb` | |
 | `rig_mooring_post.glb` | |
 
-### P1 — Hollow Stack *(the hub; the player sees it every mission)*
+### P1 — Freewing Rock *(the hub; the player sees it every mission)*
 
 A sea stack with a hollow in it. Nobody built this for a dragon; a dragon moved in.
 

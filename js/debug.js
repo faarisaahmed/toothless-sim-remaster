@@ -4,7 +4,6 @@ import { graphics } from "./graphics.js";
 
 // Master control panel. Backtick opens it, Escape closes. Everything here is a
 // dev tool — it mutates live state directly rather than going through gameplay.
-const MODES_OK = (a, id) => id === "scoped" || id === "noscope";
 
 // ---------------------------------------------------------------------------
 // The key monitor.
@@ -127,22 +126,15 @@ export function setupDebugConsole(ctx) {
     },
 
     aim: {
-      help: "aim [scoped|noscope] — which aiming mode the aim button uses",
-      run(args) {
+      help: "aim — is he aiming, and where his head is turned",
+      run() {
         const a = ctx.aim;
         if (!a) return log("no aim system on this scene", "err");
-        if (args[0]) {
-          if (!MODES_OK(a, args[0])) return log(`unknown mode "${args[0]}" — scoped or noscope`, "err");
-          a.setMode(args[0]);
-        }
-        log(`mode      ${a.mode}`);
-        log(`aiming    ${onOff(a.active)}${a.scoped ? " (scoped — camera and clock)" : ""}`);
-        log(`stamina   ${(a.stamina * 100).toFixed(0)}%`);
-        log(`lockout   ${a.lockout > 0 ? a.lockout.toFixed(1) + "s" : "none"}`);
+        log(`aiming    ${onOff(a.active)}`);
+        log(`target    ${a.target ? a.target.toArray().map((v) => v.toFixed(0)).join(" ") : "none"}`);
         log(`head      yaw ${(a.yaw * 57.3).toFixed(0)}°  pitch ${(a.pitch * 57.3).toFixed(0)}°`);
       },
     },
-
     plasma: {
       help: "plasma [fire|refill] — the magazine, and what is in the air",
       run(args) {

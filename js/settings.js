@@ -1,5 +1,4 @@
 import * as keymap from "./keymap.js";
-import { MODES as AIM_MODES, getMode as getAimMode, setMode as setAimMode } from "./aim.js";
 import { isEnabled as touchOn, setEnabled as setTouch } from "./touch.js";
 import { music } from "./audio.js";
 import { GRAPHICS_OPTIONS } from "./graphics.js";
@@ -153,19 +152,6 @@ const BASE_OPTIONS = [
     choices: () => Object.values(keymap.SCHEMES).map((s) => ({ v: s.id, label: s.label })),
     current: () => keymap.getScheme(),
     pick: (v) => keymap.setScheme(v),
-  },
-  {
-    id: "aim", section: "Controls", glyph: "&#8853;", label: "Aiming",
-    hint: () => AIM_MODES[getAimMode()].hint,
-    value: () => AIM_MODES[getAimMode()].label,
-    cycle: (dir = 1) => {
-      const ids = Object.keys(AIM_MODES);
-      const i = ids.indexOf(getAimMode());
-      setAimMode(ids[(i + dir + ids.length) % ids.length]);
-    },
-    choices: () => Object.entries(AIM_MODES).map(([v, m]) => ({ v, label: m.label })),
-    current: () => getAimMode(),
-    pick: (v) => setAimMode(v),
   },
   {
     id: "invertY", section: "Controls", glyph: "&#8597;", label: "Invert look &mdash; up / down",

@@ -702,7 +702,7 @@ kilometres-wide relief scale gives the big islands ranges and glens, and they
 get a few short sea lochs of their own beyond their named fjords. Berk is now
 about twelve kilometres of fjord country, Berserker, Outcast, Raven Point and
 Glacier Island not far short of it, the rest four to seven; Glacier Island tops
-out near 1,000 m and Dragon Peak near 950. The hunters' pit and Hollow Stack
+out near 1,000 m and Dragon Peak near 950. The hunters' pit and Freewing Rock
 did not grow: what people built there is in absolute metres. They lie in groups, close enough in places that the
 water between them is a strait, with open water kept south of Berk and down the
 middle. About 37% of the chart is land, and a handful of skerries stand off the
