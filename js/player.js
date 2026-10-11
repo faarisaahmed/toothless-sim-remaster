@@ -16,7 +16,8 @@ export const FED = "fed", THIN = "thin", EMPTY = "empty";
 // Sleepfire is not a breath. It comes from lower down, it hurts, and it is held
 // rather than pressed (§2.2). These are the two numbers that make it feel that
 // way: a long wind-up you can abort. (It used to cost food and rest as well.)
-export const CHARGE_TIME = 2.1;    // seconds of held input before it goes
+export const CHARGE_TIME = 0.8;    // seconds of held input before it goes (was 2.1 — a
+                                   // wait per cage that made the raid a chore)
 
 const FRESH = () => ({
   day: 1,

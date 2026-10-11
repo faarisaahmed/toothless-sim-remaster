@@ -306,7 +306,7 @@ storage: `user1.dat` to `user4.dat`. Each holds the save as indented JSON.
 ## Controls
 
 One key, one job. WASD and the arrow keys are the same two axes everywhere —
-in the air they climb, dive and turn; on the ground they walk and turn.
+in the air they climb, dive and turn; on the ground they walk the way the camera faces.
 
 Two keyboard schemes, and the rule is that one hand steers and the other acts.
 Both are listed below as **wasd · arrows**; `js/keymap.js` is the live source

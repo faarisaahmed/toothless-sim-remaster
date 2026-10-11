@@ -115,11 +115,31 @@ export function setupPlasma(scene, { getHeightAt = null, seaLevel = 0 } = {}) {
   // and it reads correctly from every angle, which a billboard would not while
   // the camera is rolling through a carve.
   const haloGeo = new THREE.SphereGeometry(RADIUS * HALO_MUL, 10, 8);
-  const haloMat = new THREE.MeshBasicMaterial({
-    color: COLOUR, transparent: true, opacity: 0.42,
-    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+  //
+  // Faded by how square-on each point of it is to the eye, so it is brightest
+  // through the middle and nothing at its rim. Flat-shaded, it was an even
+  // violet disc with a hard edge round every shot — stretched along the streak,
+  // a lozenge — which reads as a halo drawn on, not as light.
+  const haloCol = new THREE.Color(COLOUR).multiplyScalar(2.0 * 0.42);  // under the bloom threshold
+  const haloMat = new THREE.ShaderMaterial({
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+    uniforms: { uCol: { value: haloCol } },
+    vertexShader: /* glsl */`
+      varying vec3 vN, vV;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4( position, 1.0 );
+        vN = normalize( normalMatrix * normal );
+        vV = normalize( -mv.xyz );
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uCol;
+      varying vec3 vN, vV;
+      void main() {
+        float k = max( dot( normalize( vN ), normalize( vV ) ), 0.0 );
+        gl_FragColor = vec4( uCol * k * k * k, 1.0 );
+      }`,
   });
-  haloMat.color.multiplyScalar(2.0);          // under it, so it glows without smearing
 
   // Spheres, so any axis will do — the streak is applied down local +Z.
   const STREAK_AXIS = new THREE.Vector3(0, 0, 1);

@@ -97,6 +97,14 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
     mix(SHALLOW, smoothstep(-h, 1, 11));
     mix(SEABED, smoothstep(-h, 8, 85));
     sand = 1 - smoothstep(-h, 1, 9);
+    // But a cliff going straight down into the sea is rock under water too.
+    // Colour is per vertex and the vertices are 13-26 m apart, so the pale
+    // shallows green on a vertex just under a sheer face was blended halfway
+    // up it — a teal skirt round the foot of every stack, well above the
+    // waterline, that read as a glow round every island.
+    const sheer = smoothstep(slope, 0.3, 0.7);
+    mix(ROCK_DARK, sheer * 0.85);
+    sand *= 1 - sheer;
   } else {
     const isl = islandAt(x, z);
     const bare = isl ? isl.bare : 0.45;

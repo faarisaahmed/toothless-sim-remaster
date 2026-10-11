@@ -19,6 +19,7 @@ import { buildHunterBase } from "./hunterbase.js";
 import { buildBerk } from "./berk.js";
 import { pitLayout, chart, craterR, SPAWN_XZ } from "./terrain.js";
 import { CloudPass, CLOUD_QUALITY, loadCloudNoise } from "./clouds.js";
+import { addRimLight } from "./rimlight.js";
 import { chapterOfBeat, chapterById } from "./storyline.js";
 import { setMapSites, setMapObjective, getMapSites } from "./map.js";
 import { setupMinimap } from "./minimap.js";
@@ -643,6 +644,8 @@ loader.load(
         obj.frustumCulled = false;
       }
     });
+    // A cool edge of sky light, so a black dragon reads against dark cloud.
+    addRimLight(dragon);
 
     const wing = wingRoots(skel);
     if (wing) updateWings = setupWings(wing[0], wing[1], tuning);
@@ -814,7 +817,7 @@ function updateHud() {
              : mode === "recover" ? "Pulling up"
              : controls.isTrimming() ? "Trim · double-tap to commit"
              : controls.isTurbo?.() ? (controls.getSpeed() > 343 ? "TURBO · supersonic" : "TURBO")
-             : flatOut ? "Flat Out · double-tap for turbo"
+             : flatOut ? `Flat Out · add ${keymap.label(keymap.keysFor("sprint")[0])} for turbo`
              : `Flat Out · ${keymap.label(keymap.keysFor("burst")[0])}`;
   if (line !== shownBurst) {
     hudBurst.textContent = line;
@@ -1155,6 +1158,7 @@ let groundRig = null;          // bindDragon, built on first landing
 // which is what makes the wings sweep open instead of appearing open.
 let openingWings = false;
 let walkYaw = 0, walkSpeed = 0, landHold = 0;
+let walkHintT = 0;             // s since he landed, for the key hint
 let walkGearDebug = 1;
 let wingHeave = 0;             // the beat's body heave currently applied, metres
 // His body on the ground, as a body (groundbody.js). Feet from the rig's bind
@@ -1186,12 +1190,19 @@ const LAND_SPEED = 0.18;
 // ground-eating trot — what a dog or a big cat does to actually get somewhere —
 // and sprint is the full bounding gallop. He passes through the walk every time
 // he sets off or pulls up, and the gait shows it.
-const WALK_SPEED = 4.2;        // metres per second: a brisk trot
-const RUN_SPEED = 14.0;        // ...and the gallop, holding sprint
-const WALK_TURN = 2.5;         // radians per second at a trot
-const RUN_TURN = 1.15;         // and at a full gallop
-const RUN_ACCEL = 2.8;         // how fast he winds up into it
-const WALK_ACCEL = 5.0;        // and how fast he answers at a trot
+//
+// The keys are relative to the CAMERA, not to him: W goes away from you, A to
+// your left, and he turns to run that way. It used to be tank steering — W/S
+// along his spine, A/D spinning him on the spot at 1.15 rad/s at a gallop —
+// which on top of a camera that kept swinging round behind him meant every
+// change of direction was a slow three-point turn.
+const WALK_SPEED = 5.5;        // metres per second: a brisk trot
+const RUN_SPEED = 15.0;        // ...and the gallop, holding sprint
+const WALK_TURN = 7.0;         // radians per second he swings round at a trot
+const RUN_TURN = 3.6;          // and at a full gallop
+const RUN_ACCEL = 3.6;         // how fast he winds up into it
+const WALK_ACCEL = 7.0;        // and how fast he answers at a trot
+const WALK_HINT_TIME = 6;      // s the on-foot key hint stays up after landing
 const GRAVITY = 26;            // m/s^2 during the drop onto the ground
 // Where his origin sits relative to the height field. His feet are placed on
 // the ground by the gait's leg IK, so this is how low he carries his body: a
@@ -1296,6 +1307,7 @@ function land() {
   fallSpeed = 0;
   walkYaw = controls?.getHeading() ?? 0;
   walkSpeed = 0;
+  walkHintT = 0;
   // On the ground he gets the cords off. Nothing here animates him doing it —
   // but carrying a snare into the walk rig would leave him sinking through an
   // island, and the flight model is the only thing the snare knows how to act
@@ -1694,8 +1706,12 @@ if (keysEl && keysPanel) {
 // of 0.42 the entire sky passes the test and the whole frame goes milky. Out
 // here it has to clear daylight and catch only fire.
 const post = setupPost(renderer, scene, camera, {
-  // Always built, so the graphics menu can switch it on and off live.
-  bloom: { strength: 0.7, radius: 0.6, threshold: 2.4 },
+  // Always built, so the graphics menu can switch it on and off live. The
+  // radius is kept tight: at 0.6 the wide mips carried most of the glow, so a
+  // plasma bolt a few hundred metres off came out a soft violet disc forty
+  // pixels across and every sunlit cloud top wore a rim. Tight, a hot thing
+  // flares and the glow hugs it.
+  bloom: { strength: 0.7, radius: 0.25, threshold: 2.4 },
   vignette: 0.55,
   grain: 0.010,
   // Shadows to a sea-blue, highlights barely warm: the old warm lift put
@@ -1708,6 +1724,8 @@ const post = setupPost(renderer, scene, camera, {
 // of builds on a worker; until it lands the sky dome's flat deck stands in.
 const cloudPass = new CloudPass(camera);
 cloudPass.enabled = false;
+// The air between the camera and him is kept clear of cloud (clouds.js).
+cloudPass.getFocus = () => dragon?.position ?? null;
 post.composer.insertPass(cloudPass, 1);
 // Sun shafts, after the clouds so a cloud edge can cut them, before the bloom.
 const shafts = new ShaderPass(SunShaftShader);
@@ -2637,17 +2655,42 @@ function frame() {
       // He is a body on four sprung legs now (groundbody.js): the flare, the
       // touchdown, the run-out, the slope, the rock under one foot and the
       // edge with nothing under it are all the same physics.
-      const turn = (walkKeys.a ? 1 : 0) - (walkKeys.d ? 1 : 0);
-      const running = walkKeys.run;
+      // The ask, in camera space: forward is away from the camera, right is
+      // the camera's right. The left stick adds to it, analog.
+      let fwdIn = (walkKeys.w ? 1 : 0) - (walkKeys.s ? 1 : 0);
+      let sideIn = (walkKeys.d ? 1 : 0) - (walkKeys.a ? 1 : 0);
+      let running = walkKeys.run;
+      if (pad.connected()) {
+        const lx = Math.abs(pad.lx) > 0.12 ? pad.lx : 0, ly = Math.abs(pad.ly) > 0.12 ? pad.ly : 0;
+        fwdIn -= ly; sideIn += lx;
+        // The stick pushed all the way is the gallop; anywhere short of it,
+        // the trot at that fraction.
+        if (Math.hypot(lx, ly) > 0.92) running = true;
+      }
+      const mag = Math.min(1, Math.hypot(fwdIn, sideIn));
+      // camYaw is where the camera sits from him, so away from it is +PI; and
+      // a heading increases toward his left, so the camera's right is -PI/2.
+      const camFwd = camYaw + Math.PI;
+      const wishX = Math.sin(camFwd) * fwdIn + Math.sin(camFwd - Math.PI / 2) * sideIn;
+      const wishZ = Math.cos(camFwd) * fwdIn + Math.cos(camFwd - Math.PI / 2) * sideIn;
+
       const along = Math.abs(walkSpeed);
       const gearT = THREE.MathUtils.clamp((along - WALK_SPEED) / (RUN_SPEED - WALK_SPEED), 0, 1);
-      if (!groundBody.flaring) walkYaw += turn * THREE.MathUtils.lerp(WALK_TURN, RUN_TURN, gearT) * dt;
-
-      const fwd = (walkKeys.w ? 1 : 0) - (walkKeys.s ? 1 : 0);
-      // Backwards is always a shuffle. Nothing that size reverses at a run.
-      const gear = (fwd < 0 ? WALK_SPEED * 0.55 : (running ? RUN_SPEED : WALK_SPEED)) * walkGearDebug;
+      // He turns to face where he is asked to go, at a rate that falls as he
+      // speeds up — a gallop swings wide, a trot can about-face.
+      let align = 1;
+      if (mag > 0.01 && !groundBody.flaring) {
+        const off = angleDelta(walkYaw, Math.atan2(wishX, wishZ));
+        const rate = THREE.MathUtils.lerp(WALK_TURN, RUN_TURN, gearT) * dt;
+        walkYaw += THREE.MathUtils.clamp(off, -rate, rate);
+        // And he goes along his own nose, not sideways: asked to go behind
+        // himself he pulls up and turns rather than moonwalking.
+        align = Math.max(0, Math.cos(angleDelta(walkYaw, Math.atan2(wishX, wishZ))));
+      }
+      const gear = (running ? RUN_SPEED : WALK_SPEED) * walkGearDebug;
       const nx = Math.sin(walkYaw), nz = Math.cos(walkYaw);
-      const want = { x: nx * fwd * gear, z: nz * fwd * gear };
+      const go = mag * align * gear;
+      const want = { x: nx * go, z: nz * go };
       const r = groundBody.step(dt, { want, accel: running ? RUN_ACCEL : WALK_ACCEL, yaw: walkYaw });
       groundBody.apply(dragon);
       settling = groundBody.flaring;
@@ -2682,12 +2725,21 @@ function frame() {
           speed: groundBody.speed / modelScale,
           maxSpeed: RUN_SPEED / modelScale,
         });
-        game.setPrompt(
-          `<b>${keymap.label(keymap.keysFor("forward")[0])}</b> ` +
-          `<b>${keymap.label(keymap.keysFor("back")[0])}</b> walk &nbsp;·&nbsp; ` +
-          `<b>${keymap.label(keymap.keysFor("turnL")[0])}</b> ` +
-          `<b>${keymap.label(keymap.keysFor("turnR")[0])}</b> turn &nbsp;·&nbsp; ` +
-          `<b>${keymap.label(keymap.keysFor("up")[0])}</b> fly`);
+        // The keys, for the first few seconds only. It sat in the middle of
+        // the screen the whole time he was down, right across his legs.
+        const hintWas = walkHintT;
+        walkHintT += dt;
+        if (walkHintT < WALK_HINT_TIME) {
+          const k = (a) => keymap.label(keymap.keysFor(a)[0]);
+          game.setPrompt(
+            `<b>${k("forward")}${k("turnL")}${k("back")}${k("turnR")}</b> walk &nbsp;·&nbsp; ` +
+            `<b>${k("sprint")}</b> run &nbsp;·&nbsp; <b>${k("up")}</b> fly`);
+        } else if (hintWas < WALK_HINT_TIME) {
+          game.setPrompt(null);
+        }
+        // The controller's "up" trigger takes off, as Space does.
+        if (pad.connected() && controls &&
+            pad.value(controls.getClimbInvert() ? BTN.R2 : BTN.L2) > 0.6) takeOff();
       }
     } else if (!grounded) {
       const agl = dragon.position.y - (gh + 6);
@@ -2702,8 +2754,12 @@ function frame() {
           Math.sin(controls?.getHeading() ?? 0),
           Math.cos(controls?.getHeading() ?? 0)).steep > LAND_SLOPE_MAX;
       const canLand = overLand && agl < LAND_AGL && slow && !busy && !tooSteep;
-      if (canLand && holdR) {
-        landHold += dt;
+      // Or just keep coming down: sinking onto good ground, slowly, is a
+      // landing, on any input that sinks him — the down key, a trigger, the
+      // touch button — without having to find the context key on the way.
+      const sinking = !game.cine && (controls?.getVerticalSpeed() ?? 0) < -3;
+      if (canLand && (holdR || sinking)) {
+        landHold += holdR ? dt : dt * 0.6;
         if (landHold > 0.4) { land(); landHold = 0; }
       } else if (!holdR) {
         landHold = Math.max(0, landHold - dt * 2);
@@ -2728,7 +2784,7 @@ function frame() {
       } else if (busy) {
         game.setPrompt(`Hold ${keymap.keyTag("landUse")} — ${interactLabel || "use"}`, { hold: interactHold / 0.9 });
       } else if (canLand) {
-        game.setPrompt(`Hold ${keymap.keyTag("landUse")} to land`, { hold: landHold / 0.4 });
+        game.setPrompt(`Hold ${keymap.keyTag("landUse")} or ${keymap.keyTag("down")} to land`, { hold: landHold / 0.4 });
       } else if (!overLand) {
         // Only nag about it once he is low enough that he was plainly trying.
         game.setPrompt(agl < 140 ? "No land below — find an island" : null, { blocked: true });
@@ -2874,14 +2930,19 @@ function frame() {
   minimap.setVisible(!game.cine && !document.getElementById("map")?.classList.contains("open"));
   minimap.update(dt, { speed: grounded ? 0 : (controls?.getSpeed?.() ?? 0), flying: !grounded });
 
-  // On foot the camera falls in behind him. Walking with a free-orbit camera
-  // means constantly re-aiming it with the other hand, which is fine in the air
-  // where he flies where he points and wrong on the ground where he doesn't.
+  // On foot the camera is the player's. It used to swing itself round behind
+  // him and pull its own pitch back every frame; with tank steering that saved
+  // re-aiming, but now the keys are camera-relative a camera that moves itself
+  // moves the ground under the keys. So it only drifts in behind him slowly,
+  // while he is going away from it and the mouse has been left alone, and it
+  // levels toward a low, over-the-back angle the same way.
   if (grounded && !game.cine) {
-    const behind = walkYaw + Math.PI;
-    const lookIdleNow = performance.now() - lastLookAt > 900;
-    if (lookIdleNow) camYaw += angleDelta(camYaw, behind + 0.34) * damp(2.2, dt);
-    camPitch += (0.13 - camPitch) * damp(1.6, dt);
+    const idleFor = (performance.now() - lastLookAt) / 1000;
+    const ramp = THREE.MathUtils.clamp(idleFor - 1.5, 0, 1);
+    const away = Math.max(0, Math.cos(angleDelta(camYaw + Math.PI, walkYaw)));
+    const moving = THREE.MathUtils.clamp(groundBody.speed / WALK_SPEED, 0, 1);
+    camYaw += angleDelta(camYaw, walkYaw + Math.PI) * damp(0.9 * ramp * away * away * moving, dt);
+    camPitch += (0.06 - camPitch) * damp(1.2 * ramp, dt);
   }
 
   if (dragon) {
@@ -2982,7 +3043,10 @@ function frame() {
 
     // 2. Speed drives boom length and FOV — a function of throttle only, so it
     //    never depends on which way he's pointing.
-    const dist = grounded ? 15 : tuning.distBase + DIST_SPEED * speedT;
+    // On foot: closer and lower than it was (15 m back, 3.4 m up, looking
+    // down on a small dark shape on dark grass), so he fills the frame and the
+    // ground ahead of him is in it.
+    const dist = grounded ? 10.5 : tuning.distBase + DIST_SPEED * speedT;
 
     const wantFov = fovForAspect(
       tuning.fovBase + FOV_SPEED_GAIN * speedT * speedT
@@ -2995,7 +3059,7 @@ function frame() {
     //    from him and stop at the first thing in the way. Sampling the height
     //    field along the arm is enough — the occluders out here are the island
     //    and the sea stacks, and both of them ARE the height field.
-    const lift = grounded ? 3.4 : 2;
+    const lift = grounded ? 1.8 : 2;
     boomDir.set(
       Math.cos(camPitch) * Math.sin(camYaw),
       Math.sin(camPitch),

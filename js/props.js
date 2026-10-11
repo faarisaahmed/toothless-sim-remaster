@@ -42,10 +42,16 @@ function slots() {
     skin:      new THREE.MeshStandardMaterial({ color: 0xb98a6e, roughness: 0.72, metalness: 0 }),
     leather:   M(tex.fur({ tint: [52, 36, 26] }), { repeat: 1.6, roughness: 0.62, bumpScale: 0.04 }),
 
-    // Iron is the one surface that wants to be smooth and a little metallic —
-    // it is the thing the whole story is about and it should read as machined
-    // next to all this splintery wood.
-    iron: new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.44, metalness: 0.85 }),
+    // Iron: the hunters' wrought iron, black and rusting. It used to be smooth
+    // and highly metallic so it would read as machined, but a mirror that
+    // dark is all reflection — it took the sky's blue off the environment and
+    // every cage came out navy plastic. Rough and only half metal, it reads as
+    // iron by its colour and its rust instead.
+    iron: (() => {
+      const m = M(tex.iron(), { repeat: 1.2, roughness: 0.72, bumpScale: 0.05 });
+      m.metalness = 0.45;
+      return m;
+    })(),
 
     // Ember is made emissive here so a model only has to tag which faces glow.
     ember: new THREE.MeshStandardMaterial({

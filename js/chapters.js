@@ -75,8 +75,21 @@ export const SITES = {
   sigrun: V(chart(2200), 0, chart(2000)),
 };
 
-/** How close a sleepfire burst has to be to burn a cage's lock. */
-const CAGE_BURN_R = 46;
+/** How close a sleepfire burst has to be to burn a cage's lock. It was 46 m,
+ *  which meant hovering on top of each cage; at this it is a pass over a row. */
+const CAGE_BURN_R = 80;
+
+/** The nearest cage still shut, for the waypoint — so the next one is always
+ *  a heading rather than a search of the deck. */
+function nearestShut(list, p) {
+  let best = null, bd = Infinity;
+  for (const x of list) {
+    if (x.open) continue;
+    const d = x.pos.distanceToSquared(p);
+    if (d < bd) { bd = d; best = x; }
+  }
+  return best;
+}
 
 // ---------------------------------------------------------------------------
 // Chapters: how the beats below are grouped for the player.
@@ -382,28 +395,20 @@ export function mission1(ctx) {
     {
       id: "rig-look",
       objective: "Get a look at the cages.",
-      sub: "Stay out of sight. Watch for <b>?</b> — and never be the <b>!</b>",
+      sub: "Fly in over the pit. Watch the men — <b>?</b> is curious, <b>!</b> throws.",
       enter(g) {
         g.setWaypoint(SITES.rig.clone().setY(RIG.y + 40), "The cages");
         music.play("tension", { fade: 4 });
         this._t = 0;
-        // The way in that works, said once: the open sky over the pit is the
-        // one place every tower is looking (terrain.js pitPaths).
-        setTimeout(() => g.toast("Wooded gullies run down into the pit. Land outside the rim and go in on foot.", 4200), 2500);
       },
+      // Get over the pit and look. This used to be four seconds held inside
+      // 200 m with the clock reset by any alarm, and the advice was to land
+      // outside and walk in — a stealth section bolted onto a flying game.
       update(dt, g, c) {
-        const h = c.hunters;
-        const d = game.flatDist(SITES.rig);
-        if (h && h.alarm > 0) {
-          this._t = 0;
-          g.setObjective(this.objective, "They've seen you. Get into the trees and let them settle.");
-          return;
-        }
-        if (d < 200) this._t += dt;
-        g.setObjective(this.objective, this._t > 0
-          ? `Hold there... ${Math.min(100, Math.round(this._t / 4 * 100))}%` : this.sub);
+        if (game.flatDist(SITES.rig) < 450) this._t += dt;
+        g.setObjective(this.objective, this.sub);
       },
-      done() { return this._t > 4; },
+      done() { return this._t > 1.2; },
       exit(g) { player.flag("sawTheCages"); g.toast("Dozens of them.", 1800); },
     },
 
@@ -740,15 +745,20 @@ export function mission1(ctx) {
     // know is the ship that comes in tonight.
     {
       id: "recon",
-      objective: "Learn the pit.",
-      sub: "Mark the towers, the cage ring and the dock — without being seen.",
+      objective: "Scout the pit.",
+      sub: "Fly over the towers, the cage ring and the dock.",
       enter(g, c) {
         c.npc?.atStack();
         const m = c.rig?.marks;
+        // A flyover, not a stealth test. It used to want 2.5 s hanging still
+        // inside 150 m of each mark with no alarm up, and an alarm bled the
+        // progress back out — three hovers over a deck of bola throwers, after
+        // chapter III had already made him do the same thing once. Passing
+        // over a mark marks it now; being seen costs what it costs in the air.
         this._marks = m ? [
-          { label: "the towers", at: m.towers, t: 0, done: false, r: 160 },
-          { label: "the cage ring", at: m.cageRing, t: 0, done: false, r: 150 },
-          { label: "the dock", at: m.dock, t: 0, done: false, r: 150 },
+          { label: "the towers", at: m.towers, done: false, r: 320 },
+          { label: "the cage ring", at: m.cageRing, done: false, r: 300 },
+          { label: "the dock", at: m.dock, done: false, r: 300 },
         ] : [];
         this._point(g);
       },
@@ -757,21 +767,14 @@ export function mission1(ctx) {
         g.setWaypoint(next ? next.at.clone().setY(next.at.y + 60) : null, next ? next.label : "");
       },
       update(dt, g, c) {
-        const alarm = c.hunters?.alarm > 0;
         for (const m of this._marks) {
-          if (m.done) continue;
-          if (game.flatDist(m.at) < m.r && !alarm) m.t += dt;
-          else m.t = Math.max(0, m.t - dt);
-          if (m.t > 2.5) {
-            m.done = true;
-            g.toast(`Marked: ${m.label}.`, 1400);
-            this._point(g);
-          }
+          if (m.done || game.flatDist(m.at) > m.r) continue;
+          m.done = true;
+          g.toast(`Marked: ${m.label}.`, 1400);
+          this._point(g);
         }
         const n = this._marks.filter((x) => x.done).length;
-        g.setObjective(this.objective, alarm
-          ? "Seen — get into the dark and wait for them to settle."
-          : `${this.sub} · ${n} of 3`);
+        g.setObjective(this.objective, `${this.sub} · ${n} of 3`);
       },
       done() { return this._marks.length && this._marks.every((x) => x.done); },
       async exit(g, c) {
@@ -853,12 +856,18 @@ export function mission1(ctx) {
             for (const c of near) c.release();
             g.toast(near.length > 1 ? `${near.length} open.` : "Open.", 1100);
           } else {
-            g.toast("Too far. Get in among the cages.", 1600);
+            const nx = nearestShut(rig.cages, p);
+            g.toast(nx ? `Too far — ${Math.round(p.distanceTo(nx.pos))} m. Get closer.` : "Too far.", 1600);
           }
         }
 
         g.setObjective(this.objective,
           `${rig.cages.filter((x) => x.open).length} of ${rig.cages.length} open`);
+        const next = nearestShut(rig.cages, p);
+        if (next && next !== this._aimed) {
+          this._aimed = next;
+          g.setWaypoint(next.pos.clone().add(V(0, 20, 0)), "Cage");
+        }
       },
       done(g, c) {
         const rig = c.rig;
@@ -956,7 +965,8 @@ export function mission1(ctx) {
         }
         if (this._tries >= 3) g.setObjective(this.objective, "Nothing works. Outside, a lantern goes out.");
       },
-      done() { return this._tries >= 3 && this._t > 9 || this._t > 26; },
+      // "Slightly too long" was up to 26 s of nothing; the point lands in less.
+      done() { return this._tries >= 3 && this._t > 4 || this._t > 12; },
       exit(g, c) { c.setInteract(null); },
       beat: 800,
     },
@@ -1006,8 +1016,8 @@ export function mission1(ctx) {
       },
       _left(c) { return (c.rig?.terraceCages || []).filter((x) => !x.open); },
       _point(g, c) {
-        const left = this._left(c);
-        g.setWaypoint(left.length ? left[0].pos.clone().add(V(0, 20, 0)) : null, "Cages");
+        const next = nearestShut(this._left(c), c.getPosition());
+        g.setWaypoint(next ? next.pos.clone().add(V(0, 20, 0)) : null, "Cage");
       },
       update(dt, g, c) {
         const p = c.getPosition();
