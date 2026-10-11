@@ -296,6 +296,7 @@ export function bindDragon(root) {
     bone.rotation[axis] += delta;
   }
 
+  let tailCurl = 0;        // rad of sideways bend, spread down the whole tail
   let fold = 1;            // 0 spread .. 1 folded
   let foldTarget = 1;
   // Closing is a settle and wants to be unhurried; opening happens as he leaps
@@ -436,6 +437,9 @@ export function bindDragon(root) {
       const wave = Math.sin(phase * 0.7 - k * 2.2) * (0.02 + 0.05 * moveAmt);
       set(tail[i], "y", wave);
       add(tail[i], "x", Math.sin(phase * 0.45 - k * 1.6) * 0.012);
+      // A curl on top, shared evenly so it bends as an arc rather than at
+      // one joint — a tail that cannot bend cannot turn round in a room.
+      if (tailCurl) add(tail[i], "y", tailCurl / tail.length);
     }
   }
 
@@ -445,6 +449,10 @@ export function bindDragon(root) {
     /** 1 = wings folded against the body, 0 = fully spread. */
     setFold(v) { foldTarget = THREE.MathUtils.clamp(v, 0, 1); },
     getFold() { return fold; },
+    /** Bend the whole tail sideways by `rad`, summed down the chain. */
+    setTailCurl(rad) { tailCurl = rad; },
+    /** The tail chain, root first, for anyone who needs to know where it is. */
+    tailBones: tail,
     /** Snap rather than ease — for the first frame after load. */
     snapFold(v) {
       foldTarget = fold = THREE.MathUtils.clamp(v, 0, 1);

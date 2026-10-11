@@ -47,7 +47,9 @@ const OBJECTS = [
   },
   {
     id: "hiccup", label: "Hiccup",
-    pos: [-3.6, 0.55, -5.4], radius: 2.6, face: 2.6,
+    // Face from the room side. 2.6 put the camera behind the bed against the
+    // back wall, where the room clamp pinned it looking through his head.
+    pos: [-3.6, 0.55, -5.4], radius: 3.0, face: 0.9, pitch: 0.2, dist: 3.0,
     note: "",
   },
   {
@@ -393,6 +395,23 @@ export function runPrologue(pad = null, save = null) {
       // way too. This export's does not, which is what made W walk him
       // tail-first. Measured off the skeleton rather than hard-coded.
       if (noseSign(rig) < 0) rig.rotation.y += Math.PI;
+
+      // Where his tail is, in the body's frame, and which way a curl takes it.
+      if (pose.tailBones?.length) {
+        const tip = () => {
+          body.updateMatrixWorld(true);
+          const t = pose.tailBones[pose.tailBones.length - 1].getWorldPosition(new THREE.Vector3());
+          return body.worldToLocal(t);
+        };
+        const root = body.worldToLocal(pose.tailBones[0].getWorldPosition(new THREE.Vector3()));
+        const straight = tip();
+        TAIL.root = root.z;
+        TAIL.len = Math.max(0.8, root.distanceTo(straight) * 1.1);
+        pose.tailBones.forEach((b) => { b.rotation.y += 0.6 / pose.tailBones.length; });
+        TAIL.sign = tip().x >= straight.x ? 1 : -1;
+        pose.tailBones.forEach((b) => { b.rotation.y -= 0.6 / pose.tailBones.length; });
+      }
+      window.__pro = { pose, body, TAIL, get curl() { return tailCurl; } };
     }).catch((e) => console.warn("prologue: no dragon model", e));
 
     // --- Hiccup -------------------------------------------------------------
@@ -424,9 +443,11 @@ export function runPrologue(pad = null, save = null) {
     let elapsed = 0;
 
     // --- His body, for collision ----------------------------------------
-    // Circles down his spine, nose to tail: 3.4 m of dragon, not a point.
-    // The tail tip is thin and allowed to brush past things.
-    const SPINE = [[1.5, 0.42], [0.85, 0.55], [0.15, 0.58], [-0.6, 0.5], [-1.3, 0.3]];
+    // Circles down his spine, nose to hips. The tail is not in here: it
+    // bends (below), so it gets out of the way instead of pinning him — with
+    // it in, any turn near the bed swung a rigid 3.4 m plank into it and was
+    // refused, and he wedged in the corner by Hiccup.
+    const SPINE = [[1.5, 0.42], [0.85, 0.55], [0.15, 0.58], [-0.6, 0.5]];
     const WALL_IN = 0.32;        // the stone plinth stands proud of the boards
     // Furniture he cannot walk through: [x, z, halfX, halfZ] boxes (room frame).
     const SOLID = [
@@ -435,16 +456,55 @@ export function runPrologue(pad = null, save = null) {
       [ROOM.w / 2 - 0.55, 4.4, 0.45, 1.05],    // work table
       [ROOM.w / 2 - 0.85, ROOM.d / 2 - 1.2, 0.85, 1.2],   // barrels and crates
     ];
+    function free(px, pz, r) {
+      if (Math.abs(px) > ROOM.w / 2 - WALL_IN - r || Math.abs(pz) > ROOM.d / 2 - WALL_IN - r) return false;
+      if (Math.hypot(px - hearth.position.x, pz - hearth.position.z) < 1.3 + r) return false;
+      for (const [bx, bz, hx, hz] of SOLID) {
+        const dx = Math.max(Math.abs(px - bx) - hx, 0), dz = Math.max(Math.abs(pz - bz) - hz, 0);
+        if (dx * dx + dz * dz < r * r) return false;
+      }
+      return true;
+    }
     function fits(x, z, y) {
       const sx = Math.sin(y), sz = Math.cos(y);
-      for (const [d, r] of SPINE) {
-        const px = x + sx * d, pz = z + sz * d;
-        if (Math.abs(px) > ROOM.w / 2 - WALL_IN - r || Math.abs(pz) > ROOM.d / 2 - WALL_IN - r) return false;
-        if (Math.hypot(px - hearth.position.x, pz - hearth.position.z) < 1.3 + r) return false;
-        for (const [bx, bz, hx, hz] of SOLID) {
-          const dx = Math.max(Math.abs(px - bx) - hx, 0), dz = Math.max(Math.abs(pz - bz) - hz, 0);
-          if (dx * dx + dz * dz < r * r) return false;
-        }
+      for (const [d, r] of SPINE) if (!free(x + sx * d, z + sz * d, r)) return false;
+      return true;
+    }
+
+    // --- The tail ---------------------------------------------------------
+    // An arc from his hips, bent by `curl` radians in total, sampled as a few
+    // circles. Its root and length are measured off the bones once the model
+    // is in (TAIL below), along with which way a positive curl bends it.
+    const TAIL = { root: -0.7, len: 1.7, sign: 1 };
+    const TAIL_STEPS = 6;
+    function tailFits(x, z, y, curl) {
+      const sx = Math.sin(y), sz = Math.cos(y);
+      // Body frame: +z forward, +x to his side. The tail runs out along -z.
+      let lx = 0, lz = TAIL.root, a = 0;
+      const ds = TAIL.len / TAIL_STEPS;
+      for (let i = 1; i <= TAIL_STEPS; i++) {
+        a = curl * (i - 0.5) / TAIL_STEPS;
+        lx += Math.sin(a) * ds;
+        lz -= Math.cos(a) * ds;
+        const r = 0.28 - 0.16 * i / TAIL_STEPS;
+        if (!free(x + lx * sz + lz * sx, z - lx * sx + lz * sz, r)) return false;
+      }
+      return true;
+    }
+    let tailCurl = 0;
+    let lastYaw = Math.PI;
+
+    // Furniture heights, matched by index to SOLID, for the camera: it may
+    // look over the top of a thing but not sit inside it.
+    const SOLID_H = [1.0, 1.45, 1.05, 1.35];
+    const _camFrom = new THREE.Vector3(), _camTo = new THREE.Vector3(), _camP = new THREE.Vector3();
+    let camClear = 1;
+    function camFree(p) {
+      const m = 0.35;
+      if (Math.abs(p.x) > ROOM.w / 2 - WALL_IN - m || Math.abs(p.z) > ROOM.d / 2 - WALL_IN - m) return false;
+      for (let i = 0; i < SOLID.length; i++) {
+        const [bx, bz, hx, hz] = SOLID[i];
+        if (p.y < SOLID_H[i] + 0.25 && Math.abs(p.x - bx) < hx + 0.25 && Math.abs(p.z - bz) < hz + 0.25) return false;
       }
       return true;
     }
@@ -570,12 +630,22 @@ export function runPrologue(pad = null, save = null) {
       // movement should say so: slow top speed, long ramp, no strafe.
       if (!ending && !studying) {
         const turn = input.axis("turnL", "turnR", "lx");
-        const walk = input.axis("back", "forward", "ly");
+        const walk = input.axis("reverse", "forward", "ly");
 
         // Turning swings his head and hindquarters: refuse a turn that would
         // put either through a wall or the furniture.
         const wantYaw = yaw - turn * 2.2 * dt;
-        if (fits(body.position.x, body.position.z, wantYaw)) yaw = wantYaw;
+        const P = body.position;
+        if (fits(P.x, P.z, wantYaw) || !fits(P.x, P.z, yaw)) yaw = wantYaw;
+        else if (Math.abs(turn) > 0.01) {
+          // Blocked: shuffle. A real animal backs or side-steps a little to
+          // come round, so try a short step every way before refusing.
+          for (const [f, sd] of [[-0.12, 0], [0.12, 0], [0, 0.12], [0, -0.12], [-0.24, 0], [-0.12, 0.12], [-0.12, -0.12]]) {
+            const nx = P.x + Math.sin(wantYaw) * f + Math.cos(wantYaw) * sd;
+            const nz = P.z + Math.cos(wantYaw) * f - Math.sin(wantYaw) * sd;
+            if (fits(nx, nz, wantYaw)) { P.x = nx; P.z = nz; yaw = wantYaw; break; }
+          }
+        }
 
         if (Math.abs(walk) > 0.01) {
           // A walk, not a trot: it is one room, lit by one fire.
@@ -585,7 +655,8 @@ export function runPrologue(pad = null, save = null) {
           const nz = body.position.z + Math.cos(yaw) * step;
           // His whole body has to fit, not his middle: try the move, and if it
           // is blocked, slide along whatever is in the way.
-          if (fits(nx, nz, yaw)) { body.position.x = nx; body.position.z = nz; }
+          // (Already wedged? Then any move is allowed — it can only get him out.)
+          if (fits(nx, nz, yaw) || !fits(body.position.x, body.position.z, yaw)) { body.position.x = nx; body.position.z = nz; }
           else if (fits(nx, body.position.z, yaw)) body.position.x = nx;
           else if (fits(body.position.x, nz, yaw)) body.position.z = nz;
           // Footfalls: a low thump on a slow cadence, scaled by how fast he's
@@ -596,6 +667,22 @@ export function runPrologue(pad = null, save = null) {
         }
       }
       body.rotation.y = yaw;
+
+      // The tail lags a turn — swinging out to the side he is turning from —
+      // and bends away from whatever it would otherwise go through.
+      {
+        const yawRate = (((yaw - lastYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI) / Math.max(dt, 1e-4);
+        lastYaw = yaw;
+        const want = THREE.MathUtils.clamp(yawRate * 0.45, -1.4, 1.4);
+        let best = want, bestD = Infinity;
+        for (let c = -2.4; c <= 2.41; c += 0.2) {
+          const d = Math.abs(c - want);
+          if (d < bestD && tailFits(body.position.x, body.position.z, yaw, c)) { best = c; bestD = d; }
+        }
+        if (bestD === Infinity) best = tailCurl;   // nowhere is clear: hold still
+        tailCurl += (best - tailCurl) * damp(5, dt);
+        pose?.setTailCurl?.(tailCurl * TAIL.sign);
+      }
       window.__proDbg = { x: body.position.x, z: body.position.z, yaw };
 
       // Ground speed from actual displacement rather than from input, so the
@@ -732,8 +819,8 @@ export function runPrologue(pad = null, save = null) {
 
       if (studying) {
         targetYaw = studying.face;
-        targetDist = 2.9;
-        pitch = 0.10;
+        targetDist = studying.dist ?? 2.9;
+        pitch = studying.pitch ?? 0.10;
       }
 
       camYaw += (((targetYaw - camYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * damp(6.5, dt);
@@ -753,10 +840,30 @@ export function runPrologue(pad = null, save = null) {
         focusY + 0.95 + camDist * Math.sin(camPitch),
         focusZ + Math.cos(camYaw) * flat
       );
-      // Never let the camera get outside the house or inside the floor.
-      camera.position.x = THREE.MathUtils.clamp(camera.position.x, -ROOM.w / 2 + 0.4, ROOM.w / 2 - 0.4);
-      camera.position.z = THREE.MathUtils.clamp(camera.position.z, -ROOM.d / 2 + 0.4, ROOM.d / 2 - 0.4);
-      camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.7, ROOM.h - 0.4);
+      // Never let the camera get outside the house, inside the floor, or
+      // behind the furniture. It used to clamp each axis to the walls, which
+      // slid it sideways along the wall and down behind the bed, with him out
+      // of shot. Now it comes IN along its own line to him until the line is
+      // clear, and rises a little when that leaves it crowded.
+      {
+        _camFrom.set(focusX, focusY + 0.95, focusZ);
+        _camTo.copy(camera.position);
+        // Blocked samples before the first clear one are the thing being
+        // looked AT (Hiccup is in his bed), not something in the way.
+        let clear = 1, out = false;
+        for (let k = 1; k <= 24; k++) {
+          const t = k / 24;
+          _camP.lerpVectors(_camFrom, _camTo, t);
+          const ok = camFree(_camP);
+          if (ok) out = true;
+          else if (out) { clear = (k - 1) / 24; break; }
+        }
+        // In fast (never into a wall for a frame), out slowly (no pumping).
+        camClear += (clear - camClear) * (clear < camClear ? 1 : damp(2, dt));
+        camera.position.lerpVectors(_camFrom, _camTo, Math.max(0.12, camClear));
+        camera.position.y += (1 - camClear) * 0.9;
+        camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.7, ROOM.h - 0.4);
+      }
       camera.lookAt(focusX, focusY, focusZ);
       // Debug: window.__proPin = { from: [x,y,z], look: [x,y,z] } pins the camera.
       if (window.__proPin) {
