@@ -43,14 +43,14 @@ const sstep = (x, a, b) => { const t = clamp((x - a) / (b - a), 0, 1); return t 
 const ICE_ISLANDS = {
   // An island under an ice cap, the outlets reaching the sea in the fjords.
   "Glacier Island": {
-    ela: 360,            // equilibrium line: firn above, bare ice below
-    capBed: [140, 360],  // smoothed bed height over which the cap thickens in
-    capCoast: [250, 2200], // metres from the sea over which it thickens in
-    capT: 150,           // full cap thickness
+    ela: 250,            // equilibrium line: firn above, bare ice below
+    capBed: [60,260],  // smoothed bed height over which the cap thickens in
+    capCoast: [60,900], // metres from the sea over which it thickens in
+    capT: 260,           // full cap thickness
     minCatch: 120,       // cells of catchment before ice counts as a glacier
     reach: 3.2,          // how far below the ELA a glacier runs, in its own widths
     reachMin: 900,
-    widthK: 0.32, widthMin: 130, widthMax: 900,
+    widthK: 0.32, widthMin: 130, widthMax: 650,
   },
   // A volcano with ice on its summit, and a few short glaciers off it that
   // die on the mountainside in their own moraine.
@@ -133,6 +133,10 @@ function buildOne(isl, P, bedAt, noise2, fronts) {
     // Vialov: thickness goes as a root of distance from the margin — steep
     // at the edge, flat on top.
     T[k] = P.capT * Math.pow(m * c, 0.7);
+    // Ice thins over the bed's highs — it flows off them — so the crests of
+    // the ridges under the cap stand out of it as nunataks instead of being
+    // buried under one even blanket.
+    T[k] *= 1 - sstep(B[k] - Bss[k], 45, 140);
   }
   // The ice surface the flow runs on.
   const S = new Float32Array(N);
@@ -437,16 +441,65 @@ function buildOne(isl, P, bedAt, noise2, fronts) {
     const gx = (SURF[k + 1] - SURF[k - 1]) / (2 * CELL), gz = (SURF[k + n] - SURF[k - n]) / (2 * CELL);
     if (isG(k + 1) && isG(k - 1) && isG(k + n) && isG(k - n)) CREV[k] = Math.max(CREV[k], sstep(Math.hypot(gx, gz), 0.12, 0.28));
   }
-  const G = ramp(SURF, 0.12);
+  const G = ramp(SURF, 0.22);
+
+  // The glaciers on their own, before the cap is filled in round them: the
+  // valley walls are cut down to THIS surface wherever they stand, cap or
+  // not. Without it the cap's cells kept their rock at full height right up
+  // to an outlet's edge, and a 700 m wall stood where the two met.
+  const GIN = IN.slice();
+  const GS = new Float32Array(N);
+  for (let k = 0; k < N; k++) GS[k] = wsum[k] > 0 ? SURF[k] : -9999;
+
+  // The glacier surface carried well out past its margins (the walls reach
+  // ~0.8 of their height out from the edge), copying the cap's own fixes:
+  // GS stays a glacier's surface rather than the cap's, and GIN its distance.
+  for (let k = 0; k < N; k++) if (GIN[k] === NONE_IN) GIN[k] = -1e4;
+  for (let k = 0; k < N; k++) if (GS[k] === -9999) GIN[k] = Math.min(GIN[k], -1e4);
+  {
+    // Nearest-glacier surface by chamfer, so the walls far from an outlet
+    // still know which ice they come down to.
+    const far = new Float32Array(N);
+    for (let k = 0; k < N; k++) far[k] = GS[k] !== -9999 ? 0 : 1e9;
+    const sweep = (fw) => {
+      const js = fw ? [1, n - 1, 1] : [n - 2, 0, -1];
+      for (let j = js[0]; fw ? j < js[1] : j > js[1]; j += js[2]) {
+        for (let i = fw ? 1 : n - 2; fw ? i < n - 1 : i > 0; i += fw ? 1 : -1) {
+          const k = idx(i, j);
+          const nb = fw ? [k - 1, k - n, k - n - 1, k - n + 1] : [k + 1, k + n, k + n + 1, k + n - 1];
+          for (let q = 0; q < 4; q++) {
+            const kk = nb[q], L = q < 2 ? a1 : a2;
+            if (far[kk] + L < far[k]) { far[k] = far[kk] + L; GS[k] = GS[kk]; }
+          }
+        }
+      }
+    };
+    sweep(true); sweep(false); sweep(true);
+    for (let k = 0; k < N; k++) {
+      if (GS[k] === -9999) { GS[k] = B[k]; continue; }
+      if (far[k] > 0) GIN[k] = Math.min(GIN[k] > -1e3 ? GIN[k] : -far[k], -far[k] * 0.999);
+    }
+  }
+
+  // The bed as the glaciers left it: the same wall iceGround() cuts per
+  // sample, on the raster, so the cap is laid over the valleys the outlets
+  // cut and not over the rock that used to be there.
+  const BC = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    const d = B[k] - GS[k];
+    BC[k] = d > 0 && GIN[k] > -1200 ? B[k] - d * sstep(GIN[k], -3 - 0.85 * d, 6) : B[k];
+  }
 
   // The cap fills in round the glaciers. A glacier keeps its own surface —
   // the cap is drawn down to it (G above), never the other way round, or a
   // trunk running through high ground is lifted back up out of its valley.
   for (let k = 0; k < N; k++) {
     if (T[k] < 4 || isG(k)) continue;
-    let capS = Math.max(B[k], 0) + T[k] + (Bss[k] - Math.max(B[k], 0)) * sstep(T[k], 25, P.capT * 0.75);
+    const bk = Math.max(BC[k], 0);
+    const t = T[k];
+    let capS = bk + t + (Bss[k] - bk) * sstep(t, 25, P.capT * 0.75);
     // Drawn down toward the outlets, but never thinner than a skin.
-    capS = Math.max(Math.min(capS, G[k]), Math.max(B[k], 0) + Math.min(T[k], 12));
+    capS = Math.max(Math.min(capS, G[k]), bk + Math.min(t, 35));
     const capIn = clamp((T[k] - 10) * 5, -200, 200);
     if (capIn > IN[k] || SURF[k] === -9999) {
       SURF[k] = capS; CAP[k] = 1; IN[k] = Math.max(IN[k], capIn);
@@ -471,7 +524,7 @@ function buildOne(isl, P, bedAt, noise2, fronts) {
   }
   for (let k = 0; k < N; k++) if (SURF[k] === -9999) SURF[k] = B[k] - 60;
 
-  return { name: isl.name, x0, z0, n, cell: CELL, ela: P.ela, IN, SURF, SA, U, MED, CREV, CAP };
+  return { name: isl.name, x0, z0, n, cell: CELL, ela: P.ela, IN, SURF, SA, U, MED, CREV, CAP, GIN, GS };
 }
 
 /**
@@ -553,7 +606,7 @@ function blur(src, n, r) {
 
 // --- Sampling ---------------------------------------------------------------------
 
-const _s = { inside: NONE_IN, surf: 0, s: 0, u: 0, med: 9, crev: 0, cap: 0, ela: 0 };
+const _s = { inside: NONE_IN, surf: 0, s: 0, u: 0, med: 9, crev: 0, cap: 0, ela: 0, gin: NONE_IN, gs: 0 };
 
 /** Bilinear read of one field's arrays at (x, z); null outside every field. */
 export function sampleIce(fields, x, z) {
@@ -569,13 +622,16 @@ export function sampleIce(fields, x, z) {
       return a + (b - a) * tz;
     };
     const inside = bl(f.IN);
-    if (inside < -120) return null;
+    const gin = bl(f.GIN);
+    if (inside < -120 && gin < -1200) return null;
     _s.inside = inside;
     _s.surf = bspline(f.SURF, n, i, j, tx, tz);
     _s.s = bl(f.SA);
     _s.u = bl(f.U);
     _s.crev = bl(f.CREV);
     _s.cap = bl(f.CAP);
+    _s.gin = gin;
+    _s.gs = bl(f.GS);
     // Medial moraine position is a label, not a quantity: nearest, not mixed.
     _s.med = f.MED[k + (tz > 0.5 ? n : 0) + (tx > 0.5 ? 1 : 0)];
     _s.ela = f.ela;
@@ -626,15 +682,25 @@ export function iceWeight(inside) { return sstep(inside, -3, 9); }
  * the rock is lower (the sea, under a tongue), the ice ends in a cliff.
  */
 export function iceGround(s, h) {
-  const d = h - s.surf;
+  // 1. The glaciers cut their valleys: rock standing above a glacier's surface
+  //    comes down to it in a wall about fifty degrees steep — the U — however
+  //    far up the side that takes it (gin is the distance in from the glacier's
+  //    edge, negative outside it). Under the glacier, the ice is the ground.
+  let g = h;
+  if (s.gin > -1200) {
+    const d = h - s.gs;
+    const wG = d > 0 ? sstep(s.gin, -3 - 0.85 * d, 6)
+      // Lower than the ice (the sea under a tongue, a hollow): on land the
+      // ice edge comes down to the ground at about forty-five degrees; over
+      // water it ends as a cliff.
+      : sstep(s.gin, -2, 6 + (h > 0 ? -d * 0.9 : 0));
+    g = h + (s.gs - h) * wG;
+  }
+  // 2. The cap lies over what is left, and whatever rock stands higher than
+  //    its surface stands out of it: nunataks.
+  if (s.cap <= 0.001) return g;
   const wCap = sstep(s.inside, -3, 9);
-  const capH = h + (Math.max(h, s.surf) - h) * wCap;
-  if (s.cap > 0.999) return capH;
-  // Over the sea the edge is a calving cliff; on land a glacier's edge comes
-  // down to the ground it overhangs at about forty-five degrees, never as a
-  // wall of ice the height of the valley beside it.
-  const wG = d > 0 ? sstep(s.inside, -3 - 0.55 * d, 6)
-    : sstep(s.inside, -2, 6 + (h > 0 ? -d * 0.9 : 0));
-  const gH = h + (s.surf - h) * wG;
-  return gH + (capH - gH) * s.cap;
+  const capH = g + (Math.max(g, s.surf) - g) * wCap;
+  return g + (capH - g) * s.cap;
 }
+
