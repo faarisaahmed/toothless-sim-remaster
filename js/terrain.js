@@ -13,6 +13,8 @@ import {
   HARBOUR, STATUES, HEADLANDS, MOUNTAIN, ROCK, SEA_STACKS, HALL, STAIR, STREAM, VILLAGE, PLOTS, PATHS,
   placeVillage, harbourSpine, segDist,
 } from "./berklayout.js";
+import { buildGlaciers, sampleIce, iceWeight, iceGround } from "./glaciers.js";
+import { findWater, makeCarver } from "./hydrology.js";
 
 export const SEA_LEVEL = 0;
 export const SEA_FLOOR = -190;
@@ -377,10 +379,12 @@ const RAW_ISLANDS = [
     fjords: [[2.6, 140, 0, 0.35]] },
 
   // --- West ---------------------------------------------------------------
-  { name: "Glacier Island", x: -4000, z: 350, r: 1150, h: 780, cliff: 0.14,
+  // Ice-worn rather than wave-cut: the sheer band is wider and the strata
+  // fainter than on the basalt islands, because the ice has had them.
+  { name: "Glacier Island", x: -4000, z: 350, r: 1150, h: 780, cliff: 0.24,
     elong: 0.62, rot: 1.35, lobe: 0.2, lobeK: 1.0, dome: 0.6,
-    relief: 1.1, terrace: 0.35, shelfW: 0.22, beach: 0.08, bare: 1.0,
-    fjords: [[0.1, 190, 0.2, 0.15], [3.2, 170, 0, 0.3]], snow: 300 },
+    relief: 1.0, terrace: 0.12, scree: 0.7, shelfW: 0.22, beach: 0.08, bare: 1.0,
+    fjords: [[0.1, 190, 0.2, 0.15], [3.2, 170, 0, 0.3]], snow: 150 },
 
   { name: "Bog-Burglar Island", x: -4100, z: -1350, r: 750, h: 360, cliff: 0.28,
     elong: 0.64, rot: 0.85, lobe: 0.3, lobeK: 1.3, dome: 0.35,
@@ -1005,6 +1009,13 @@ export { padWeight };
 let PIT_TREAD = 0, PIT_RELIEF = 0;
 // The old ways into the pit (see pitPaths, below): null until they are built.
 let PATH_GRID = null;
+// Rivers, lakes and the hollows silted up on their way (hydrology.js, built
+// at the bottom of the file): null until they are, so they are found on the
+// ground as generated.
+let WATER_CARVE = null;
+// The ice rasters (glaciers.js, built at the bottom of the file): null until
+// they are, so the ice is worked out on the bare ground.
+let ICE_FIELDS = null;
 
 export function terrainHeight(x, z) {
   PIT_RELIEF = 0;
@@ -1357,6 +1368,14 @@ export function terrainHeight(x, z) {
   // lift every beach, dock, boat and building that places.js has already stood
   // on the ground — this touches water and nothing else, so nothing that was
   // placed on land can move.
+  // Glaciers and ice caps (glaciers.js): the ice surface where there is ice,
+  // with the rock standing out of it wherever the rock is higher. After the
+  // shore bench, so a calving front is a cliff and not planed to a beach.
+  if (ICE_FIELDS) {
+    const s = sampleIce(ICE_FIELDS, x, z);
+    if (s) h = iceGround(s, h);
+  }
+
   // The pit's rough ground (see the crater carving above).
   if (PIT_RELIEF !== 0) h += PIT_RELIEF;
   // ...and the wooded gorges cut down through it at a walking grade.
@@ -1374,6 +1393,9 @@ export function terrainHeight(x, z) {
 
   // Berk's harbour, village and hall, worked into the natural ground.
   if (x > BKX0 && x < BKX1 && z > BKZ0 && z < BKZ1) h = berkShape(x, z, h);
+
+  // Running water: the channels, and the hollows on the rivers silted flat.
+  if (WATER_CARVE) h = WATER_CARVE.carve(x, z, h);
 
   // Levelled ground, last, so nothing above can put a stratum or a crag
   // through the middle of a village.
@@ -1958,6 +1980,33 @@ export function pitWood(x, z) {
 buildPitPaths();
 
 // ---------------------------------------------------------------------------
+// Ice (glaciers.js). Worked out from the finished ground, with the ice off
+// while it is — the bed is what the ice lies on.
+// ---------------------------------------------------------------------------
+const ICE = buildGlaciers(ISLANDS, terrainHeight, noise2);
+ICE_FIELDS = ICE.fields;
+
+/** The raw ice rasters, for the ground material (glaciermat.js). */
+export function iceFields() { return ICE.fields; }
+/** Calving fronts: {x, z, dx, dz, w} where a glacier meets the sea. */
+export function glacierFronts() { return ICE.fronts; }
+/**
+ * What the ice is doing at a ground sample (x, z, h): null where there is
+ * none, else {cover 0..1, firn 0..1, surf, s, u, med, crev, ela}. `cover` is
+ * ice actually at this height — rock standing out of the ice is not ice.
+ */
+export function iceAt(x, z, h) {
+  if (!ICE_FIELDS) return null;
+  const s = sampleIce(ICE_FIELDS, x, z);
+  if (!s) return null;
+  const cover = iceWeight(s.inside) * (1 - smoothstep(h - s.surf, 1.5, 7));
+  if (cover <= 0 && s.inside < -80) return null;
+  s.cover = cover;
+  s.firn = smoothstep(h + noise2(x * 0.003 + 4.4, z * 0.003 - 1.9) * 35, s.ela - 30, s.ela + 50);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers everything downstream shares, so the mesh colours, the trees, the
 // grass and the surf all agree about what a place is.
 // ---------------------------------------------------------------------------
@@ -2102,6 +2151,8 @@ const WOOD_BIAS = -0.45;
 const HOLLOW_CAMP = { x: chart(1700) - 50, z: chart(2550) + 50 };   // SITES.stack, chapters.js
 export function fertility(x, z, h, slope) {
   if (h < SEA_LEVEL + 4 || h > 350) return 0;
+  // Nothing grows in the river or the lake (hydrology.js).
+  if (WATER_CARVE && WATER_CARVE.wet(x, z, h) > 0.97) return 0;
   const isl = islandAt(x, z);
   const bare = isl ? isl.bare : 0.5;
   // Patchiness rides ON TOP of a floor instead of replacing it.
@@ -2131,6 +2182,9 @@ export function fertility(x, z, h, slope) {
   }
   // Cleared for the village: trodden ground, a little grass, no wood.
   f *= 1 - padWeight(x, z) * 0.85;
+  // Nothing grows on a glacier, or on the rubble just off its edge.
+  const ice = iceAt(x, z, h);
+  if (ice) f *= (1 - ice.cover) * smoothstep(-ice.inside, 20, 90);
   // Berk's village has cut most of its wood for timber and fuel: trees in
   // its heart only in clumps, thickening again toward its edges.
   if (x > BKX0 && x < BKX1 && z > BKZ0 && z < BKZ1) f *= 1 - berkThin(x, z);
@@ -2224,3 +2278,53 @@ export function pitLayout(name = "Dragon Hunter Island") {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Inland water (hydrology.js). Found on the finished ground — ice included, so
+// nothing runs on top of a glacier — and then cut into it: every height sample
+// after this line sees the channels and the silted hollows.
+// ---------------------------------------------------------------------------
+const WATER = (() => {
+  const keepOut = (x, z) => {
+    // Berk's village and harbour: Berk has its own burn (berklayout STREAM).
+    const ex = (x - VILLAGE.cx) / (VILLAGE.rx + 220), ez = (z - VILLAGE.cz) / (VILLAGE.rz + 220);
+    if (ex * ex + ez * ez < 1) return true;
+    if (x > BKX0 - 60 && x < BKX1 + 60 && z > BKZ0 - 60 && z < BKZ1 + 60) return true;
+    for (const isl of ISLANDS) {
+      // The hunters' pit and its rim; the camp on the flat stacks.
+      if (isl.crater && Math.hypot(x - isl.x, z - isl.z) < craterR(isl) * 1.3) return true;
+      if (isl.flat && Math.hypot(x - isl.x, z - isl.z) < isl.r * 1.5) return true;
+    }
+    for (const p of PADS) if (Math.abs(x - p.x) < p.r + p.edge + 40 && Math.abs(z - p.z) < p.r + p.edge + 40) return true;
+    for (const p of LEDGES) if (Math.abs(x - p.x) < p.r + p.edge + 30 && Math.abs(z - p.z) < p.r + p.edge + 30) return true;
+    return false;
+  };
+  const wetness = (x, z) => {
+    const isl = islandAt(x, z);
+    if (!isl) return 0.5;
+    // Ice islands are wet with melt; bare lava sheds what little falls on it.
+    return isl.snow ? 0.85 : 1 - 0.75 * (isl.bare ?? 0.3);
+  };
+  const frozen = (x, z, h) => {
+    const ice = typeof iceAt === "function" ? iceAt(x, z, h) : null;
+    if (ice && ice.cover > 0.15) return true;
+    const isl = islandAt(x, z);
+    return !!(isl && isl.snow && h > SNOW_LINE - isl.snow);
+  };
+  const islandKey = (x, z) => islandAt(x, z)?.name ?? "";
+  const W = findWater(terrainHeight, { size: TERRAIN_SIZE, keepOut, wetness, frozen, islandKey });
+  WATER_CARVE = makeCarver(W);
+  return W;
+})();
+
+/**
+ * Rivers, lakes and falls, for the renderer (rivers.js):
+ *   rivers [{pts: [{x, z, y, w, bed}], intoLake, fromLake}]  y the surface, w half-width
+ *   lakes  [{level, x0, z0, s, n, mask, area, depth}]       mask n*n cells of s m
+ *   falls  [{x, z, x1, z1, top, bottom, w, dx, dz, sea}]
+ */
+export function inlandWater() { return WATER; }
+
+/** 0..1: how close (x, z), ground height h, is to the water's edge — banks
+ *  and lake shores, for the ground paint and the trees. */
+export function waterWet(x, z, h) { return WATER_CARVE ? WATER_CARVE.wet(x, z, h) : 0; }

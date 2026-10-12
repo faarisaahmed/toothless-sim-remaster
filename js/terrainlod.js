@@ -144,6 +144,12 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
   // workers finishing in the same frame used to mean two or three 1.6 MB
   // uploads in one frame, which is a missed vsync you can see as a lurch.
   const ready = [];
+  // Keys sitting in `ready`. A built chunk has left `pending` but is not in
+  // the cache yet, and select() used to see it as missing and order it again
+  // — every frame, from four workers, against one install a frame. The queue
+  // grew without end (940-odd deep within seconds), no tile ever had all nine
+  // chunks at once, and the fine terrain never appeared at all.
+  const readyKeys = new Set();
 
   function onBuilt(w, data) {
     const job = w.busy;
@@ -151,10 +157,14 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
     if (!job || job.key !== data.id) return;
     pending.delete(job.key);
     if (!preset) return;             // detail was turned off while it built
+    if (readyKeys.has(job.key) || cache.has(job.key)) return;
+    readyKeys.add(job.key);
     ready.push({ job, data });
   }
 
   function install({ job, data }) {
+    readyKeys.delete(job.key);
+    if (cache.has(job.key)) return;   // never two meshes for one chunk
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(data.position, 3));
     g.setAttribute("normal", new THREE.InterleavedBufferAttribute(
@@ -163,6 +173,10 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
       new THREE.InterleavedBuffer(data.color, 4), 3, 0, true));
     g.setAttribute("aSurf", new THREE.InterleavedBufferAttribute(
       new THREE.InterleavedBuffer(data.surf, 4), 3, 0, true));
+    if (data.iceS) {
+      g.setAttribute("aIceS", new THREE.BufferAttribute(data.iceS, 1));
+      g.setAttribute("aIceP", new THREE.BufferAttribute(data.iceP, 4, true));
+    }
     g.setIndex(indexFor(job.res, edgeLoop));
     g.computeBoundingSphere();
 
@@ -248,7 +262,7 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
               if (!have) {
                 const job = pending.get(key);
                 if (job) { job.wanted = true; job.dist = cd; }
-                else pending.set(key, { key, cx, cz, res, dist: cd, wanted: true, running: false });
+                else if (!readyKeys.has(key)) pending.set(key, { key, cx, cz, res, dist: cd, wanted: true, running: false });
                 // Anything at any resolution beats a hole: show whatever this
                 // chunk was last built at while the right one is on its way.
                 have = bestCached(cx, cz, res);
@@ -316,6 +330,7 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
     cache.clear();
     pending.clear();
     ready.length = 0;
+    readyKeys.clear();
     shown.clear();
     shownAt.clear();
     refined.fill(0);
@@ -326,9 +341,10 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
   // the reflection is 512 px of rippled blur and a million triangles of chunk
   // would buy nothing in it.
   const hiddenTiles = [];
-  return {
+  const api = {
     group,
     get detail() { return preset; },
+    /** Debug: what the streamer is doing. */
 
     setDetail(name) {
       const p = TERRAIN_DETAIL[name] ?? null;
@@ -353,7 +369,14 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
         select(focus);
       }
       dispatch();
-      if (ready.length) install(ready.shift());
+      // One upload a frame normally; when a backlog builds (a teleport, a
+      // fast pass) drain it under a small time budget instead of letting the
+      // ring arrive a chunk a frame.
+      const t0 = performance.now();
+      do {
+        if (!ready.length) break;
+        install(ready.shift());
+      } while (ready.length > 6 && performance.now() - t0 < 3);
     },
 
     beforeReflect() {
@@ -392,4 +415,5 @@ export function createTerrainLod({ parent, material, tiles, tilesPerSide, size, 
       workers.length = 0;
     },
   };
+  return api;
 }

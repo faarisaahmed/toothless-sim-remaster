@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { patchShader } from "./photoreal.js";
 import { YARD_GLSL, yardUniforms } from "./pitmat.js";
+import { ICE_GLSL_PARS, ICE_GLSL_MAIN, ICE_VERT_PARS, ICE_VERT_MAIN, ICE_ATTR_DEFAULTS } from "./glaciermat.js";
 
 // ---------------------------------------------------------------------------
 // The ground.
@@ -128,6 +129,7 @@ const GREY_MEAN = new THREE.Vector3(0.30, 0.30, 0.30);
 
 const VERT_PARS = /* glsl */`
   attribute vec3 aSurf;
+  ${ICE_VERT_PARS}
   varying vec3 vWPos;
   varying vec3 vWNrm;
   varying vec3 vSurf;
@@ -138,6 +140,7 @@ const VERT_MAIN = /* glsl */`
   vWPos = wp.xyz;
   vWNrm = normalize( mat3( modelMatrix ) * objectNormal );
   vSurf = aSurf;
+  ${ICE_VERT_MAIN}
 `;
 
 const FRAG_PARS = /* glsl */`
@@ -175,6 +178,7 @@ const FRAG_PARS = /* glsl */`
   // does not (pitmat.js uses the same pattern, complemented).
   uniform vec2 uHoleFade;     // metres from the camera: start, end
   ${YARD_GLSL}
+  ${ICE_GLSL_PARS}
 
   // The second read of every layer is this much larger and turned by this much,
   // so its repeat never lines up with the first one's.
@@ -523,6 +527,9 @@ const FRAG_MAIN = /* glsl */`
     albedo = yardGround( albedo, vWPos.xz, yard, yardWet );
   }
 
+  // Glacier ice (glaciermat.js): crevasses, gloss, blue cliffs.
+  ${ICE_GLSL_MAIN}
+
   diffuseColor.rgb = albedo;
 `;
 
@@ -561,6 +568,8 @@ export function makeTerrainMaterial(tex, seaLevel = 0) {
     metalness: 0,
     envMapIntensity: 0.35,   // rock should not mirror the sky back at you
   });
+  // The coarse sheet has no glacier attributes; this is what it reads instead.
+  mat.defaultAttributeValues = ICE_ATTR_DEFAULTS;
 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
