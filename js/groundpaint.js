@@ -1,5 +1,6 @@
 import {
   SEA_LEVEL, fertility, islandAt, fbm, noise2, CLEARING, CLEARING_R, padWeight, craterR, SNOW_LINE, woodland,
+  iceAt, waterWet,
 } from "./terrain.js";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,14 @@ const PIT_MUD    = lin(0x2f271f);
 const PIT_GRAVEL = lin(0x8a8478);
 const PIT_MOSS   = lin(0x4b5a33);
 const TRODDEN    = lin(0x5d4f3c);
+// Glacier ice (terrain.js iceAt). Bare ice below the equilibrium line is not
+// snow: it is grey-blue, darker and dirtier toward the snout, with the
+// rubble it carries showing as dark stripes — the moraines.
+const ICE_BLUE   = lin(0xa6c4cd);
+const ICE_DIRTY  = lin(0x7f878a);
+const FIRN       = lin(0xe9eef2);
+const DEBRIS     = lin(0x4a4640);
+const TILL       = lin(0x77716a);
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -72,6 +81,13 @@ function smoothstep(x, a, b) {
 }
 
 let r = 0, g = 0, b = 0;
+
+// What the last paintGround() call decided about glacier ice there, for the
+// chunk builder's ice attributes (terrainworker.js): null when none.
+const ICE_OUT = { s: 0, u: 0, crev: 0, cap: 0, bare: 0 };
+let iceOut = null;
+/** The glacier coordinates of the sample paintGround() was last called for. */
+export function lastIce() { return iceOut; }
 const set = (c) => { r = c[0]; g = c[1]; b = c[2]; };
 const mix = (c, t) => { r += (c[0] - r) * t; g += (c[1] - g) * t; b += (c[2] - b) * t; };
 
@@ -88,6 +104,7 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
   const ao = clamp(1 + (curv / (CURV_SPAN * 1.5)) * 0.45, 0.62, 1.12);
 
   let veg = 0, sand = 0, snow = 0;
+  iceOut = null;
 
   if (h < SEA_LEVEL - 1.5) {
     // Under water the terrain is only ever seen through the sea, and the sea
@@ -125,7 +142,9 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
     // Snow lies on anything short of a wall; on a glacier island (a lowered
     // snow line) it clings to steeper ground too, because that is what the ice
     // cap is.
-    const cling = isl && isl.snow > 0 ? 0.6 : 0;
+    // (Less than it was: the ice itself is glaciers.js's now, and snow
+    // plastered up a fjord wall read as a sugar cube, not a glaciated coast.)
+    const cling = 0;
     snow = smoothstep(h, snowLine, snowLine + 130)
          * (1 - smoothstep(slope, 0.55 + cling, 1.1 + cling));
 
@@ -229,6 +248,61 @@ export function paintGround(x, z, h, slope, curv, out, o = 0) {
         mix(CHAR, burn * soot * 0.42);
         veg *= 1 - burn * 0.9;      // and the grass texture stops with it
       }
+    }
+
+    // Ice: the cap and the glaciers off it, and the rubble at their edges.
+    const ice = iceAt(x, z, h);
+    if (ice) {
+      // A rock wall below the ice surface is the side of a valley the ice
+      // runs down, not ice. Calving faces are the exception: steep, at the
+      // water, on a glacier.
+      const calving = h < 70 && ice.cap < 0.5 && ice.inside > -6;
+      if (!calving) ice.cover *= 1 - smoothstep(slope, 0.62, 0.9);
+      const c = ice.cover, firn = ice.firn;
+      const bare = c * (1 - firn);
+      if (c > 0) {
+        ICE_OUT.s = ice.s; ICE_OUT.u = ice.u; ICE_OUT.crev = ice.crev; ICE_OUT.cap = ice.cap; ICE_OUT.bare = bare;
+        iceOut = ICE_OUT;
+      }
+      if (c > 0.001) {
+        const dirt = (1 - firn) * smoothstep(ice.ela - h, 120, 420) * 0.55
+                   + smoothstep(fbm(x * 0.006 + 2.2, z * 0.006 - 9.1, 2), 0.1, 0.7) * 0.18 * (1 - firn);
+        const iceC = [
+          ICE_BLUE[0] + (ICE_DIRTY[0] - ICE_BLUE[0]) * dirt,
+          ICE_BLUE[1] + (ICE_DIRTY[1] - ICE_BLUE[1]) * dirt,
+          ICE_BLUE[2] + (ICE_DIRTY[2] - ICE_BLUE[2]) * dirt,
+        ];
+        mix(iceC, bare);
+        mix(FIRN, c * firn);
+      }
+      // Moraines: along both edges of a glacier (lateral), down the line two
+      // ice streams met (medial), and as a ridge of till just outside the ice.
+      const au = Math.abs(ice.u);
+      let mor = smoothstep(au, 0.8, 0.97) * bare * (1 - ice.cap);
+      if (ice.med !== 9) {
+        const wob = noise2(x * 0.01 + 1.7, z * 0.01 - 3.1) * 0.025;
+        mor = Math.max(mor, (1 - smoothstep(Math.abs(ice.u - ice.med - wob), 0.015, 0.06)) * bare * 0.9);
+      }
+      const rim = (1 - c) * (1 - smoothstep(-ice.inside, 6, 70)) * (1 - ice.cap) * (1 - smoothstep(slope, 0.5, 0.9));
+      mix(DEBRIS, mor * 0.85);
+      mix(TILL, rim * 0.8);
+      veg *= 1 - Math.max(c, rim);
+      sand *= 1 - c;
+      // The shader's snow layer is the ice's grain too: whatever the ice does
+      // not give to the snow photograph goes to the scree one, and brown
+      // scree under blue paint is lavender. Moraine keeps the scree.
+      snow = snow * (1 - c) + c * (firn + (1 - firn) * 0.85) * (1 - mor * 0.8);
+      snow *= 1 - rim * 0.8;
+    }
+  }
+
+  // Wet ground along the rivers and round the lakes: dark, mossy, no sand.
+  if (h >= SEA_LEVEL - 1.5) {
+    const wet = waterWet(x, z, h);
+    if (wet > 0.001) {
+      mix(DARK_MOSS, wet * 0.45);
+      r *= 1 - wet * 0.3; g *= 1 - wet * 0.25; b *= 1 - wet * 0.22;
+      sand *= 1 - wet;
     }
   }
 

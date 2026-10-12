@@ -52,6 +52,8 @@ import { createDownScreen } from "./downscreen.js";
 import { createSplashes } from "./splash.js";
 import { createPitWood } from "./pitwood.js";
 import { createBerkLand } from "./berkland.js";
+import { createIcebergs } from "./icebergs.js";
+import { createRivers } from "./rivers.js";
 
 // Live-tunable knobs, mutated by the debug console.
 const tuning = {
@@ -528,6 +530,13 @@ const horizon = setupHorizon(scene);
 // Berk's burn and its waterfall into the harbour (berkland.js): the parts of the
 // island a height field cannot be.
 const berkLand = createBerkLand(scene);
+// What the tidewater glaciers have calved into their fjords (icebergs.js).
+const icebergs = createIcebergs(scene);
+// Every other island's rivers, lakes and falls (hydrology.js finds them,
+// terrain.js cuts them in, rivers.js draws them). Out of the mirror: a stream
+// a few metres wide reflected in the sea is nothing but cost.
+const inland = createRivers(scene, world);
+world.excludeFromReflection(inland.group);
 // Kept out of the mirror pass, and it is not an optimisation. A nine-kilometre
 // island reflected in water that is itself nine kilometres away is a shape the
 // reflection has no resolution to place: it renders as a second, inverted
@@ -2930,6 +2939,8 @@ function frame() {
 
   world.update(dragon ? dragon.position : null, sdt);
   berkLand.update(sdt);
+  icebergs.update(sdt);
+  inland.update(sdt, camera);
 
   // Manual camera swing (C). The only thing besides the mouse allowed to touch
   // yaw, and it only runs because the player asked for it.

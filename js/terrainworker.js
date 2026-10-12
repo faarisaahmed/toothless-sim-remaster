@@ -1,5 +1,5 @@
 import { terrainHeight } from "./terrain.js";
-import { paintGround, edgeLoop, CURV_SPAN } from "./groundpaint.js";
+import { paintGround, edgeLoop, CURV_SPAN, lastIce } from "./groundpaint.js";
 
 // ---------------------------------------------------------------------------
 // Builds one fine terrain chunk off the main thread.
@@ -57,6 +57,11 @@ self.onmessage = ({ data }) => {
   const normal = new Int8Array(total * 4);           // xyz + pad, 4-byte aligned
   const color = new Uint16Array(total * 4);          // rgb + pad
   const surf = new Uint8Array(total * 4);            // veg, sand, snow + pad
+  // Glacier coordinates (glaciermat.js): down-glacier metres (+100000 on the
+  // cap), and across / bare ice / crevassing as bytes. Smooth fields, so the
+  // shader can draw crevasses per pixel off the interpolated values.
+  const iceS = new Float32Array(total);
+  const iceP = new Uint8Array(total * 4);
   const tmp = new Float32Array(6);
   const kStep = K * step;
 
@@ -93,6 +98,14 @@ self.onmessage = ({ data }) => {
       surf[v * 4] = tmp[3] * 255;
       surf[v * 4 + 1] = tmp[4] * 255;
       surf[v * 4 + 2] = tmp[5] * 255;
+
+      const ice = lastIce();
+      if (ice) {
+        iceS[v] = ice.s + (ice.cap > 0.5 ? 100000 : 0);
+        iceP[v * 4] = Math.round((Math.max(-1.9, Math.min(1.9, ice.u)) + 2) * 63.75);
+        iceP[v * 4 + 1] = Math.round(ice.bare * 255);
+        iceP[v * 4 + 2] = Math.round(Math.min(1, Math.max(0, ice.crev)) * 255);
+      }
     }
   }
 
@@ -112,9 +125,11 @@ self.onmessage = ({ data }) => {
       normal[d * 4 + c] = normal[s * 4 + c];
       color[d * 4 + c] = color[s * 4 + c];
       surf[d * 4 + c] = surf[s * 4 + c];
+      iceP[d * 4 + c] = iceP[s * 4 + c];
     }
+    iceS[d] = iceS[s];
   }
 
-  self.postMessage({ id, position, normal, color, surf },
-    [position.buffer, normal.buffer, color.buffer, surf.buffer]);
+  self.postMessage({ id, position, normal, color, surf, iceS, iceP },
+    [position.buffer, normal.buffer, color.buffer, surf.buffer, iceS.buffer, iceP.buffer]);
 };
