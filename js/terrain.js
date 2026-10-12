@@ -228,6 +228,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 //   beach    0..1 how readily this coast forms a wave-cut bench and a beach.
 //   bare     0..1 how bare of vegetation. 1 is scoured lava, 0 is thick forest.
 //   snow     metres to lower the snow line by. Glacier islands only.
+//   buttress 0..1 how hard the coast is broken into buttresses and gullies.
 //   flat     plateau: kills the relief and the crags. Freewing Rock.
 //   crater   {inner, floor, gate, mouth} — see Dragon Hunter Island below.
 //   parts    extra bodies run into this one — see "Parts" below the table.
@@ -379,12 +380,15 @@ const RAW_ISLANDS = [
     fjords: [[2.6, 140, 0, 0.35]] },
 
   // --- West ---------------------------------------------------------------
-  // Ice-worn rather than wave-cut: the sheer band is wider and the strata
-  // fainter than on the basalt islands, because the ice has had them.
-  { name: "Glacier Island", x: -4000, z: 350, r: 1150, h: 780, cliff: 0.24,
+  // Ice-worn rather than wave-cut. No strata and few buttresses — the ice has
+  // had them — and a broad coastal fall instead of the basalt islands' sheer
+  // band, which on the tallest island in the west stood all the way round as
+  // a ring of fluted towers. The fjords stop halfway in: one that reached the
+  // middle cut an 800 m slot through the heart of the ice cap (glaciers.js).
+  { name: "Glacier Island", x: -4000, z: 350, r: 1150, h: 680, cliff: 1.0, buttress: 0.3,
     elong: 0.62, rot: 1.35, lobe: 0.2, lobeK: 1.0, dome: 0.6,
-    relief: 1.0, terrace: 0.12, scree: 0.7, shelfW: 0.22, beach: 0.08, bare: 1.0,
-    fjords: [[0.1, 190, 0.2, 0.15], [3.2, 170, 0, 0.3]], snow: 150 },
+    relief: 0.7, terrace: 0, scree: 0.7, shelfW: 0.22, beach: 0.08, bare: 1.0,
+    fjords: [[0.1, 260, 0.2, 0.55], [3.2, 240, 0, 0.55]], snow: 150 },
 
   { name: "Bog-Burglar Island", x: -4100, z: -1350, r: 750, h: 360, cliff: 0.28,
     elong: 0.64, rot: 0.85, lobe: 0.3, lobeK: 1.3, dome: 0.35,
@@ -814,6 +818,8 @@ const ICOS = new Float64Array(N), ISIN = new Float64Array(N), IINVE = new Float6
 const ILOBE = new Float64Array(N), ILOBEK = new Float64Array(N);
 const ISX = new Float64Array(N), ISZ = new Float64Array(N);
 const IRELIEF = new Float64Array(N), ITERRACE = new Float64Array(N), ISCREE = new Float64Array(N);
+// How hard the coast is broken into buttresses (the `rim` noise below).
+const IRIM = new Float64Array(N);
 const ISHELF = new Float64Array(N), IBEACH = new Float64Array(N);
 const IREACH = new Float64Array(N);
 const IMACRO = new Float64Array(N);
@@ -839,6 +845,7 @@ for (let i = 0; i < N; i++) {
   isl.relief ??= 1;
   isl.terrace ??= 0.3;
   isl.scree ??= 1;
+  isl.buttress ??= 1;
   isl.shelfW ??= 0.4;
   isl.beach ??= 0.4;
   isl.bare ??= 0.3;
@@ -863,7 +870,7 @@ for (let i = 0; i < N; i++) {
   IROT[i] = isl.rot !== 0 ? 1 : 0;
   IINVE[i] = 1 / isl.elong;
   ILOBE[i] = isl.lobe; ILOBEK[i] = isl.lobeK;
-  IRELIEF[i] = isl.relief; ITERRACE[i] = isl.terrace; ISCREE[i] = isl.scree;
+  IRELIEF[i] = isl.relief; ITERRACE[i] = isl.terrace; ISCREE[i] = isl.scree; IRIM[i] = isl.buttress;
   ISHELF[i] = isl.shelfW; IBEACH[i] = isl.beach;
   IFLAT[i] = isl.flat ? 1 : 0;
   // Only an island big enough to hold a mountain range gets one (see MACRO
@@ -1051,7 +1058,7 @@ export function terrainHeight(x, z) {
     dz *= IINVE[i];
 
     const len = Math.sqrt(dx * dx + dz * dz);
-    let d = len / IR[i] + rim;
+    let d = len / IR[i] + rim * IRIM[i];
     const shelfW = ISHELF[i];
     if (d > 1 + shelfW) continue;
 
